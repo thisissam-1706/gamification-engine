@@ -1,0 +1,32 @@
+exp_id: "exp_007"
+description: "Streak-Risk Reminder Policy vs. Control"
+variants:
+  variant_a:
+    name: "Treatment"
+    description: "Fires automated exponential-interval push reminder during the 4 hours preceding localized midnight when streak is at risk"
+  variant_b:
+    name: "Control"
+    description: "Suppresses streak-risk interventions; observes baseline learner behavior"
+assignment:
+  algorithm: "hash_v2"
+  function: "H(subject_id || 'exp_007') mod 100"
+  split: "50/50"
+exclusions:
+  - "platform_tenure < 3 days"
+  - "opted_out_of push × streak_risk consent pair"
+primary_metric:
+  name: "First-Attempt Mastery Accuracy"
+  window: "14 days"
+  operational_signal: "Remediation Conversion Rate"
+guardrails:
+  - type: "notification_cap"
+    description: "Push notifications must not exceed 5 messages per 24 hours"
+    reference: "§5.3"
+  - type: "gaming_threshold"
+    description: "Cohort decayed-XP share must not exceed 15% of weekly total"
+    reference: "§5.3"
+srm_check:
+  test: "chi_square"
+  expected_split: "50/50"
+  alert_threshold: "p < 0.001"
+  frequency: "daily"

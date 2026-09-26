@@ -1,0 +1,98 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CanonicalEventEnvelope",
+  "type": "object",
+  "required": [
+    "event_id",
+    "event_type",
+    "schema_version",
+    "occurred_at",
+    "ingested_at",
+    "subject_id",
+    "producer",
+    "correlation_id",
+    "dedup_key",
+    "payload",
+    "provenance"
+  ],
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "ULID/UUIDv7 time-sortable event identifier"
+    },
+    "event_type": {
+      "type": "string",
+      "pattern": "^[a-z]+(\\.[a-z_]+)+$",
+      "examples": [
+        "learning.lesson_completed",
+        "gamification.xp_awarded"
+      ]
+    },
+    "schema_version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Versions the payload shape independently of event_type"
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Timestamp when the event occurred on client/source"
+    },
+    "ingested_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Timestamp when the message was received by Kafka broker"
+    },
+    "subject_id": {
+      "type": "string",
+      "description": "Learner ID, used as the Kafka partition key"
+    },
+    "producer": {
+      "type": "string",
+      "examples": [
+        "learning-svc",
+        "assessment-svc",
+        "gamification-engine"
+      ]
+    },
+    "correlation_id": {
+      "type": "string",
+      "description": "Transaction ID shared across causally linked events"
+    },
+    "causation_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "event_id of the immediate trigger event; null for root actions"
+    },
+    "dedup_key": {
+      "type": "string",
+      "description": "Business key for idempotency (e.g., source event_id + rule_version)"
+    },
+    "payload": {
+      "type": "object",
+      "description": "Event-specific data matching schema_version"
+    },
+    "provenance": {
+      "type": "object",
+      "required": [
+        "source"
+      ],
+      "properties": {
+        "source": {
+          "type": "string",
+          "enum": [
+            "client",
+            "server_authoritative"
+          ]
+        },
+        "client_app_version": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "additionalProperties": false
+}

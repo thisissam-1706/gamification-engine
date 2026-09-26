@@ -1,0 +1,9 @@
+# Problem Boundaries and Assumptions
+
+* **Supported Rewards:** The primary reward mechanism is Experience Points (XP), bounded by an algebraic decay model that diminishes returns on repeated lessons to prevent reward farming.
+* **Streak Model:** Daily streaks are strictly calculated using the learner’s localized IANA timezone to determine day boundaries, incorporating a “freeze” inventory that protects users from losing their streak during inactivity.
+* **Cohorts and Leaderboards:** Learners are deterministically assigned to scoped cohorts, which drive participation in sub-millisecond, Redis-backed leaderboards separated from global rankings.
+* **Notification Channels and Constraints:** Interventions are delivered via push notifications, but are strictly capped at 5 messages per 24-hour period per learner, and must respect localized quiet hours to prevent notification fatigue.
+* **Synthetic-Population Size:** The system assumes a high-volume synthetic user base specifically designed to stress-test peak-load ingestion, P99 latency, and Kafka partition concurrency without database locking bottlenecks.
+* **System Exclusions:** The platform handles scripted point farming and impossible timing exploits asynchronously. A dedicated Trust/abuse detection consumer evaluates the event stream independently and emits retroactive compensating events (such as negative XP awards or account flags) to correct the state of abusive accounts without blocking real-time gamification ingestion.
+* **Interface Boundaries (Dashboard Scope):** The dashboard is strictly an internal, read-only debugging tool to inspect raw event logs, cohort states, and abuse flags. It is not a learner-facing product and explicitly excludes UI styling, push updates, or interactive features to keep focus entirely on M1–M8 backend milestones.
