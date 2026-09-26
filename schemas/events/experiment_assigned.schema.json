@@ -1,3 +1,3 @@
 {
-  "$comment": "TODO: Payload schema for experiment_assigned. See design document Section 3.2.3, Event 12: Experiment Assignment."
+  "$comment": "Placeholder — see design doc Section 3.2.3, Event 12: Experiment Assignment (experiment_assigned). Not yet implemented."
 }
