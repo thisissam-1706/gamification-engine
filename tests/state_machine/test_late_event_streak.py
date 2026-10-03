@@ -35,7 +35,9 @@ def test_older_completion_rebuilds_streak_after_xp_and_freeze_exist(tmp_path):
         }
         assert sum(isinstance(event, Learner.FreezeAcquired) for event in after_late) == 1
         assert sum(isinstance(event, Learner.XPAwarded) for event in after_late) == 3
-        assert len(after_late) == len(before_late) + 3
+        # The late completion emits its source, XP award, and a correction
+        # for the already-processed later activity date.
+        assert len(after_late) == len(before_late) + 4
     finally:
         app.close()
 
@@ -78,4 +80,3 @@ def test_at4_late_event_streak_recalc(tmp_path):
         assert rebuilt.freezes_remaining == 0
     finally:
         app.close()
-

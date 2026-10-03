@@ -1,3 +1,20 @@
 {
-  "$comment": "Placeholder — see design doc Section 3.2.3, Event 16: Badge Issuance (badge_awarded). Not yet implemented."
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BadgeAwarded payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "award_id",
+    "badge_id",
+    "criteria_version",
+    "awarded_at",
+    "qualifying_action_ids"
+  ],
+  "properties": {
+    "award_id": {"type": "string", "minLength": 1},
+    "badge_id": {"type": "string", "minLength": 1},
+    "criteria_version": {"type": "string", "minLength": 1},
+    "awarded_at": {"type": "string", "format": "date-time"},
+    "qualifying_action_ids": {"type": "array", "items": {"type": "string"}}
+  }
 }

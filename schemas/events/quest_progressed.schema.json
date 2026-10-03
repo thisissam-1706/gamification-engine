@@ -5,6 +5,7 @@
   "type": "object",
   "required": [
     "completion_id",
+    "assignment_id",
     "quest_id",
     "current_step",
     "target_step"
@@ -15,6 +16,7 @@
       "minLength": 1,
       "description": "Identifier of the accepted lesson completion that advanced this quest."
     },
+    "assignment_id": {"type": "string", "minLength": 1},
     "quest_id": {
       "type": "string",
       "minLength": 1,

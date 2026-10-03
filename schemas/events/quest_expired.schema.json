@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Quest Expired payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["assignment_id", "quest_id", "expired_at"],
+  "properties": {
+    "assignment_id": {"type": "string", "minLength": 1},
+    "quest_id": {"type": "string", "minLength": 1},
+    "expired_at": {"type": "string", "format": "date-time"}
+  }
+}

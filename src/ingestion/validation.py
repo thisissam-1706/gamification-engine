@@ -7,6 +7,29 @@ from typing import Any, Mapping
 
 from jsonschema import Draft7Validator, ValidationError
 
+ALLOWED_EVENT_TYPES = {
+    "learning-svc": {"learning.lesson_completed"},
+    "gamification-engine": {
+        "gamification.xp_awarded",
+        "gamification.streak_updated",
+        "gamification.quest_assigned",
+        "gamification.quest_progressed",
+        "gamification.quest_completed",
+        "gamification.quest_expired",
+        "gamification.badge_awarded",
+    },
+}
+
+
+def validate_producer(
+    producer: str, event_type: str, provenance: Mapping[str, Any] | None = None
+) -> None:
+    """Rejects untrusted producers and client claims of server authority."""
+    if event_type not in ALLOWED_EVENT_TYPES.get(producer, set()):
+        raise ValidationError("untrusted_producer")
+    if provenance and provenance.get("authority") == "server_authoritative":
+        raise ValidationError("untrusted_producer")
+
 
 @lru_cache(maxsize=1)
 def lesson_completed_validator() -> Draft7Validator:

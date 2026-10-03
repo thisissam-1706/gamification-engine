@@ -5,7 +5,9 @@
   "type": "object",
   "required": [
     "completion_id",
-    "quest_id"
+    "assignment_id",
+    "quest_id",
+    "completed_at"
   ],
   "properties": {
     "completion_id": {
@@ -13,11 +15,13 @@
       "pattern": "^quest-completed:.+$",
       "description": "Stable business identity, exactly quest-completed:{quest_id}."
     },
+    "assignment_id": {"type": "string", "minLength": 1},
     "quest_id": {
       "type": "string",
       "minLength": 1,
       "description": "Stable identifier of the completed quest."
-    }
+    },
+    "completed_at": {"type": "string", "format": "date-time"}
   },
   "additionalProperties": false
 }

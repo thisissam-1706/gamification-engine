@@ -90,7 +90,9 @@ def test_quest_completion_lifecycle(tmp_path):
             e for e in events if isinstance(e, Learner.QuestCompleted)
         ]
         assert len(completed_events) == 1
-        assert completed_events[0].completion_id == "quest-completed:lesson_starter_v1"
+        assert completed_events[0].completion_id == (
+            "quest_completion:quest:lesson_starter_v1"
+        )
         assert completed_events[0].quest_id == "lesson_starter_v1"
 
         # Re-assigning completed quest is rejected

@@ -5,7 +5,6 @@ from dataclasses import dataclass
 from typing import Any
 
 from src.state_machine.learner import Learner
-from src.state_machine.rules import calculate_streak
 
 
 class LearnerCompletionProjection:
@@ -28,17 +27,23 @@ class LearnerCompletionProjection:
 
     def rebuild(self, domain_events: Iterable[Any]) -> None:
         """Clears and deterministically reconstructs state from stored events."""
-        self.clear()
+        staged = LearnerCompletionProjection()
         for domain_event in domain_events:
-            self.apply(domain_event)
+            staged.apply(domain_event)
+        self.completed_lesson_counts = staged.completed_lesson_counts
 
 
 @dataclass(frozen=True)
 class LearnerStreakSummary:
     """Read model summary for a learner's streak and freeze balance."""
 
-    current_streak: int
+    new_streak: int
     freezes_remaining: int
+
+    @property
+    def current_streak(self) -> int:
+        """Compatibility accessor for callers migrating to ``new_streak``."""
+        return self.new_streak
 
 
 class LearnerStreakProjection:
@@ -52,7 +57,7 @@ class LearnerStreakProjection:
         if isinstance(domain_event, Learner.StreakUpdated):
             learner_id = domain_event.originator_id
             self.streak_summaries[learner_id] = LearnerStreakSummary(
-                current_streak=domain_event.current_streak,
+                new_streak=domain_event.new_streak,
                 freezes_remaining=domain_event.freezes_remaining,
             )
 
@@ -62,9 +67,10 @@ class LearnerStreakProjection:
 
     def rebuild(self, domain_events: Iterable[Any]) -> None:
         """Reconstructs streak projection from stored facts."""
-        self.clear()
+        staged = LearnerStreakProjection()
         for domain_event in domain_events:
-            self.apply(domain_event)
+            staged.apply(domain_event)
+        self.streak_summaries = staged.streak_summaries
 
 
 @dataclass(frozen=True)
@@ -134,9 +140,10 @@ class LearnerQuestProjection:
 
     def rebuild(self, domain_events: Iterable[Any]) -> None:
         """Reconstructs quest projection from stored facts."""
-        self.clear()
+        staged = LearnerQuestProjection()
         for domain_event in domain_events:
-            self.apply(domain_event)
+            staged.apply(domain_event)
+        self.quest_summaries = staged.quest_summaries
 
 
 @dataclass(frozen=True)
@@ -144,23 +151,50 @@ class LearnerReplayState:
     """Pure, rebuildable state used for ordered historical replay."""
 
     xp_total: int
-    current_streak: int
+    new_streak: int
     freezes_remaining: int
     activity_dates: tuple[str, ...]
     completed_quests: tuple[str, ...] = ()
+    badges_issued: dict[str, str] | None = None
+
+    @property
+    def current_streak(self) -> int:
+        """Compatibility accessor for callers migrating to ``new_streak``."""
+        return self.new_streak
 
 
 def rebuild_learner_state(domain_events: Iterable[Any]) -> LearnerReplayState:
-    """Folds persisted facts in activity-date order without making decisions.
+    """Folds persisted facts without making decisions.
 
-    Rewards are read only from ``XPAwarded`` events. A late source completion is
-    positioned by its immutable activity date, so replay never creates rewards.
+    Streak and freeze values are read from stored ``StreakUpdated`` events.
+    XP totals are read from stored ``XPAwarded`` events.  Replay never calls
+    ``calculate_streak``, ``xp_amount_for``, ``quest_target_for``, or any
+    other decision function.
+
+    When multiple ``StreakUpdated`` events exist for the same ``activity_date``,
+    the one with the highest ``revision`` wins.  The final streak/freezes are
+    taken from the winning event of the chronologically last activity_date.
     """
     events = list(domain_events)
     xp_total = sum(
         event.xp_amount for event in events if isinstance(event, Learner.XPAwarded)
     )
-    freezes = sum(isinstance(event, Learner.FreezeAcquired) for event in events)
+
+    streak = 0
+    freezes = 0
+    streak_events = [
+        event for event in events if isinstance(event, Learner.StreakUpdated)
+    ]
+    winners: dict[str, Any] = {}
+    for event in streak_events:
+        prior = winners.get(event.activity_date)
+        if prior is None or event.revision > prior.revision:
+            winners[event.activity_date] = event
+    if winners:
+        last_streak = winners[max(winners)]
+        streak = last_streak.new_streak
+        freezes = last_streak.freezes_remaining
+
     activity_dates = sorted(
         {
             event.activity_date
@@ -169,7 +203,6 @@ def rebuild_learner_state(domain_events: Iterable[Any]) -> LearnerReplayState:
             and event.activity_date is not None
         }
     )
-    streak, freezes = calculate_streak(activity_dates, freezes)
     completed_quests = tuple(
         sorted(
             {
@@ -179,7 +212,11 @@ def rebuild_learner_state(domain_events: Iterable[Any]) -> LearnerReplayState:
             }
         )
     )
+    badges = {
+        event.badge_id: event.award_id
+        for event in events
+        if isinstance(event, Learner.BadgeAwarded)
+    }
     return LearnerReplayState(
-        xp_total, streak, freezes, tuple(activity_dates), completed_quests
+        xp_total, streak, freezes, tuple(activity_dates), completed_quests, badges
     )
-
