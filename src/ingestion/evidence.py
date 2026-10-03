@@ -37,6 +37,16 @@ class EvidenceStore:
             )
             """
         )
+        self.connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS accepted_deliveries (
+                learner_id TEXT NOT NULL,
+                action_id TEXT NOT NULL,
+                event_id TEXT NOT NULL,
+                PRIMARY KEY (learner_id, action_id)
+            )
+            """
+        )
         self.connection.commit()
 
     def record(
@@ -79,6 +89,23 @@ class EvidenceStore:
             params = (learner_id,)
         query += " ORDER BY id"
         return [EvidenceRecord(*row) for row in self.connection.execute(query, params)]
+
+    def remember_delivery(self, learner_id: str, action_id: str, event_id: str) -> None:
+        self.connection.execute(
+            """
+            INSERT OR IGNORE INTO accepted_deliveries (learner_id, action_id, event_id)
+            VALUES (?, ?, ?)
+            """,
+            (learner_id, action_id, event_id),
+        )
+        self.connection.commit()
+
+    def original_event_id(self, learner_id: str, action_id: str) -> str | None:
+        row = self.connection.execute(
+            "SELECT event_id FROM accepted_deliveries WHERE learner_id = ? AND action_id = ?",
+            (learner_id, action_id),
+        ).fetchone()
+        return row[0] if row else None
 
     def close(self) -> None:
         self.connection.close()

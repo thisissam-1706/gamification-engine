@@ -4,6 +4,6 @@ Given Redis and Postgres diverge on L1’s score by a dropped event, when the da
 """
 import pytest
 
-@pytest.mark.skip(reason="Not yet implemented")
+@pytest.mark.skip(reason="Leaderboard projection is outside this OSS spike.")
 def test_leaderboard_reconciliation():
     pass

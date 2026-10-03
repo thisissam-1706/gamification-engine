@@ -2,6 +2,8 @@
 
 from collections.abc import Iterable
 from dataclasses import dataclass
+import json
+import sqlite3
 from typing import Any
 
 from src.state_machine.learner import Learner
@@ -42,6 +44,7 @@ class LearnerStreakSummary:
 
     @property
     def current_streak(self) -> int:
+        # Temporary compatibility accessor; projected fields use new_streak.
         """Compatibility accessor for callers migrating to ``new_streak``."""
         return self.new_streak
 
@@ -159,6 +162,7 @@ class LearnerReplayState:
 
     @property
     def current_streak(self) -> int:
+        # Temporary compatibility accessor; replay fields use new_streak.
         """Compatibility accessor for callers migrating to ``new_streak``."""
         return self.new_streak
 
@@ -220,3 +224,80 @@ def rebuild_learner_state(domain_events: Iterable[Any]) -> LearnerReplayState:
     return LearnerReplayState(
         xp_total, streak, freezes, tuple(activity_dates), completed_quests, badges
     )
+
+
+class SQLiteLearnerProjection:
+    """Atomically stages and swaps a persisted replay projection."""
+
+    def __init__(self, database: str) -> None:
+        self.connection = sqlite3.connect(database)
+        self.connection.execute(
+            "CREATE TABLE IF NOT EXISTS learner_projection (learner_id TEXT PRIMARY KEY, state TEXT NOT NULL)"
+        )
+        self.connection.execute(
+            "CREATE TABLE IF NOT EXISTS learner_projection_staging (learner_id TEXT PRIMARY KEY, state TEXT NOT NULL)"
+        )
+        self.connection.commit()
+
+    @staticmethod
+    def _state_json(state: LearnerReplayState) -> str:
+        return json.dumps(
+            {
+                "xp_total": state.xp_total,
+                "new_streak": state.new_streak,
+                "freezes_remaining": state.freezes_remaining,
+                "activity_dates": list(state.activity_dates),
+                "completed_quests": list(state.completed_quests),
+                "badges_issued": state.badges_issued or {},
+            },
+            sort_keys=True,
+        )
+
+    def rebuild(
+        self,
+        learner_id: str,
+        domain_events: Iterable[Any],
+        *,
+        fail_after: int | None = None,
+    ) -> LearnerReplayState:
+        """Stages the complete history and swaps live state in one transaction."""
+        events = sorted(
+            list(domain_events),
+            key=lambda event: (
+                getattr(event, "activity_date", "") or "",
+                event.originator_version,
+            ),
+        )
+        try:
+            self.connection.execute("BEGIN")
+            self.connection.execute("DELETE FROM learner_projection_staging")
+            final = rebuild_learner_state(events)
+            for position in range(len(events) + 1):
+                if fail_after is not None and position == fail_after:
+                    raise RuntimeError("injected staging failure")
+                prefix = events[:position]
+                staged = rebuild_learner_state(prefix)
+                self.connection.execute(
+                    "INSERT OR REPLACE INTO learner_projection_staging (learner_id, state) VALUES (?, ?)",
+                    (learner_id, self._state_json(staged)),
+                )
+            self.connection.execute("DELETE FROM learner_projection")
+            self.connection.execute(
+                "INSERT INTO learner_projection (learner_id, state) SELECT learner_id, state FROM learner_projection_staging WHERE learner_id = ?",
+                (learner_id,),
+            )
+            self.connection.execute("DELETE FROM learner_projection_staging")
+            self.connection.commit()
+            return final
+        except Exception:
+            self.connection.rollback()
+            raise
+
+    def state(self, learner_id: str) -> dict[str, Any] | None:
+        row = self.connection.execute(
+            "SELECT state FROM learner_projection WHERE learner_id = ?", (learner_id,)
+        ).fetchone()
+        return json.loads(row[0]) if row else None
+
+    def close(self) -> None:
+        self.connection.close()

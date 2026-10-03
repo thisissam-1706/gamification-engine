@@ -8,9 +8,10 @@ derived domain events.
 
 The application supplies business identities, deterministic streak and
 freeze decisions, append-only corrections, quest and badge state, timezone
-history, JSON payload contracts, producer binding, duplicate/rejected evidence,
-and staged projection rebuilding. Replay only folds stored fields and never
-calls decision rules. Kafka and bandit experimentation remain deferred.
+history, JSON payload contracts, producer binding, a validated ingestion
+boundary with durable duplicate/rejected evidence, and SQLite staging/swap
+projection rebuilding. Replay only folds stored fields and never calls
+decision rules. Kafka and bandit experimentation remain deferred.
 
 # Decision
 

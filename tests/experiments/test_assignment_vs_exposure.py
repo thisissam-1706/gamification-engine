@@ -4,6 +4,6 @@ Given L1 is assigned to variant_a for exp_007, when L1 has not yet opened the ap
 """
 import pytest
 
-@pytest.mark.skip(reason="Not yet implemented")
+@pytest.mark.skip(reason="Experiment exposure is outside this OSS spike.")
 def test_assignment_vs_exposure():
     pass

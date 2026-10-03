@@ -4,6 +4,6 @@ Given learner L1 and experiment exp_007 with a fixed hash algorithm v2, when ass
 """
 import pytest
 
-@pytest.mark.skip(reason="Not yet implemented")
+@pytest.mark.skip(reason="Experiment assignment is outside this OSS spike.")
 def test_deterministic_assignment():
     pass

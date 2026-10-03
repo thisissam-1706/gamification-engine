@@ -4,6 +4,6 @@ Given a simulated database wipe for the full synthetic population, when the even
 """
 import pytest
 
-@pytest.mark.skip(reason="Not yet implemented")
+@pytest.mark.skip(reason="Multi-learner full-state orchestration is not implemented.")
 def test_full_state_rebuild():
     pass

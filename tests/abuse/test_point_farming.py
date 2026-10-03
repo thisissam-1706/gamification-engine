@@ -4,6 +4,6 @@ Given E = 100, K = 20, learner completes lesson l_492 for the 3rd time (N = 2), 
 """
 import pytest
 
-@pytest.mark.skip(reason="Not yet implemented")
+@pytest.mark.skip(reason="Abuse detection is outside this OSS spike.")
 def test_point_farming():
     pass

@@ -37,6 +37,11 @@ def xp_amount_for(rule_version: str) -> int:
     return XP_AMOUNTS[rule_version]
 
 
+def badge_qualifies(badge_id: str, new_streak: int) -> bool:
+    """Returns whether the current state qualifies for a supported badge."""
+    return badge_id == "week_warrior_v1" and new_streak >= 7
+
+
 def calculate_streak(
     activity_dates: Iterable[str],
     freezes: Iterable[tuple[str, str]],

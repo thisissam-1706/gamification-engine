@@ -4,6 +4,6 @@ Given proposal_id = p_001 was already generated for L1, when the policy attempts
 """
 import pytest
 
-@pytest.mark.skip(reason="Not yet implemented")
+@pytest.mark.skip(reason="Notifications are outside this OSS spike.")
 def test_duplicate_proposals():
     pass

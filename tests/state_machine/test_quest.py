@@ -31,6 +31,7 @@ def test_quest_assignment_is_idempotent(tmp_path):
         assert len(assigned_events) == 1
         assert assigned_events[0].assignment_id == "quest:lesson_starter_v1"
         assert assigned_events[0].quest_id == "lesson_starter_v1"
+        assert learner.quest_instances["quest:lesson_starter_v1"]["status"] == "assigned"
 
         restored = app.repository.get(learner.id)
         assert "quest:lesson_starter_v1" in restored.assigned_quest_ids
@@ -69,6 +70,7 @@ def test_quest_completion_lifecycle(tmp_path):
         assert learner.complete_lesson("c3", "l3", activity_date="2026-10-03") is True
         assert learner.quest_progress["lesson_starter_v1"] == 3
         assert "quest-completed:lesson_starter_v1" in learner.completed_quest_ids
+        assert learner.quest_instances["quest:lesson_starter_v1"]["status"] == "completed"
 
         # Lesson 4: completed quest emits no further progress or completion
         assert learner.complete_lesson("c4", "l4", activity_date="2026-10-04") is True
@@ -93,6 +95,7 @@ def test_quest_completion_lifecycle(tmp_path):
         assert completed_events[0].completion_id == (
             "quest_completion:quest:lesson_starter_v1"
         )
+        assert len(progress_events) == 3
         assert completed_events[0].quest_id == "lesson_starter_v1"
 
         # Re-assigning completed quest is rejected
@@ -142,3 +145,47 @@ def test_unassigned_learner_does_not_complete_quest():
     learner.complete_lesson("c2", "l2")
     learner.complete_lesson("c3", "l3")
     assert len(learner.completed_quest_ids) == 0
+
+
+def test_quest_expiry_is_durable_across_restart_and_rebuild(tmp_path):
+    environment = {
+        "PERSISTENCE_MODULE": "eventsourcing.sqlite",
+        "SQLITE_DBNAME": str(tmp_path / "events.db"),
+    }
+    app = LearnerApplication(env=environment)
+    try:
+        learner = Learner()
+        learner.assign_quest(
+            "lesson_starter_v1",
+            assignment_id="assignment-1",
+            assigned_at="2026-09-01T00:00:00+00:00",
+            deadline_at="2026-09-02T00:00:00+00:00",
+        )
+        learner.complete_lesson(
+            "late",
+            "l1",
+            activity_date="2026-09-03",
+            occurred_at="2026-09-03T00:00:00+00:00",
+        )
+        app.save(learner)
+        events = list(app.events.get(learner.id))
+        # One late completion emits one QuestExpired and no progress/completion.
+        assert learner.quest_instances["assignment-1"]["status"] == "expired"
+        assert sum(isinstance(event, Learner.QuestExpired) for event in events) == 1
+        assert sum(isinstance(event, Learner.QuestProgressed) for event in events) == 0
+        assert sum(isinstance(event, Learner.QuestCompleted) for event in events) == 0
+    finally:
+        learner_id = learner.id
+        app.close()
+
+    restarted = LearnerApplication(env=environment)
+    try:
+        restored = restarted.repository.get(learner_id)
+        assert restored.quest_instances["assignment-1"]["status"] == "expired"
+        restored_events = list(restarted.events.get(learner_id))
+        rebuilt = LearnerQuestProjection()
+        rebuilt.rebuild(restored_events)
+        assert len(restored_events) == len(events)
+        assert restored.quest_progress["lesson_starter_v1"] == 0
+    finally:
+        restarted.close()

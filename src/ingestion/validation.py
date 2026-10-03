@@ -27,7 +27,7 @@ def validate_producer(
     """Rejects untrusted producers and client claims of server authority."""
     if event_type not in ALLOWED_EVENT_TYPES.get(producer, set()):
         raise ValidationError("untrusted_producer")
-    if provenance and provenance.get("authority") == "server_authoritative":
+    if provenance and provenance.get("source") == "server_authoritative":
         raise ValidationError("untrusted_producer")
 
 

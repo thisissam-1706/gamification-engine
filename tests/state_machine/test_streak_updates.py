@@ -146,6 +146,43 @@ def test_complete_lesson_with_occurred_at_and_timezone(tmp_path):
         app.close()
 
 
+def test_timezone_history_keeps_changes_and_replay_uses_stored_date(tmp_path):
+    app = LearnerApplication(
+        env={
+            "PERSISTENCE_MODULE": "eventsourcing.sqlite",
+            "SQLITE_DBNAME": str(tmp_path / "events.db"),
+        }
+    )
+    try:
+        learner = Learner()
+        learner.complete_lesson(
+            "kolkata",
+            "l1",
+            occurred_at="2026-10-03T23:30:00Z",
+            timezone="Asia/Kolkata",
+        )
+        learner.complete_lesson(
+            "new-york",
+            "l2",
+            occurred_at="2026-10-04T01:00:00Z",
+            timezone="America/New_York",
+        )
+        app.save(learner)
+        # Two timezone changes create two durable entries and two XP awards.
+        assert [item["timezone"] for item in learner.timezone_history] == [
+            "Asia/Kolkata",
+            "America/New_York",
+        ]
+        assert learner.activity_dates == {"2026-10-04", "2026-10-03"}
+        events = list(app.events.get(learner.id))
+        completions = [event for event in events if isinstance(event, Learner.LessonCompleted)]
+        assert [event.activity_date for event in completions] == ["2026-10-04", "2026-10-03"]
+        assert sum(isinstance(event, Learner.XPAwarded) for event in events) == 2
+        assert len(rebuild_learner_state(events).activity_dates) == 2
+    finally:
+        app.close()
+
+
 def test_streak_projection_rebuild(tmp_path):
     """LearnerStreakProjection reconstructs exact streak and freeze summary after wipe."""
     app = LearnerApplication(
@@ -200,4 +237,3 @@ def test_late_completion_emits_recalculated_streak_without_duplicate_rewards(tmp
         assert len([event for event in events if isinstance(event, Learner.XPAwarded)]) == 3
     finally:
         app.close()
-

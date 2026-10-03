@@ -4,6 +4,6 @@ Given L1’s timezone is Asia/Kolkata with quiet hours 22:00–07:00, when a str
 """
 import pytest
 
-@pytest.mark.skip(reason="Not yet implemented")
+@pytest.mark.skip(reason="Notifications are outside this OSS spike.")
 def test_quiet_hour_delay():
     pass

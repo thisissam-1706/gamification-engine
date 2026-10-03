@@ -9,16 +9,36 @@ Given the same completion is resent after the 7-day window, when the aggregate
 processes it, then it recognises the existing completion/reward identity and
 does not increment the count or create a second XP award.
 """
-import pytest
 from datetime import datetime, timedelta, timezone
+from uuid import uuid4
 
+from src.ingestion.evidence import EvidenceStore
+from src.ingestion.service import ingest_lesson_completed
 from src.state_machine.learner import Learner, LearnerApplication
+from tests.ingestion.test_ingestion_service import _envelope
 
 
-@pytest.mark.skip(reason="Not yet implemented")
-def test_duplicate_lesson_completion_is_dropped_within_ingestion_window():
+def test_duplicate_lesson_completion_is_dropped_within_ingestion_window(tmp_path):
     """A changed delivery UUID must not make a completion a new business action."""
-    pass
+    db = str(tmp_path / "events.db")
+    application = LearnerApplication(
+        env={"PERSISTENCE_MODULE": "eventsourcing.sqlite", "SQLITE_DBNAME": db}
+    )
+    evidence = EvidenceStore(db)
+    try:
+        learner = Learner()
+        application.save(learner)
+        envelope = _envelope(str(learner.id), "cmp_492_003", str(uuid4()))
+        assert ingest_lesson_completed(application, evidence, envelope).status == "accepted"
+        retry = dict(envelope)
+        retry["event_id"] = str(uuid4())
+        assert ingest_lesson_completed(application, evidence, retry).status == "duplicate"
+        restored = application.repository.get(learner.id)
+        assert restored.xp_total == 100
+        assert len(evidence.list(str(learner.id))) == 1
+    finally:
+        evidence.close()
+        application.close()
 
 
 def test_resend_after_ingestion_window_cannot_issue_a_second_xp_reward(tmp_path):

@@ -4,6 +4,6 @@ Given a notification delivery attempt fails due to a provider error, when retrie
 """
 import pytest
 
-@pytest.mark.skip(reason="Not yet implemented")
+@pytest.mark.skip(reason="Notifications are outside this OSS spike.")
 def test_retry_dlq():
     pass

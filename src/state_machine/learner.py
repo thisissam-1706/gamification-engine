@@ -6,6 +6,7 @@ from eventsourcing.domain import Aggregate, event
 from src.state_machine.rules import (
     calculate_streak,
     local_activity_date,
+    badge_qualifies,
     quest_target_for,
     xp_amount_for,
 )
@@ -32,11 +33,13 @@ class Learner(Aggregate):
     class Event(Aggregate.Event):
         @property
         def current_streak(self) -> int:
+            # Temporary compatibility accessor; persisted fields use new_streak.
             """Compatibility accessor for legacy event consumers."""
             return self.new_streak
 
     @property
     def current_streak(self) -> int:
+        # Temporary compatibility accessor; aggregate state uses new_streak.
         """Compatibility accessor for callers migrating to ``new_streak``."""
         return self.new_streak
 
@@ -55,7 +58,9 @@ class Learner(Aggregate):
         self.last_activity_date: str | None = None
         # Maps activity_date -> highest revision number seen
         self.streak_revisions: dict[str, int] = {}
-        self.streak_outcomes: dict[str, tuple[int, int, int, str, str | None]] = {}
+        self.streak_outcomes: dict[
+            str, tuple[int, int, int, int, str, str | None]
+        ] = {}
         self.freeze_acquisitions: dict[str, str] = {}
         self.timezone_history: list[dict[str, str]] = []
         self.assigned_quest_ids: set[str] = set()
@@ -130,7 +135,7 @@ class Learner(Aggregate):
                 if (
                     is_current
                     and revision == 1
-                    and new_streak >= 7
+                    and badge_qualifies("week_warrior_v1", new_streak)
                     and "week_warrior_v1" not in self.badges_issued
                 ):
                     self._award_badge(
@@ -236,11 +241,14 @@ class Learner(Aggregate):
         self.new_streak = new_streak
         self.freezes_remaining = freezes_remaining
         self.last_activity_date = activity_date
+        if new_streak == 1 and previous_streak > 1:
+            self.streak_before_break = previous_streak
         self.streak_revisions[activity_date] = revision
         self.streak_outcomes[activity_date] = (
             new_streak,
             freezes_remaining,
             freezes_consumed,
+            previous_streak,
             f"streak:{self.id}:{activity_date}:{revision}",
             supersedes,
         )

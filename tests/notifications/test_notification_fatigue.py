@@ -4,6 +4,6 @@ Given L1 has already received 5 push notifications in the current 24h window, wh
 """
 import pytest
 
-@pytest.mark.skip(reason="Not yet implemented")
+@pytest.mark.skip(reason="Notifications are outside this OSS spike.")
 def test_notification_fatigue():
     pass
