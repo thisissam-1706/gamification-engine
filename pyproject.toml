@@ -3,7 +3,10 @@ name = "gamification-engine"
 version = "0.1.0"
 description = "Gamification, Social Cohort, Notification and Retention Experimentation Engine"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "eventsourcing==9.5.5",
+    "jsonschema>=4.0",
+]
 
 [project.optional-dependencies]
 dev = [

@@ -1,3 +1,18 @@
 {
-  "$comment": "Placeholder — see design doc Section 3.2.3, Event 4: Reward Points Award (xp_awarded). Not yet implemented."
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "XpAwardedPayload",
+  "description": "A durable, already-decided XP reward derived from one source completion.",
+  "type": "object",
+  "required": ["reward_id", "completion_id", "xp_amount", "rule_version"],
+  "properties": {
+    "reward_id": {
+      "type": "string",
+      "pattern": "^xp:.+$",
+      "description": "Stable business identity, exactly xp:{completion_id}."
+    },
+    "completion_id": {"type": "string", "minLength": 1},
+    "xp_amount": {"type": "integer", "minimum": 0},
+    "rule_version": {"type": "string", "minLength": 1}
+  },
+  "additionalProperties": false
 }

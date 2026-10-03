@@ -1,3 +1,43 @@
 {
-  "$comment": "Placeholder — see design doc Section 3.2.3, Event 1: Lesson Completion (lesson_completed). Not yet implemented."
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "LessonCompletedPayload",
+  "description": "The source learning action from which gamification decisions may be derived. Reward, streak, quest, and badge outcomes are represented by separate events.",
+  "type": "object",
+  "required": [
+    "completion_id",
+    "lesson_id",
+    "timezone"
+  ],
+  "properties": {
+    "completion_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Immutable identifier assigned by the learning service to this completed attempt. It must be preserved on every resend and is the business action identity."
+    },
+    "lesson_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Stable identifier of the completed lesson."
+    },
+    "lesson_version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Optional immutable version of the lesson definition that was completed."
+    },
+    "timezone": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Learner IANA timezone at completion, for example Asia/Kolkata. It is used with the envelope occurred_at value to determine the learner's local activity day."
+    },
+    "completion_kind": {
+      "type": "string",
+      "enum": [
+        "lesson",
+        "review",
+        "remediation"
+      ],
+      "description": "Classification of the completed learning activity."
+    }
+  },
+  "additionalProperties": false
 }

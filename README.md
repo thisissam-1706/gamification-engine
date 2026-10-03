@@ -20,6 +20,7 @@ flowchart TD
 - [Literature and Landscape Analysis](docs/literature-landscape.md)
 - [Metrics Framework](docs/metrics-framework.md)
 - [Traceability Matrix and Acceptance Tests](docs/traceability-matrix.md)
+- [Event Contracts](docs/event-contracts.md)
 
 The architecture diagram above is the repository's single high-level architecture description. There is no separate architecture document, to avoid duplicate or conflicting descriptions.
 
