@@ -1,3 +1,16 @@
 {
-  "$comment": "Placeholder — see design doc Section 3.2.3, Event 5: Streak Update (streak_updated). Not yet implemented."
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Streak Updated payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["completion_id", "current_streak", "freezes_remaining"],
+  "properties": {
+    "completion_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The accepted dated completion that caused this recalculation."
+    },
+    "current_streak": {"type": "integer", "minimum": 1},
+    "freezes_remaining": {"type": "integer", "minimum": 0}
+  }
 }

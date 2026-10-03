@@ -35,6 +35,47 @@ def test_older_completion_rebuilds_streak_after_xp_and_freeze_exist(tmp_path):
         }
         assert sum(isinstance(event, Learner.FreezeAcquired) for event in after_late) == 1
         assert sum(isinstance(event, Learner.XPAwarded) for event in after_late) == 3
-        assert len(after_late) == len(before_late) + 2
+        assert len(after_late) == len(before_late) + 3
     finally:
         app.close()
+
+
+def test_at4_late_event_streak_recalc(tmp_path):
+    """Given StreakCount = 5, Freezes = 1, last active 2026-09-20, when event with
+
+    occurred_at = 2026-09-22 arrives, Freezes >= 1 holds, so StreakCount = 6 and Freezes = 0.
+    """
+    app = LearnerApplication(
+        env={
+            "PERSISTENCE_MODULE": "eventsourcing.sqlite",
+            "SQLITE_DBNAME": str(tmp_path / "events.db"),
+        }
+    )
+    try:
+        learner = Learner()
+        # 5 consecutive days: Sep 16 to Sep 20
+        for i, day in enumerate(["2026-09-16", "2026-09-17", "2026-09-18", "2026-09-19", "2026-09-20"]):
+            learner.complete_lesson(f"cmp_{i}", f"l_{i}", activity_date=day)
+        learner.acquire_freeze("freeze_1")
+        app.save(learner)
+
+        restored = app.repository.get(learner.id)
+        assert restored.current_streak == 5
+        assert restored.freezes_remaining == 1
+
+        # Arrives on 2026-09-22 (∆d = 2)
+        restored.complete_lesson("cmp_22", "l_22", activity_date="2026-09-22")
+        app.save(restored)
+
+        updated = app.repository.get(learner.id)
+        assert updated.current_streak == 6
+        assert updated.freezes_remaining == 0
+
+        # State rebuild yields the exact same state
+        events = list(app.events.get(learner.id))
+        rebuilt = rebuild_learner_state(events)
+        assert rebuilt.current_streak == 6
+        assert rebuilt.freezes_remaining == 0
+    finally:
+        app.close()
+

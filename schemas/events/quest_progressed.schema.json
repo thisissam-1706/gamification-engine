@@ -1,0 +1,35 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "QuestProgressedPayload",
+  "description": "A durable fact recording an incremental progress step on an assigned quest.",
+  "type": "object",
+  "required": [
+    "completion_id",
+    "quest_id",
+    "current_step",
+    "target_step"
+  ],
+  "properties": {
+    "completion_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Identifier of the accepted lesson completion that advanced this quest."
+    },
+    "quest_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Stable identifier of the quest."
+    },
+    "current_step": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Current progress count towards the target."
+    },
+    "target_step": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Target completion count required to finish the quest."
+    }
+  },
+  "additionalProperties": false
+}

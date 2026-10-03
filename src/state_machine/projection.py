@@ -2,10 +2,10 @@
 
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import date
 from typing import Any
 
 from src.state_machine.learner import Learner
+from src.state_machine.rules import calculate_streak
 
 
 class LearnerCompletionProjection:
@@ -34,6 +34,112 @@ class LearnerCompletionProjection:
 
 
 @dataclass(frozen=True)
+class LearnerStreakSummary:
+    """Read model summary for a learner's streak and freeze balance."""
+
+    current_streak: int
+    freezes_remaining: int
+
+
+class LearnerStreakProjection:
+    """Projects current streak count and freeze balance by learner."""
+
+    def __init__(self) -> None:
+        self.streak_summaries: dict[Any, LearnerStreakSummary] = {}
+
+    def apply(self, domain_event: Any) -> None:
+        """Updates projection from StreakUpdated facts."""
+        if isinstance(domain_event, Learner.StreakUpdated):
+            learner_id = domain_event.originator_id
+            self.streak_summaries[learner_id] = LearnerStreakSummary(
+                current_streak=domain_event.current_streak,
+                freezes_remaining=domain_event.freezes_remaining,
+            )
+
+    def clear(self) -> None:
+        """Clears the projected streak read model."""
+        self.streak_summaries.clear()
+
+    def rebuild(self, domain_events: Iterable[Any]) -> None:
+        """Reconstructs streak projection from stored facts."""
+        self.clear()
+        for domain_event in domain_events:
+            self.apply(domain_event)
+
+
+@dataclass(frozen=True)
+class LearnerQuestSummary:
+    """Read model summary for a learner's assigned and completed quests."""
+
+    assigned_quests: tuple[str, ...]
+    completed_quests: tuple[str, ...]
+    quest_progress: dict[str, int]
+
+
+class LearnerQuestProjection:
+    """Projects assigned and completed quests by learner."""
+
+    def __init__(self) -> None:
+        self.quest_summaries: dict[Any, dict[str, Any]] = {}
+
+    def apply(self, domain_event: Any) -> None:
+        """Updates projection from QuestAssigned, QuestProgressed, and QuestCompleted facts."""
+        if isinstance(domain_event, Learner.QuestAssigned):
+            learner_id = domain_event.originator_id
+            if learner_id not in self.quest_summaries:
+                self.quest_summaries[learner_id] = {
+                    "assigned": set(),
+                    "completed": set(),
+                    "progress": {},
+                }
+            self.quest_summaries[learner_id]["assigned"].add(domain_event.quest_id)
+            self.quest_summaries[learner_id]["progress"].setdefault(
+                domain_event.quest_id, 0
+            )
+        elif isinstance(domain_event, Learner.QuestProgressed):
+            learner_id = domain_event.originator_id
+            if learner_id not in self.quest_summaries:
+                self.quest_summaries[learner_id] = {
+                    "assigned": set(),
+                    "completed": set(),
+                    "progress": {},
+                }
+            self.quest_summaries[learner_id]["progress"][domain_event.quest_id] = (
+                domain_event.current_step
+            )
+        elif isinstance(domain_event, Learner.QuestCompleted):
+            learner_id = domain_event.originator_id
+            if learner_id not in self.quest_summaries:
+                self.quest_summaries[learner_id] = {
+                    "assigned": set(),
+                    "completed": set(),
+                    "progress": {},
+                }
+            self.quest_summaries[learner_id]["completed"].add(domain_event.quest_id)
+
+    def get_summary(self, learner_id: Any) -> LearnerQuestSummary:
+        """Returns the summary of assigned and completed quests for a learner."""
+        data = self.quest_summaries.get(
+            learner_id, {"assigned": set(), "completed": set(), "progress": {}}
+        )
+        return LearnerQuestSummary(
+            assigned_quests=tuple(sorted(data["assigned"])),
+            completed_quests=tuple(sorted(data["completed"])),
+            quest_progress=dict(data.get("progress", {})),
+        )
+
+    def clear(self) -> None:
+        """Clears the projected quest read model."""
+        self.quest_summaries.clear()
+
+    def rebuild(self, domain_events: Iterable[Any]) -> None:
+        """Reconstructs quest projection from stored facts."""
+        self.clear()
+        for domain_event in domain_events:
+            self.apply(domain_event)
+
+
+@dataclass(frozen=True)
 class LearnerReplayState:
     """Pure, rebuildable state used for ordered historical replay."""
 
@@ -41,6 +147,7 @@ class LearnerReplayState:
     current_streak: int
     freezes_remaining: int
     activity_dates: tuple[str, ...]
+    completed_quests: tuple[str, ...] = ()
 
 
 def rebuild_learner_state(domain_events: Iterable[Any]) -> LearnerReplayState:
@@ -62,20 +169,17 @@ def rebuild_learner_state(domain_events: Iterable[Any]) -> LearnerReplayState:
             and event.activity_date is not None
         }
     )
-    streak = 0
-    previous: date | None = None
-    for activity_date in activity_dates:
-        current = date.fromisoformat(activity_date)
-        if previous is None:
-            streak = 1
-        else:
-            missing_days = (current - previous).days - 1
-            if missing_days == 0:
-                streak += 1
-            elif 0 < missing_days <= freezes:
-                freezes -= missing_days
-                streak += 1
-            else:
-                streak = 1
-        previous = current
-    return LearnerReplayState(xp_total, streak, freezes, tuple(activity_dates))
+    streak, freezes = calculate_streak(activity_dates, freezes)
+    completed_quests = tuple(
+        sorted(
+            {
+                event.quest_id
+                for event in events
+                if isinstance(event, Learner.QuestCompleted)
+            }
+        )
+    )
+    return LearnerReplayState(
+        xp_total, streak, freezes, tuple(activity_dates), completed_quests
+    )
+
