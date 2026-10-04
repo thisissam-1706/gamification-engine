@@ -6,6 +6,7 @@ requires-python = ">=3.11"
 dependencies = [
     "eventsourcing==9.5.5",
     "jsonschema>=4.0",
+    "tzdata; sys_platform == 'win32'",
 ]
 
 [project.optional-dependencies]
