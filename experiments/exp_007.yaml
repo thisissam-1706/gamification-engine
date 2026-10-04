@@ -15,9 +15,24 @@ exclusions:
   - "platform_tenure < 3 days"
   - "opted_out_of push × streak_risk consent pair"
 primary_metric:
-  name: "First-Attempt Mastery Accuracy"
-  window: "14 days"
-  operational_signal: "Remediation Conversion Rate"
+  name: "First eligible checkpoint mastery"
+  definition: "Percent of all assigned eligible learners who pass their first eligible checkpoint within 14 days of assignment"
+  matching: "CheckpointAttempt matches CheckpointCompleted by attempt_id and assessment_id/version"
+  missing_outcome: "Learners who never complete the assessment count as not mastered; report missing-outcome rate separately"
+  assessment: "Use the same assessment for everyone, or report results by difficulty level"
+fatigue_metrics:
+  - "messages per learner per day"
+  - "opt-outs"
+  - "cap breaches"
+fatigue_cap: "5 messages per 24 hours"
+events:
+  - "assignment"
+  - "eligibility"
+  - "decision"
+  - "delivery"
+  - "exposure"
+consent_and_fatigue: "The treatment and control groups use the same consent and fatigue rules"
+data_scope: "Synthetic data; results do not demonstrate real-world causality"
 guardrails:
   - type: "notification_cap"
     description: "Push notifications must not exceed 5 messages per 24 hours"

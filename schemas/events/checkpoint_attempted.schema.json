@@ -1,3 +1,34 @@
 {
-  "$comment": "Placeholder — see design doc Section 3.2.3, Event 2: Checkpoint Attempt (checkpoint_attempted). Not yet implemented."
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CheckpointAttemptedPayload",
+  "type": "object",
+  "required": [
+    "attempt_id",
+    "assessment_id",
+    "assessment_version",
+    "timezone"
+  ],
+  "properties": {
+    "attempt_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Immutable identifier of the checkpoint attempt."
+    },
+    "assessment_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Stable identifier of the assessment."
+    },
+    "assessment_version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Immutable version of the assessment."
+    },
+    "timezone": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Learner IANA timezone at the time of the attempt."
+    }
+  },
+  "additionalProperties": false
 }

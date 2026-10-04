@@ -42,7 +42,7 @@ The architecture diagram above is the repository's single high-level architectur
    python -m pip install -e ".[dev]"
    ```
 
-3. Run the scaffold acceptance tests:
+3. Run the tests:
 
    ```bash
    python -m pytest
@@ -54,11 +54,13 @@ Kafka/Redpanda, Redis, and PostgreSQL setup instructions will be added when inge
 
 | Milestone | Description | Status |
 |-----------|-------------|--------|
-| M1 | Canonical engagement events | ☐ |
-| M2 | Deterministic gamification | ☐ |
+| M1 | Canonical engagement events | ☐ (Updated schemas for all the events) |
+| M2 | Deterministic gamification | ☑ (slice done: XP, streak/freezes, one quest, one badge, replay) |
 | M3 | Cohorts and leaderboards | ☐ |
 | M4 | Intervention/quest policy | ☐ |
 | M5 | Multi-channel notifications | ☐ |
 | M6 | Abuse detection | ☐ |
 | M7 | Experimentation and metrics | ☐ |
 | M8 | Scale and recovery | ☐ |
+
+M1 means events from the learning app are validated against versioned schemas before acceptance (currently only `lesson_completed` is ingested), while M2 means XP, streaks, freezes, one quest, and one badge are computed deterministically and can be rebuilt exactly from the event history.

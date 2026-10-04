@@ -1,3 +1,45 @@
 {
-  "$comment": "Placeholder — see design doc Section 3.2.3, Event 14: Abuse Signal Detection (abuse_signal_raised). Not yet implemented."
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AbuseSignalRaisedPayload",
+  "type": "object",
+  "required": [
+    "signal_id",
+    "signal_type",
+    "status",
+    "evidence_refs"
+  ],
+  "properties": {
+    "signal_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Identifier of the abuse signal."
+    },
+    "signal_type": {
+      "type": "string",
+      "enum": [
+        "replay",
+        "impossible_timing",
+        "scripted_farming",
+        "duplicate_exploit"
+      ],
+      "description": "Type of abuse signal raised."
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "suspected",
+        "confirmed"
+      ],
+      "description": "Current assessment status of the signal."
+    },
+    "evidence_refs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "References to evidence supporting the signal."
+    }
+  },
+  "additionalProperties": false
 }

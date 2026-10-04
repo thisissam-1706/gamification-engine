@@ -1,3 +1,35 @@
 {
-  "$comment": "Placeholder — see design doc Section 3.2.3, Event 12: Experiment Assignment (experiment_assigned). Not yet implemented."
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ExperimentAssignedPayload",
+  "type": "object",
+  "required": [
+    "exp_id",
+    "variant",
+    "hash_version",
+    "propensity"
+  ],
+  "properties": {
+    "exp_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Immutable identifier of the experiment."
+    },
+    "variant": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Variant assigned to the learner."
+    },
+    "hash_version": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Version of the deterministic assignment hash algorithm."
+    },
+    "propensity": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "Probability of assigning the selected variant."
+    }
+  },
+  "additionalProperties": false
 }

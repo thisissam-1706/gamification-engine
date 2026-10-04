@@ -1,3 +1,34 @@
 {
-  "$comment": "Placeholder — see design doc Section 3.2.3, Event 13: Experiment Exposure (experiment_exposed). Not yet implemented."
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ExperimentExposedPayload",
+  "type": "object",
+  "required": [
+    "exp_id",
+    "variant",
+    "exposure_surface",
+    "assignment_ref"
+  ],
+  "properties": {
+    "exp_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Identifier of the exposed experiment."
+    },
+    "variant": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Experiment variant shown to the learner."
+    },
+    "exposure_surface": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Learning surface where the experiment variant was shown."
+    },
+    "assignment_ref": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Reference to the experiment assignment event."
+    }
+  },
+  "additionalProperties": false
 }

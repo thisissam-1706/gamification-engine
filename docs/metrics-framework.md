@@ -56,6 +56,21 @@ We mitigate this by:
 2. Capping exploitation with a minimum exploration floor (e.g., ϵ-greedy with ϵ ≥ 0.1) for the first two weeks of any experiment, so no arm is starved of data before we have enough exposures to trust the comparison.
 We are not using a bandit for core reward-rule selection (XP amounts, decay rates), those stay fixed and rule-versioned.
 
+## Experiment protocol (M7)
+
+The primary metric is the percentage of all assigned eligible learners who pass their
+first eligible checkpoint within 14 days of assignment. A `CheckpointAttempt` is
+matched to its `CheckpointCompleted` event by `attempt_id` and
+`assessment_id`/version. Learners who never complete the assessment count as
+“not mastered”, and the missing-outcome rate is reported separately. The same
+assessment is used for everyone, or results are reported by difficulty level.
+
+Fatigue metrics include messages per learner per day, opt-outs, and cap breaches;
+the cap is 5 messages per 24 hours. Assignment, eligibility, decision, delivery,
+and exposure are logged as five separate events. Both groups use the same consent
+and fatigue rules. Results come from synthetic data and do not demonstrate
+real-world causality.
+
 ## 5.6 System-Performance & Reliability Metrics
 
 This framework maps directly to the required milestones (M1–M8) to prove the system handles scale, recovery, and strict consistency.

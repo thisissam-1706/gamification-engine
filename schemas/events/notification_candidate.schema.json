@@ -1,3 +1,40 @@
 {
-  "$comment": "Placeholder — see design doc Section 3.2.3, Event 9: Notification Candidate Generation (notification_candidate). Not yet implemented."
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "NotificationCandidatePayload",
+  "type": "object",
+  "required": [
+    "candidate_id",
+    "category",
+    "channel",
+    "trigger_ref",
+    "expires_at"
+  ],
+  "properties": {
+    "candidate_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Identifier of the notification candidate."
+    },
+    "category": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Category of the notification candidate."
+    },
+    "channel": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Delivery channel selected for the candidate."
+    },
+    "trigger_ref": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Reference to the event or policy trigger that created the candidate."
+    },
+    "expires_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Time after which the candidate must not be delivered."
+    }
+  },
+  "additionalProperties": false
 }

@@ -1,3 +1,28 @@
 {
-  "$comment": "Placeholder — see design doc Section 3.2.3, Event 15: Notification Exposure (notification_exposure). Not yet implemented."
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "NotificationExposurePayload",
+  "type": "object",
+  "required": [
+    "candidate_id",
+    "surface",
+    "exposed_at"
+  ],
+  "properties": {
+    "candidate_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Identifier of the notification candidate that was exposed."
+    },
+    "surface": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Surface where the notification was exposed."
+    },
+    "exposed_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Time the notification was exposed to the learner."
+    }
+  },
+  "additionalProperties": false
 }

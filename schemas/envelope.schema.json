@@ -11,6 +11,7 @@
     "subject_id",
     "producer",
     "correlation_id",
+    "causation_id",
     "dedup_key",
     "payload",
     "provenance"

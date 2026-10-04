@@ -1,3 +1,38 @@
 {
-  "$comment": "Placeholder — see design doc Section 3.2.3, Event 3: Checkpoint Completion Outcome (checkpoint_completed). Not yet implemented."
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CheckpointCompletedPayload",
+  "type": "object",
+  "required": [
+    "attempt_id",
+    "assessment_id",
+    "assessment_version",
+    "passed",
+    "score"
+  ],
+  "properties": {
+    "attempt_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Identifier of the completed checkpoint attempt."
+    },
+    "assessment_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Stable identifier of the assessment."
+    },
+    "assessment_version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Immutable version of the assessment."
+    },
+    "passed": {
+      "type": "boolean",
+      "description": "Whether the learner passed the checkpoint."
+    },
+    "score": {
+      "type": "number",
+      "description": "Score achieved on the checkpoint."
+    }
+  },
+  "additionalProperties": false
 }

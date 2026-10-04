@@ -1,3 +1,40 @@
 {
-  "$comment": "Placeholder — see design doc Section 3.2.3, Event 11: Notification Failure (notification_failed). Not yet implemented."
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "NotificationFailedPayload",
+  "type": "object",
+  "required": [
+    "candidate_id",
+    "channel",
+    "retryable",
+    "failure_reason"
+  ],
+  "properties": {
+    "candidate_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Identifier of the notification candidate that failed."
+    },
+    "channel": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Delivery channel attempted for the notification."
+    },
+    "retryable": {
+      "type": "boolean",
+      "description": "Whether delivery may be retried."
+    },
+    "failure_reason": {
+      "type": "string",
+      "enum": [
+        "opt_out",
+        "quiet_hours",
+        "cap_reached",
+        "ttl_expired",
+        "provider_error",
+        "retries_exhausted"
+      ],
+      "description": "Reason delivery failed."
+    }
+  },
+  "additionalProperties": false
 }
