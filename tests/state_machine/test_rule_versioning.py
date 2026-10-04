@@ -22,6 +22,7 @@ def test_historical_reward_replay_uses_persisted_amount_after_rule_update(tmp_pa
         assert replayed.xp_total == 100
         assert len(awards) == 1
         assert awards[0].xp_amount == 100
+        assert awards[0].reward_id == "xp:c-v1"
         assert awards[0].rule_version == "v1"
     finally:
         XP_AMOUNTS["v1"] = 100

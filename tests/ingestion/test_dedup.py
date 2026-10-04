@@ -71,12 +71,15 @@ def test_resend_after_ingestion_window_cannot_issue_a_second_xp_reward(tmp_path)
         assert resent_event_id != first_event_id
         assert resent_received_at - first_received_at > timedelta(days=7)
         # New envelope identity and delayed delivery do not alter business identity.
+        assert replayed_learner.awarded_reward_ids == {"xp:cmp_492_003"}
+        # Exercise the durable completion identity independently of the reward index.
+        replayed_learner.awarded_reward_ids.clear()
         assert replayed_learner.complete_lesson("cmp_492_003", "l_492") is False
         assert restarted_application.save(replayed_learner) == []
         assert replayed_learner.completed_lesson_count == 1
         assert replayed_learner.lesson_completion_counts == {"l_492": 1}
         assert replayed_learner.xp_total == 40
-        assert replayed_learner.awarded_reward_ids == {"xp:cmp_492_003"}
+        assert replayed_learner.awarded_reward_ids == set()
         assert replayed_learner.applied_rule_versions == {"xp:cmp_492_003": "xp-v1"}
 
         events_after_resend = list(restarted_application.events.get(learner_id))

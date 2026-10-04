@@ -47,6 +47,13 @@ class EvidenceStore:
             )
             """
         )
+        self.connection.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS ingestion_evidence_duplicate_delivery
+            ON ingestion_evidence (kind, learner_id, action_id, event_id, reason)
+            WHERE kind = 'duplicate'
+            """
+        )
         self.connection.commit()
 
     def record(
@@ -63,13 +70,27 @@ class EvidenceStore:
         timestamp = received_at or datetime.now(timezone.utc).isoformat()
         cursor = self.connection.execute(
             """
-            INSERT INTO ingestion_evidence
+            INSERT OR IGNORE INTO ingestion_evidence
             (kind, learner_id, action_id, event_id, reason, original_ref, received_at)
             VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (kind, learner_id, action_id, event_id, reason, original_ref, timestamp),
         )
         self.connection.commit()
+        if cursor.lastrowid is None or cursor.rowcount == 0:
+            row = self.connection.execute(
+                """
+                SELECT id, kind, learner_id, action_id, event_id, reason,
+                       original_ref, received_at
+                FROM ingestion_evidence
+                WHERE kind = ? AND learner_id = ? AND action_id IS ?
+                  AND event_id IS ? AND reason = ?
+                """,
+                (kind, learner_id, action_id, event_id, reason),
+            ).fetchone()
+            if row is None:
+                raise RuntimeError("failed to record ingestion evidence")
+            return EvidenceRecord(*row)
         return EvidenceRecord(
             cursor.lastrowid,
             kind,

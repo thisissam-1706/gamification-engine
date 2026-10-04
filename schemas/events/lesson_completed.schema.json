@@ -29,6 +29,11 @@
       "minLength": 1,
       "description": "Learner IANA timezone at completion, for example Asia/Kolkata. It is used with the envelope occurred_at value to determine the learner's local activity day."
     },
+    "assignment_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Optional quest assignment context for a completion delivered through ingestion."
+    },
     "completion_kind": {
       "type": "string",
       "enum": [
