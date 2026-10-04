@@ -14,6 +14,8 @@ flowchart TD
     C --> G[Experiment Engine]
 ```
 
+We start with one process and one durable event store, reusing an existing event-sourcing library, and build a deterministic rule-based baseline first. Kafka, independent consumers and adaptive policies are retained only if an early runnable comparison shows they are worth their operational costs.
+
 ## Documentation
 
 - [Problem Boundaries](docs/problem-boundaries.md)
@@ -29,7 +31,7 @@ The architecture diagram above is the repository's single high-level architectur
 - [ADR-0001: Event Pipeline vs. PostgreSQL Outbox](docs/adr/0001-event-sourcing-vs-outbox.md)
 - [ADR-0002: Kafka/Redpanda Event Pipeline vs. PostgreSQL](docs/adr/0002-kafka-redpanda-vs-postgres.md)
 - [ADR-0003: Rule-Based Abuse Detection](docs/adr/0003-rule-based-abuse-detection.md)
-- [ADR-0004: Contextual Bandit vs. Fixed A/B](docs/adr/0004-bandit-vs-fixed-ab.md)
+- [ADR-0004: Fixed A/B with Optional Bandit](docs/adr/0004-bandit-vs-fixed-ab.md)
 
 ## How to Run Locally
 
@@ -52,11 +54,11 @@ Kafka/Redpanda, Redis, and PostgreSQL setup instructions will be added when inge
 
 | Milestone | Description | Status |
 |-----------|-------------|--------|
-| M1 | Peak-load ingestion & idempotency | ☐ |
-| M2 | State rebuild & recovery | ☐ |
-| M3 | Leaderboard consistency & latency | ☐ |
-| M4 | Experimentation engine | ☐ |
-| M5 | Notification reliability & DLQ routing | ☐ |
-| M6 | Abuse detection efficacy | ☐ |
-| M7 | Integration & recovery drill | ☐ |
-| M8 | Full event-log replay / end-to-end rebuild | ☐ |
+| M1 | Canonical engagement events | ☐ |
+| M2 | Deterministic gamification | ☐ |
+| M3 | Cohorts and leaderboards | ☐ |
+| M4 | Intervention/quest policy | ☐ |
+| M5 | Multi-channel notifications | ☐ |
+| M6 | Abuse detection | ☐ |
+| M7 | Experimentation and metrics | ☐ |
+| M8 | Scale and recovery | ☐ |

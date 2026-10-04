@@ -7,18 +7,17 @@
 Choosing the allocation policy for notification experiments to improve student engagement without falling into the pitfalls of typical bandit algorithms that exploit easy-to-measure proxies (like email opens) rather than actual learning outcomes.
 
 **Decision**:
-Selected a contextual multi-armed bandit for notification policy selection with propensity logging and a minimum exploration floor, rather than fixed A/B allocation. 
-*Note: This bandit policy is NOT used for core reward rules (XP amounts, decay rates), which stay fixed and rule-versioned.*
+Selected a deterministic fixed A/B allocation as the core baseline for notification policy selection. A contextual multi-armed bandit (with propensity logging and an exploration floor) is retained as an optional, later-stage extension. 
+*Note: This policy applies to notification experiments; core reward rules (XP amounts, decay rates) stay fixed and rule-versioned.*
 
 **Consequences**:
 *Positive Impacts*:
-- Allows adaptive policy selection while mitigating the risk of the bandit converging on an arm before statistically significant evidence is available (as surfaced in literature review paper 4).
-- Mitigation 1: Propensity score logging on every Experiment Assignment event allows for inverse-propensity scoring re-weighting, instead of trusting raw bandit outcomes at face value.
-- Mitigation 2: Capping exploitation with a minimum exploration floor (e.g., ε-greedy with ε ≥ 0.1) for the first two weeks ensures no arm is starved of data before having enough exposures to trust the comparison.
+- Aligns with the minimum viable prototype requirement to establish a working, provable baseline before introducing adaptive complexity.
+- Fixed A/B provides a clear benchmark to later measure if the added complexity of a bandit algorithm actually yields better learning outcomes.
+- Retaining the bandit design (with propensity logging and ε-greedy minimums) ensures we have a safe transition plan if the baseline proves insufficient.
 
 *Negative Impacts*:
-- Slightly more complex assignment and evaluation infrastructure compared to simple fixed A/B testing.
+- Delays the implementation of adaptive, learning-first policy allocation.
 
 **Alternatives Considered**:
-- Fixed A/B testing was considered but rejected in favor of the adaptive nature of a bandit.
-- A naive bandit algorithm was considered but rejected due to the risk of exploiting too early based on proxies.
+- We originally proposed making the contextual bandit the core engine and rejecting fixed A/B. This was overridden based on feedback to ensure we first prove a simple rule-based baseline and only incur the operational overhead of a bandit if justified by a runnable comparison.

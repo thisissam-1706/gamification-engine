@@ -7,11 +7,11 @@
 | M1 | Peak-load ingestion & idempotency |
 | M2 | State rebuild & recovery |
 | M3 | Leaderboard consistency & latency |
-| M4 | Experimentation Engine - deterministic assignment, exposure tracking, propensity logging |
-| M5 | Notification reliability & DLQ routing |
-| M6 | Abuse detection efficacy |
-| M7 | Integration & Recovery Drill - full cross-consumer replay after simulated failure |
-| M8 | Full event-log replay / end-to-end rebuild |
+| M4 | Intervention/quest policy |
+| M5 | Multi-channel notifications |
+| M6 | Abuse detection |
+| M7 | Experimentation and metrics |
+| M8 | Scale and recovery |
 
 ## 8.2 Traceability Matrix
 

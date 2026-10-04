@@ -2,8 +2,9 @@
 
 Given learner L1 completes lesson l_492 with completion_id cmp_492_003, when the
 same completion is delivered again during the 7-day ingestion deduplication
-window with a new event_id and dedup_key lesson_completed:cmp_492_003, then it
-is silently discarded and the lesson count and XP total remain unchanged.
+window with a new event_id and dedup_key lesson_completed:cmp_492_003, then duplicates
+and rejections are recorded as evidence. Reward uniqueness is enforced separately
+through a stable business action identity, which holds indefinitely and survives replay.
 
 Given the same completion is resent after the 7-day window, when the aggregate
 processes it, then it recognises the existing completion/reward identity and
