@@ -216,7 +216,11 @@ def test_duplicate_quest_completion_writes_durable_evidence(tmp_path):
         application.save(learner)
         learner_id = str(learner.id)
         learner = application.repository.get(learner.id)
-        learner.assign_quest("lesson_starter_v1", assignment_id="assignment-1")
+        learner.assign_quest(
+            "lesson_starter_v1",
+            assignment_id="assignment-1",
+            assigned_at="2026-08-25T00:00:00Z",
+        )
         application.save(learner)
         for index in range(3):
             payload = _envelope(learner_id, f"quest-{index}", f"00000000-0000-4000-8000-00000000020{index}")

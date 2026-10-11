@@ -132,19 +132,25 @@ class Learner(Aggregate):
                     revision,
                     supersedes,
                 )
-                if (
-                    is_current
-                    and revision == 1
-                    and badge_qualifies("week_warrior_v1", new_streak)
-                    and "week_warrior_v1" not in self.badges_issued
-                ):
-                    self._award_badge(
-                        "badge:week_warrior_v1",
-                        "week_warrior_v1",
-                        "v1",
-                        datetime.now(dt_timezone.utc).isoformat(),
-                        tuple(sorted(self.completed_lesson_ids)),
-                    )
+            if (
+                "week_warrior_v1" not in self.badges_issued
+                and any(
+                    badge_qualifies("week_warrior_v1", new_streak)
+                    for new_streak, _, _ in outcomes.values()
+                )
+            ):
+                awarded_at = (
+                    occurred_at.isoformat()
+                    if isinstance(occurred_at, datetime)
+                    else occurred_at
+                ) or f"{activity_date}T00:00:00+00:00"
+                self._award_badge(
+                    "badge:week_warrior_v1",
+                    "week_warrior_v1",
+                    "v1",
+                    awarded_at,
+                    tuple(sorted(self.completed_lesson_ids)),
+                )
             if outcomes[activity_date][0] == 1 and previous_streak > 1:
                 self.streak_before_break = previous_streak
 
@@ -154,7 +160,10 @@ class Learner(Aggregate):
             if instance["status"] != "assigned":
                 continue
             occurred = _as_datetime(occurred_at)
+            assigned_at = instance["assigned_at"]
             deadline = instance["deadline_at"]
+            if occurred is not None and occurred < assigned_at:
+                continue
             if occurred is not None and deadline is not None and occurred > deadline:
                 self._expire_quest(assignment_id, q_id, occurred.isoformat())
                 continue
@@ -164,13 +173,16 @@ class Learner(Aggregate):
                     target = quest_target_for(q_id)
                 except KeyError:
                     continue
-                new_step = self.quest_progress.get(q_id, 0) + 1
+                new_step = int(instance["progress"]) + 1
                 self._progress_quest(
                     completion_id, assignment_id, q_id, new_step, target
                 )
                 if new_step >= target:
                     self._complete_quest(
-                        quest_completion_id, assignment_id, q_id, datetime.now(dt_timezone.utc).isoformat()
+                        quest_completion_id,
+                        assignment_id,
+                        q_id,
+                        occurred.isoformat() if occurred is not None else None,
                     )
         return True
 
@@ -238,9 +250,13 @@ class Learner(Aggregate):
         streak from activity dates. When multiple StreakUpdated events exist
         for the same activity_date, the one with the highest revision wins.
         """
-        self.new_streak = new_streak
-        self.freezes_remaining = freezes_remaining
-        self.last_activity_date = activity_date
+        if (
+            self.last_activity_date is None
+            or activity_date >= self.last_activity_date
+        ):
+            self.new_streak = new_streak
+            self.freezes_remaining = freezes_remaining
+            self.last_activity_date = activity_date
         if new_streak == 1 and previous_streak > 1:
             self.streak_before_break = previous_streak
         self.streak_revisions[activity_date] = revision
@@ -252,6 +268,13 @@ class Learner(Aggregate):
             f"streak:{self.id}:{activity_date}:{revision}",
             supersedes,
         )
+        if (
+            self.last_activity_date is not None
+            and activity_date >= self.last_activity_date
+        ):
+            self.freezes_remaining = len(self.freeze_acquisitions) - sum(
+                outcome[2] for outcome in self.streak_outcomes.values()
+            )
 
     @event("XPAwarded")
     def _award_xp(
@@ -292,10 +315,7 @@ class Learner(Aggregate):
         Retries and duplicate assignments are idempotent no-ops.
         """
         assignment_id = assignment_id or f"quest:{quest_id}"
-        if (
-            assignment_id in self.assigned_quest_ids
-            or f"quest-completed:{quest_id}" in self.completed_quest_ids
-        ):
+        if assignment_id in self.assigned_quest_ids:
             return False
         quest_target_for(quest_id)
         assigned = _as_datetime(assigned_at) or datetime.now(dt_timezone.utc)
@@ -320,14 +340,13 @@ class Learner(Aggregate):
     ) -> None:
         """Applies quest assignment."""
         self.assigned_quest_ids.add(assignment_id)
-        if quest_id not in self.quest_progress:
-            self.quest_progress[quest_id] = 0
+        self.quest_progress[assignment_id] = 0
         self.quest_instances[assignment_id] = {
             "assignment_id": assignment_id,
             "quest_id": quest_id,
             "definition_version": quest_definition_version,
             "status": "assigned",
-            "assigned_at": assigned_at,
+            "assigned_at": _as_datetime(assigned_at),
             "deadline_at": _as_datetime(deadline_at),
             "completed_at": None,
             "progress": 0,
@@ -343,7 +362,7 @@ class Learner(Aggregate):
         target_step: int,
     ) -> None:
         """Applies an explicit progress increment for an active quest."""
-        self.quest_progress[quest_id] = current_step
+        self.quest_progress[assignment_id] = current_step
         self.quest_instances[assignment_id]["progress"] = current_step
 
     @event("QuestCompleted")
@@ -352,10 +371,12 @@ class Learner(Aggregate):
         completion_id: str,
         assignment_id: str,
         quest_id: str,
-        completed_at: str,
+        completed_at: str | None,
     ) -> None:
         """Applies an already-decided quest completion."""
         self.completed_quest_ids.add(completion_id)
+        self.completed_quest_ids.add(f"quest-completed:{assignment_id}")
+        # Retain the legacy type marker for existing consumers.
         self.completed_quest_ids.add(f"quest-completed:{quest_id}")
         self.quest_instances[assignment_id]["status"] = "completed"
         self.quest_instances[assignment_id]["completed_at"] = _as_datetime(completed_at)

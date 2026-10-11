@@ -35,7 +35,7 @@ def test_quest_assignment_is_idempotent(tmp_path):
 
         restored = app.repository.get(learner.id)
         assert "quest:lesson_starter_v1" in restored.assigned_quest_ids
-        assert restored.quest_progress["lesson_starter_v1"] == 0
+        assert restored.quest_progress["quest:lesson_starter_v1"] == 0
     finally:
         app.close()
 
@@ -54,21 +54,21 @@ def test_quest_completion_lifecycle(tmp_path):
 
         # Lesson 1: progress 1, no QuestCompleted
         assert learner.complete_lesson("c1", "l1", activity_date="2026-10-01") is True
-        assert learner.quest_progress["lesson_starter_v1"] == 1
+        assert learner.quest_progress["quest:lesson_starter_v1"] == 1
         assert "quest-completed:lesson_starter_v1" not in learner.completed_quest_ids
 
         # Duplicate lesson 1: rejected, progress does not advance
         assert learner.complete_lesson("c1", "l1", activity_date="2026-10-01") is False
-        assert learner.quest_progress["lesson_starter_v1"] == 1
+        assert learner.quest_progress["quest:lesson_starter_v1"] == 1
 
         # Lesson 2: progress 2, no QuestCompleted
         assert learner.complete_lesson("c2", "l2", activity_date="2026-10-02") is True
-        assert learner.quest_progress["lesson_starter_v1"] == 2
+        assert learner.quest_progress["quest:lesson_starter_v1"] == 2
         assert "quest-completed:lesson_starter_v1" not in learner.completed_quest_ids
 
         # Lesson 3: progress 3, emits QuestCompleted
         assert learner.complete_lesson("c3", "l3", activity_date="2026-10-03") is True
-        assert learner.quest_progress["lesson_starter_v1"] == 3
+        assert learner.quest_progress["quest:lesson_starter_v1"] == 3
         assert "quest-completed:lesson_starter_v1" in learner.completed_quest_ids
         assert learner.quest_instances["quest:lesson_starter_v1"]["status"] == "completed"
 
@@ -105,6 +105,67 @@ def test_quest_completion_lifecycle(tmp_path):
         app.close()
 
 
+def test_explicit_assignment_can_complete_after_same_quest_completed():
+    learner = Learner()
+    learner.assign_quest(
+        "lesson_starter_v1",
+        assignment_id="assignment-1",
+        assigned_at="2026-10-01T00:00:00+00:00",
+    )
+    for i in range(3):
+        learner.complete_lesson(
+            f"first-{i}",
+            f"lesson-{i}",
+            occurred_at=f"2026-10-01T0{i}:00:00+00:00",
+        )
+
+    assert learner.quest_instances["assignment-1"]["status"] == "completed"
+    assert learner.assign_quest(
+        "lesson_starter_v1",
+        assignment_id="assignment-2",
+        assigned_at="2026-10-02T00:00:00+00:00",
+    ) is True
+    for i in range(3):
+        learner.complete_lesson(
+            f"second-{i}",
+            f"lesson-{i}",
+            occurred_at=f"2026-10-02T0{i}:00:00+00:00",
+        )
+
+    assert learner.quest_instances["assignment-2"]["status"] == "completed"
+    assert {
+        assignment_id
+        for assignment_id, instance in learner.quest_instances.items()
+        if instance["status"] == "completed"
+    } == {"assignment-1", "assignment-2"}
+
+
+def test_quest_expiry_is_independent_per_assignment():
+    learner = Learner()
+    learner.assign_quest(
+        "lesson_starter_v1",
+        assignment_id="expires-first",
+        assigned_at="2026-10-01T00:00:00+00:00",
+        deadline_at="2026-10-02T00:00:00+00:00",
+    )
+    learner.assign_quest(
+        "lesson_starter_v1",
+        assignment_id="expires-second",
+        assigned_at="2026-10-01T00:00:00+00:00",
+        deadline_at="2026-10-04T00:00:00+00:00",
+    )
+    learner.complete_lesson(
+        "expiry-check",
+        "lesson-1",
+        occurred_at="2026-10-03T00:00:00+00:00",
+    )
+
+    assert learner.quest_instances["expires-first"]["status"] == "expired"
+    assert learner.quest_instances["expires-second"]["status"] == "assigned"
+    assert learner.quest_instances["expires-first"]["progress"] == 0
+    assert learner.quest_instances["expires-second"]["progress"] == 1
+
+
 def test_quest_projection_and_state_rebuild(tmp_path):
     """LearnerQuestProjection and rebuild_learner_state deterministically fold facts."""
     app = LearnerApplication(
@@ -129,7 +190,7 @@ def test_quest_projection_and_state_rebuild(tmp_path):
         summary = projection.get_summary(learner.id)
         assert summary.assigned_quests == ("lesson_starter_v1",)
         assert summary.completed_quests == ("lesson_starter_v1",)
-        assert summary.quest_progress == {"lesson_starter_v1": 3}
+        assert summary.quest_progress == {"quest:lesson_starter_v1": 3}
 
         # Test Rebuild Learner State
         rebuilt = rebuild_learner_state(events)
@@ -186,6 +247,6 @@ def test_quest_expiry_is_durable_across_restart_and_rebuild(tmp_path):
         rebuilt = LearnerQuestProjection()
         rebuilt.rebuild(restored_events)
         assert len(restored_events) == len(events)
-        assert restored.quest_progress["lesson_starter_v1"] == 0
+        assert restored.quest_progress["assignment-1"] == 0
     finally:
         restarted.close()

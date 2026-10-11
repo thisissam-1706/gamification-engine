@@ -91,7 +91,7 @@ def test_replay_does_not_call_decision_functions(tmp_path, monkeypatch):
         quest_proj.rebuild(events)
         quest_summary = quest_proj.get_summary(learner_id)
         assert quest_summary.completed_quests == ("lesson_starter_v1",)
-        assert quest_summary.quest_progress == {"lesson_starter_v1": 3}
+        assert quest_summary.quest_progress == {"quest:lesson_starter_v1": 3}
     finally:
         app.close()
 

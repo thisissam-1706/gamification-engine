@@ -103,7 +103,7 @@ class LearnerQuestProjection:
                 }
             self.quest_summaries[learner_id]["assigned"].add(domain_event.quest_id)
             self.quest_summaries[learner_id]["progress"].setdefault(
-                domain_event.quest_id, 0
+                domain_event.assignment_id, 0
             )
         elif isinstance(domain_event, Learner.QuestProgressed):
             learner_id = domain_event.originator_id
@@ -113,7 +113,7 @@ class LearnerQuestProjection:
                     "completed": set(),
                     "progress": {},
                 }
-            self.quest_summaries[learner_id]["progress"][domain_event.quest_id] = (
+            self.quest_summaries[learner_id]["progress"][domain_event.assignment_id] = (
                 domain_event.current_step
             )
         elif isinstance(domain_event, Learner.QuestCompleted):
@@ -170,7 +170,9 @@ class LearnerReplayState:
 def rebuild_learner_state(domain_events: Iterable[Any]) -> LearnerReplayState:
     """Folds persisted facts without making decisions.
 
-    Streak and freeze values are read from stored ``StreakUpdated`` events.
+    Streak values are read from stored ``StreakUpdated`` events. Freeze balance
+    is derived from all ``FreezeAcquired`` events and the winning
+    ``StreakUpdated`` event for each activity date.
     XP totals are read from stored ``XPAwarded`` events.  Replay never calls
     ``calculate_streak``, ``xp_amount_for``, ``quest_target_for``, or any
     other decision function.
@@ -185,7 +187,9 @@ def rebuild_learner_state(domain_events: Iterable[Any]) -> LearnerReplayState:
     )
 
     streak = 0
-    freezes = 0
+    freezes = sum(
+        1 for event in events if isinstance(event, Learner.FreezeAcquired)
+    )
     streak_events = [
         event for event in events if isinstance(event, Learner.StreakUpdated)
     ]
@@ -197,7 +201,7 @@ def rebuild_learner_state(domain_events: Iterable[Any]) -> LearnerReplayState:
     if winners:
         last_streak = winners[max(winners)]
         streak = last_streak.new_streak
-        freezes = last_streak.freezes_remaining
+        freezes -= sum(event.freezes_consumed for event in winners.values())
 
     activity_dates = sorted(
         {
@@ -263,30 +267,33 @@ class SQLiteLearnerProjection:
         """Stages the complete history and swaps live state in one transaction."""
         events = sorted(
             list(domain_events),
-            key=lambda event: (
-                getattr(event, "activity_date", "") or "",
-                event.originator_version,
-            ),
+            key=lambda event: event.originator_version,
         )
         try:
             self.connection.execute("BEGIN")
-            self.connection.execute("DELETE FROM learner_projection_staging")
+            self.connection.execute(
+                "DELETE FROM learner_projection_staging WHERE learner_id = ?",
+                (learner_id,),
+            )
             final = rebuild_learner_state(events)
-            for position in range(len(events) + 1):
-                if fail_after is not None and position == fail_after:
-                    raise RuntimeError("injected staging failure")
-                prefix = events[:position]
-                staged = rebuild_learner_state(prefix)
-                self.connection.execute(
-                    "INSERT OR REPLACE INTO learner_projection_staging (learner_id, state) VALUES (?, ?)",
-                    (learner_id, self._state_json(staged)),
-                )
-            self.connection.execute("DELETE FROM learner_projection")
+            self.connection.execute(
+                "INSERT OR REPLACE INTO learner_projection_staging (learner_id, state) VALUES (?, ?)",
+                (learner_id, self._state_json(final)),
+            )
+            if fail_after is not None and fail_after <= len(events):
+                raise RuntimeError("injected staging failure")
+            self.connection.execute(
+                "DELETE FROM learner_projection WHERE learner_id = ?",
+                (learner_id,),
+            )
             self.connection.execute(
                 "INSERT INTO learner_projection (learner_id, state) SELECT learner_id, state FROM learner_projection_staging WHERE learner_id = ?",
                 (learner_id,),
             )
-            self.connection.execute("DELETE FROM learner_projection_staging")
+            self.connection.execute(
+                "DELETE FROM learner_projection_staging WHERE learner_id = ?",
+                (learner_id,),
+            )
             self.connection.commit()
             return final
         except Exception:
