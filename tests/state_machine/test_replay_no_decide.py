@@ -32,7 +32,9 @@ def test_replay_does_not_call_decision_functions(tmp_path, monkeypatch):
     )
     try:
         learner = Learner()
-        learner.assign_quest("lesson_starter_v1")
+        learner.assign_quest(
+            "lesson_starter_v1", assigned_at="2026-09-01T00:00:00+00:00"
+        )
         # Day 1: first activity
         learner.complete_lesson("c1", "l1", activity_date="2026-09-01")
         learner.acquire_freeze("f1")
@@ -109,7 +111,9 @@ def test_rebuild_creates_zero_new_events(tmp_path):
     )
     try:
         learner = Learner()
-        learner.assign_quest("lesson_starter_v1")
+        learner.assign_quest(
+            "lesson_starter_v1", assigned_at="2026-09-01T00:00:00+00:00"
+        )
         learner.complete_lesson("c1", "l1", activity_date="2026-09-01")
         learner.acquire_freeze("f1")
         learner.complete_lesson("c2", "l2", activity_date="2026-09-02")

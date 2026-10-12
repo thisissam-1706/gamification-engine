@@ -1,5 +1,7 @@
 # Simulator Specification
 
+**Status:** stub, not implemented, planned for milestone M7.
+
 ## Personas
 The four learner personas from Section 2.2.1 are:
 

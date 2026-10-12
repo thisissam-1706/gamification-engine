@@ -30,10 +30,14 @@ def test_duplicate_lesson_completion_is_dropped_within_ingestion_window(tmp_path
         learner = Learner()
         application.save(learner)
         envelope = _envelope(str(learner.id), "cmp_492_003", str(uuid4()))
-        assert ingest_lesson_completed(application, evidence, envelope).status == "accepted"
+        assert ingest_lesson_completed(
+            application, evidence, envelope, authenticated_producer="learning-svc"
+        ).status == "accepted"
         retry = dict(envelope)
         retry["event_id"] = str(uuid4())
-        assert ingest_lesson_completed(application, evidence, retry).status == "duplicate"
+        assert ingest_lesson_completed(
+            application, evidence, retry, authenticated_producer="learning-svc"
+        ).status == "duplicate"
         restored = application.repository.get(learner.id)
         assert restored.xp_total == 100
         assert len(evidence.list(str(learner.id))) == 1

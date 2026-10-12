@@ -1,6 +1,8 @@
 # 0001 - PostgreSQL-Based Event Sourcing vs Outbox Pattern
 
-**Status**: Accepted
+> **Changelog (2026-10-12):** Marked this historical infrastructure decision as superseded by the eventsourcing-and-SQLite-first architecture.
+
+**Status**: Superseded by ADR-0005
 **Date**: 2026-09-26
 
 **Context**: 

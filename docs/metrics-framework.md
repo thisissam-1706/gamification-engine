@@ -1,5 +1,7 @@
 # Metrics Framework
 
+> **Changelog (2026-10-12):** Linked notification constraints to the shared problem boundaries and replaced contextual-bandit allocation with the implemented fixed 50/50 assignment.
+
 This framework dictates how the experimentation engine evaluates cohort interventions. It establishes distinct boundaries between actual learning progress, superficial engagement, and platform abuse.
 
 ## 5.1 Primary Learning Outcome
@@ -17,9 +19,9 @@ Instead of measuring simple application logins, retention is evaluated through t
 ## 5.3 Guardrails (Experiment Invalidation Criteria)
 
 Experiments that improve engagement at the cost of learner well-being or system integrity are automatically marked as failed.
-* **The Notification Fatigue & Escalation Limit:** Enforces a hard cap of 5 intervention push notifications per 24 hours per learner, strictly bounded by localized quiet hours. To support habit formation, “streak at risk” notification intervals decrease exponentially (firing more rapidly) leading up to localized midnight, provided the 5-message daily cap is not breached and localized quiet hours are strictly respected (quiet hours take absolute precedence, truncating any escalating schedule upon entry).
+* **The Notification Fatigue & Escalation Limit:** Enforces the [daily notification cap and quiet hours](problem-boundaries.md#notification-channels-and-constraints). To support habit formation, “streak at risk” notification intervals decrease exponentially (firing more rapidly) leading up to localized midnight, provided the shared notification constraints are respected (quiet hours take absolute precedence, truncating any escalating schedule upon entry).
 * **The Gaming Threshold:** If > 15% of a cohort’s total weekly XP generation originates from decayed (repeated) lessons, the specific intervention policy is flagged for reward abuse and disqualified.
-* Quiet hours are strictly defined as 10:00 PM to 8:00 AM in the learner’s local timezone. During this window, all push notification deliveries are blocked regardless of priority or experiment policy.
+* During the [defined quiet-hours window](problem-boundaries.md#notification-channels-and-constraints), all push notification deliveries are blocked regardless of priority or experiment policy.
 
 ## 5.4 Controlled Experiment Specification
 
@@ -45,16 +47,12 @@ where:
   * variant_b (Control): Suppresses streak-risk interventions; observes baseline learner behavior.
 * **Assignment & Exclusions:** 50/50 split via `H(subject_id || "exp_007") mod 100`. Excludes learners with platform tenure < 3 days or those who opted out of the push × streak_risk consent pair.
 * **Primary Metric (Mprimary):** First-Attempt Mastery Accuracy over a 14-day window (with Remediation Conversion Rate as the short-horizon operational signal).
-* **Guardrails (G):** The experiment is automatically marked as invalidated if variant_a causes push notifications to exceed 5 messages per 24 hours (§5.3) or drives cohort decayed-XP share above 15% (§5.3).
+* **Guardrails (G):** The experiment is automatically marked as invalidated if variant_a breaches the [daily notification cap](problem-boundaries.md#notification-channels-and-constraints) (§5.3) or drives cohort decayed-XP share above 15% (§5.3).
 * **SRM Safeguard (C):** A daily pipeline job runs a χ2 test comparing actual assignment ratios against the expected 50/50 split (p < 0.001 triggers an SRM alert).
 
-## 5.5 Bandit Policy Allocation
+## 5.5 Fixed Policy Allocation
 
-We will use a contextual multi-armed bandit for notification policy selection, rather than fixed A/B allocation, but with propensity logging as a hard requirement from day one. Our literature review (paper 4) surfaced the central risk directly: a bandit can converge on an arm before there’s statistically significant evidence it’s actually better, and it optimizes an easy-to-measure proxy (email/push opens) rather than the outcome we actually care about (learning).
-We mitigate this by:
-1. Logging the propensity score: the probability the policy assigned to the arm it picked, on every Experiment Assignment event, which lets us later re-weight results with inverse-propensity scoring instead of trusting raw bandit outcomes at face value; and
-2. Capping exploitation with a minimum exploration floor (e.g., ϵ-greedy with ϵ ≥ 0.1) for the first two weeks of any experiment, so no arm is starved of data before we have enough exposures to trust the comparison.
-We are not using a bandit for core reward-rule selection (XP amounts, decay rates), those stay fixed and rule-versioned.
+Notification policy experiments currently use a deterministic fixed 50/50 assignment, providing a stable baseline for comparing treatment and control outcomes. Propensity logging remains a future-proofing requirement: assignment events should retain the probability used for the selected arm so that a later move to adaptive allocation can support inverse-propensity analysis. We are not using a bandit for core reward-rule selection (XP amounts, decay rates); those stay fixed and rule-versioned.
 
 ## Experiment protocol (M7)
 
@@ -66,7 +64,7 @@ matched to its `CheckpointCompleted` event by `attempt_id` and
 assessment is used for everyone, or results are reported by difficulty level.
 
 Fatigue metrics include messages per learner per day, opt-outs, and cap breaches;
-the cap is 5 messages per 24 hours. Assignment, eligibility, decision, delivery,
+the [daily notification cap](problem-boundaries.md#notification-channels-and-constraints) applies. Assignment, eligibility, decision, delivery,
 and exposure are logged as five separate events. Both groups use the same consent
 and fatigue rules. Results come from synthetic data and do not demonstrate
 real-world causality.

@@ -1,13 +1,15 @@
 # 0004 - Contextual Multi-Armed Bandit vs Fixed A/B Testing
 
-**Status**: Accepted
+> **Changelog (2026-10-12):** Clarified that the implemented policy is fixed 50/50 assignment and that bandit allocation remains future work.
+
+**Status**: Accepted — fixed 50/50 assignment
 **Date**: 2026-09-26
 
 **Context**: 
 Choosing the allocation policy for notification experiments to improve student engagement without falling into the pitfalls of typical bandit algorithms that exploit easy-to-measure proxies (like email opens) rather than actual learning outcomes.
 
 **Decision**:
-Selected a deterministic fixed A/B allocation as the core baseline for notification policy selection. A contextual multi-armed bandit (with propensity logging and an exploration floor) is retained as an optional, later-stage extension. 
+Selected a deterministic fixed 50/50 A/B allocation for notification policy selection. A contextual multi-armed bandit (with propensity logging and an exploration floor) is retained as an optional, later-stage extension.
 *Note: This policy applies to notification experiments; core reward rules (XP amounts, decay rates) stay fixed and rule-versioned.*
 
 **Consequences**:

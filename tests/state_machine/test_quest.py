@@ -19,9 +19,13 @@ def test_quest_assignment_is_idempotent(tmp_path):
     )
     try:
         learner = Learner()
-        assert learner.assign_quest("lesson_starter_v1") is True
+        assert learner.assign_quest(
+            "lesson_starter_v1", assigned_at="2026-10-01T00:00:00+00:00"
+        ) is True
         # Duplicate assignment returns False
-        assert learner.assign_quest("lesson_starter_v1") is False
+        assert learner.assign_quest(
+            "lesson_starter_v1", assigned_at="2026-10-01T00:00:00+00:00"
+        ) is False
         app.save(learner)
 
         events = list(app.events.get(learner.id))
@@ -50,7 +54,9 @@ def test_quest_completion_lifecycle(tmp_path):
     )
     try:
         learner = Learner()
-        learner.assign_quest("lesson_starter_v1")
+        learner.assign_quest(
+            "lesson_starter_v1", assigned_at="2026-10-01T00:00:00+00:00"
+        )
 
         # Lesson 1: progress 1, no QuestCompleted
         assert learner.complete_lesson("c1", "l1", activity_date="2026-10-01") is True
@@ -100,7 +106,9 @@ def test_quest_completion_lifecycle(tmp_path):
 
         # Re-assigning completed quest is rejected
         restored = app.repository.get(learner.id)
-        assert restored.assign_quest("lesson_starter_v1") is False
+        assert restored.assign_quest(
+            "lesson_starter_v1", assigned_at="2026-10-01T00:00:00+00:00"
+        ) is False
     finally:
         app.close()
 
@@ -176,7 +184,9 @@ def test_quest_projection_and_state_rebuild(tmp_path):
     )
     try:
         learner = Learner()
-        learner.assign_quest("lesson_starter_v1")
+        learner.assign_quest(
+            "lesson_starter_v1", assigned_at="2026-10-01T00:00:00+00:00"
+        )
         learner.complete_lesson("c1", "l1", activity_date="2026-10-01")
         learner.complete_lesson("c2", "l2", activity_date="2026-10-02")
         learner.complete_lesson("c3", "l3", activity_date="2026-10-03")

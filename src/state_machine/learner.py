@@ -5,6 +5,7 @@ from eventsourcing.domain import Aggregate, event
 
 from src.state_machine.rules import (
     calculate_streak,
+    get_ruleset,
     local_activity_date,
     badge_qualifies,
     quest_target_for,
@@ -27,7 +28,6 @@ class Learner(Aggregate):
     facts together; event handlers below are deliberately only state folds.
     """
 
-    DEFAULT_XP_AMOUNT = 100
     DEFAULT_RULE_VERSION = "v1"
 
     class Event(Aggregate.Event):
@@ -45,6 +45,8 @@ class Learner(Aggregate):
 
     def __init__(self) -> None:
         self.completed_lesson_ids: set[str] = set()
+        # Persisted event shape changed; development databases must be reset.
+        self.completion_sources: dict[str, str] = {}
         self.completed_lesson_count = 0
         self.lesson_completion_counts: dict[str, int] = {}
         self.xp_total = 0
@@ -79,6 +81,7 @@ class Learner(Aggregate):
         activity_date: str | None = None,
         occurred_at: str | datetime | None = None,
         timezone: str | None = None,
+        source_event_id: str | None = None,
     ) -> bool:
         """Accepts one completion and emits its one durable XP reward.
 
@@ -99,10 +102,16 @@ class Learner(Aggregate):
         if xp_amount is None:
             xp_amount = xp_amount_for(rule_version)
         self._record_lesson_completion(
-            completion_id, lesson_id, activity_date, timezone, occurred_at
+            completion_id,
+            lesson_id,
+            activity_date,
+            timezone,
+            occurred_at,
+            source_event_id,
         )
         self._award_xp(reward_id, completion_id, xp_amount, rule_version)
         if activity_date is not None:
+            ruleset = get_ruleset(rule_version)
             outcomes = calculate_streak(
                 self.activity_dates,
                 self.freeze_acquisitions.items(),
@@ -133,9 +142,9 @@ class Learner(Aggregate):
                     supersedes,
                 )
             if (
-                "week_warrior_v1" not in self.badges_issued
+                ruleset.badge_id not in self.badges_issued
                 and any(
-                    badge_qualifies("week_warrior_v1", new_streak)
+                    badge_qualifies(ruleset.badge_id, new_streak, ruleset)
                     for new_streak, _, _ in outcomes.values()
                 )
             ):
@@ -145,9 +154,9 @@ class Learner(Aggregate):
                     else occurred_at
                 ) or f"{activity_date}T00:00:00+00:00"
                 self._award_badge(
-                    "badge:week_warrior_v1",
-                    "week_warrior_v1",
-                    "v1",
+                    f"badge:{ruleset.badge_id}",
+                    ruleset.badge_id,
+                    rule_version,
                     awarded_at,
                     tuple(sorted(self.completed_lesson_ids)),
                 )
@@ -170,7 +179,9 @@ class Learner(Aggregate):
             quest_completion_id = f"quest_completion:{assignment_id}"
             if quest_completion_id not in self.completed_quest_ids:
                 try:
-                    target = quest_target_for(q_id)
+                    target = quest_target_for(
+                        q_id, str(instance["definition_version"])
+                    )
                 except KeyError:
                     continue
                 new_step = int(instance["progress"]) + 1
@@ -194,9 +205,12 @@ class Learner(Aggregate):
         activity_date: str | None,
         timezone_name: str | None = None,
         occurred_at: str | datetime | None = None,
+        source_event_id: str | None = None,
     ) -> None:
         """Applies the accepted source lesson completion."""
         self.completed_lesson_ids.add(completion_id)
+        if source_event_id is not None:
+            self.completion_sources[completion_id] = source_event_id
         self.completed_lesson_count += 1
         self.lesson_completion_counts[lesson_id] = (
             self.lesson_completion_counts.get(lesson_id, 0) + 1
@@ -207,13 +221,23 @@ class Learner(Aggregate):
             not self.timezone_history
             or self.timezone_history[-1]["timezone"] != timezone_name
         ):
-            self.timezone_history.append(
-                {
-                    "effective_at": str(occurred_at or datetime.now(dt_timezone.utc).isoformat()),
-                    "timezone": timezone_name,
-                    "action_id": completion_id,
-                }
+            effective_at = (
+                occurred_at.isoformat()
+                if isinstance(occurred_at, datetime)
+                else occurred_at
+            ) or (
+                f"{activity_date}T00:00:00+00:00"
+                if activity_date is not None
+                else None
             )
+            if effective_at is not None:
+                self.timezone_history.append(
+                    {
+                        "effective_at": effective_at,
+                        "timezone": timezone_name,
+                        "action_id": completion_id,
+                    }
+                )
 
     def acquire_freeze(
         self, freeze_id: str, *, activity_date: str | None = None
@@ -221,7 +245,13 @@ class Learner(Aggregate):
         """Records one durable freeze acquisition for later streak projection."""
         if freeze_id in self.freeze_ids:
             return False
-        acquired = activity_date or self.last_activity_date or "0001-01-01"
+        acquired = (
+            activity_date if activity_date is not None else self.last_activity_date
+        )
+        if acquired is None:
+            raise ValueError(
+                "activity_date is required when acquiring a freeze before any activity"
+            )
         self._acquire_freeze(freeze_id, acquired)
         return True
 
@@ -317,8 +347,11 @@ class Learner(Aggregate):
         assignment_id = assignment_id or f"quest:{quest_id}"
         if assignment_id in self.assigned_quest_ids:
             return False
-        quest_target_for(quest_id)
-        assigned = _as_datetime(assigned_at) or datetime.now(dt_timezone.utc)
+        if assigned_at is None:
+            raise ValueError("assigned_at is required when assigning a quest")
+        quest_target_for(quest_id, definition_version)
+        assigned = _as_datetime(assigned_at)
+        assert assigned is not None
         deadline = _as_datetime(deadline_at) or assigned + timedelta(days=7)
         self._assign_quest(
             assignment_id,

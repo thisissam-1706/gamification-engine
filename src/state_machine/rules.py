@@ -1,21 +1,53 @@
 """Small deterministic reward and streak rules used at the decision boundary."""
 
 from collections.abc import Iterable
+from dataclasses import dataclass
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
-XP_AMOUNTS = {"v1": 100}
 
-QUEST_DEFINITIONS: dict[str, dict[str, int]] = {
-    "lesson_starter_v1": {"target": 3},
+@dataclass(frozen=True)
+class RuleSet:
+    xp_amount: int
+    quest_targets: dict[str, int]
+    badge_threshold: int
+    badge_id: str
+
+
+RULESETS = {
+    "v1": RuleSet(
+        xp_amount=100,
+        quest_targets={"lesson_starter_v1": 3},
+        badge_threshold=7,
+        badge_id="week_warrior_v1",
+    )
+}
+
+# Compatibility views for callers that inspect the former configuration names.
+XP_AMOUNTS = {"v1": RULESETS["v1"].xp_amount}
+QUEST_DEFINITIONS = {
+    "lesson_starter_v1": {"target": RULESETS["v1"].quest_targets["lesson_starter_v1"]}
 }
 
 
-def quest_target_for(quest_id: str) -> int:
+def get_ruleset(version: str | RuleSet = "v1") -> RuleSet:
+    """Returns a registered rule set, or raises a descriptive error."""
+    if isinstance(version, RuleSet):
+        return version
+    try:
+        return RULESETS[version]
+    except KeyError as exc:
+        raise KeyError(f"Unknown rule version: {version}") from exc
+
+
+def quest_target_for(
+    quest_id: str, rule_version: str | RuleSet = "v1"
+) -> int:
     """Returns the required completion target for a given quest ID."""
-    if quest_id not in QUEST_DEFINITIONS:
+    ruleset = get_ruleset(rule_version)
+    if quest_id not in ruleset.quest_targets:
         raise KeyError(f"Unknown quest: {quest_id}")
-    return QUEST_DEFINITIONS[quest_id]["target"]
+    return ruleset.quest_targets[quest_id]
 
 
 def local_activity_date(occurred_at: str | datetime, timezone_name: str) -> str:
@@ -29,17 +61,17 @@ def local_activity_date(occurred_at: str | datetime, timezone_name: str) -> str:
         dt = dt.replace(tzinfo=ZoneInfo("UTC"))
     tz = ZoneInfo(timezone_name)
     return dt.astimezone(tz).date().isoformat()
-
-
-
-def xp_amount_for(rule_version: str) -> int:
+def xp_amount_for(rule_version: str | RuleSet = "v1") -> int:
     """Returns the currently configured amount for a rule version."""
-    return XP_AMOUNTS[rule_version]
+    return get_ruleset(rule_version).xp_amount
 
 
-def badge_qualifies(badge_id: str, new_streak: int) -> bool:
+def badge_qualifies(
+    badge_id: str, new_streak: int, rule_version: str | RuleSet = "v1"
+) -> bool:
     """Returns whether the current state qualifies for a supported badge."""
-    return badge_id == "week_warrior_v1" and new_streak >= 7
+    ruleset = get_ruleset(rule_version)
+    return badge_id == ruleset.badge_id and new_streak >= ruleset.badge_threshold
 
 
 def calculate_streak(
@@ -48,10 +80,10 @@ def calculate_streak(
 ) -> dict[str, tuple[int, int, int]]:
     """Returns ``activity_date -> (streak, remaining, consumed)``.
 
-    Freeze records are sorted by acquisition date and can only cover gaps on
-    or after their own acquisition date.  The returned values are facts for
-    each date, so callers can emit append-only corrections without recalculating
-    during replay.
+    Freeze records are sorted by acquisition date and can cover gaps once they
+    have been acquired.  The returned values are facts for each date, so
+    callers can emit append-only corrections without recalculating during
+    replay.
     """
     ordered_dates = sorted({date.fromisoformat(value) for value in activity_dates})
     ordered_freezes = sorted(
@@ -76,7 +108,6 @@ def calculate_streak(
                     for freeze_id, acquired in ordered_freezes
                     if freeze_id not in consumed
                     and acquired <= current
-                    and acquired >= previous
                 ]
                 if len(available) >= missing_days:
                     for freeze_id, _ in available[:missing_days]:

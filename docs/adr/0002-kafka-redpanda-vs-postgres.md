@@ -1,13 +1,15 @@
 # 0002 - Kafka/Redpanda Event Pipeline vs Postgres CQRS
 
-**Status**: Accepted
+> **Changelog (2026-10-12):** Marked this historical event-pipeline decision as superseded by the eventsourcing-and-SQLite-first architecture.
+
+**Status**: Superseded by ADR-0005
 **Date**: 2026-09-26
 
 **Context**: 
 Choosing the event processing architecture for the gamification engine to deliver the core requirements of provable replay and deterministic state reconstruction, within an 8-week timeline and a 2-person team capacity.
 
 **Decision**:
-Selected Method B: Event Pipeline & CQRS (Kafka/Redpanda + Redis) over a single PostgreSQL instance.
+Selected Method B: Event Pipeline & CQRS (Kafka/Redpanda + Redis) over a single PostgreSQL instance. This decision is retained as historical context and is superseded by ADR-0005 for the current implementation.
 
 **Consequences**:
 *Positive Impacts*:
