@@ -59,14 +59,14 @@ Kafka/Redpanda, Redis, and PostgreSQL setup instructions will be added only if m
 |-----------|-------------|--------|
 | M1 | Canonical engagement events | ☐ (Updated schemas for all the events) |
 | M2 | Deterministic gamification | ☑ (slice done: XP, streak/freezes, one quest, one badge, replay) |
-| M3 | Cohorts and leaderboards | ☐ |
+| M3 | Cohorts and leaderboards | ☑ (SQLite projections, deterministic ties, differential reconciliation AT-7, latency benchmarks) |
 | M4 | Intervention/quest policy | ☐ |
 | M5 | Multi-channel notifications | ☐ |
 | M6 | Abuse detection | ☐ |
 | M7 | Experimentation and metrics | ☐ |
 | M8 | Scale and recovery | ☐ |
 
-M1 means events from the learning app are validated against versioned schemas before acceptance (currently only `lesson_completed` is ingested), while M2 means XP, streaks, freezes, one quest, and one badge are computed deterministically and can be rebuilt exactly from the event history.
+M1 means events from the learning app are validated against versioned schemas before acceptance (currently only `lesson_completed` is ingested), while M2 means XP, streaks, freezes, one quest, and one badge are computed deterministically and can be rebuilt exactly from the event history. M3 means synthetic learners are deterministically grouped into bounded cohorts (500–5,000 members, 30-day inactivity pruning) and ranked at cohort and global levels via SQLite projections with exact tie-breaking, measurable latency, and differential reconciliation (AT-7).
 
 ## Planned Placeholder Tests
 
@@ -78,7 +78,7 @@ M1 means events from the learning app are validated against versioned schemas be
 | `test_opt_out_enforcement` | M5 | planned placeholder |
 | `test_quiet_hour_delay` | M5 | planned placeholder |
 | `test_retry_dlq` | M5 | planned placeholder |
-| `test_leaderboard_reconciliation` | M3 | planned placeholder |
+| `test_leaderboard_reconciliation` | M3 | passing (AT-7) |
 | `test_full_state_rebuild` | M2, M7, M8 | planned placeholder |
 | `test_assignment_vs_exposure` | M7 | planned placeholder |
 | `test_exposure_is_logged_only_after_treatment_surface_view` | M7 | planned placeholder |

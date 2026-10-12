@@ -1,0 +1,59 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "LeaderboardResponse",
+  "type": "object",
+  "required": [
+    "scope_type",
+    "scope_id",
+    "epoch",
+    "entries",
+    "total_members",
+    "watermark_offset"
+  ],
+  "properties": {
+    "scope_type": {
+      "type": "string",
+      "enum": ["cohort", "global"]
+    },
+    "scope_id": {
+      "type": "string"
+    },
+    "epoch": {
+      "type": ["string", "integer"]
+    },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["rank", "subject_id", "score", "first_reached_at"],
+        "properties": {
+          "rank": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "subject_id": {
+            "type": "string"
+          },
+          "score": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "first_reached_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "total_members": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "watermark_offset": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "additionalProperties": false
+}

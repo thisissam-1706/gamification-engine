@@ -14,9 +14,8 @@
       "description": "Identifier of the assigned cohort."
     },
     "membership_epoch": {
-      "type": "integer",
-      "minimum": 1,
-      "description": "Versioned epoch of the learner's cohort membership."
+      "type": ["integer", "string"],
+      "description": "Versioned epoch of the learner's cohort membership (e.g. 202641 or '2026-W41')."
     },
     "grouping_rule_version": {
       "type": "string",

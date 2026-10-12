@@ -1,0 +1,48 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "LeaderboardQuery",
+  "type": "object",
+  "required": [
+    "scope_type",
+    "scope_id",
+    "epoch",
+    "query_type"
+  ],
+  "properties": {
+    "scope_type": {
+      "type": "string",
+      "enum": ["cohort", "global"],
+      "description": "Scope level of the ranking query."
+    },
+    "scope_id": {
+      "type": "string",
+      "description": "Cohort ID if scope_type is cohort, or 'global'."
+    },
+    "epoch": {
+      "type": ["string", "integer"],
+      "description": "Calendar week epoch (e.g., '2026-W41' or 202641)."
+    },
+    "query_type": {
+      "type": "string",
+      "enum": ["top_k", "surrounding", "subject_rank"],
+      "description": "Type of query requested."
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 10,
+      "description": "Number of top ranks to fetch for top_k query."
+    },
+    "subject_id": {
+      "type": "string",
+      "description": "Target subject ID for surrounding or subject_rank queries."
+    },
+    "window": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 5,
+      "description": "Radius around the subject for surrounding queries."
+    }
+  },
+  "additionalProperties": false
+}

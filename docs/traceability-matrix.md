@@ -21,7 +21,7 @@
 |---|---|---|---|---|---|
 | M1 Canonical engagement events | AT-1 | Canonical event envelope and ingestion | TODO(owner) | partial (lesson_completed only) | W2-3 |
 | M2 Deterministic gamification | AT-2, AT-3, AT-4, AT-5, AT-16 | Deterministic state machine and replay | TODO(owner) | slice done | W2-4 |
-| M3 Cohorts and leaderboards | AT-7 | Cohort projections and leaderboard service | TODO(owner) | not started | W3-4 |
+| M3 Cohorts and leaderboards | AT-7 | Cohort projections and leaderboard service | Group 14 | implemented & passing | W3 |
 | M4 Intervention/quest policy (learning-oriented remediation) | AT-17 (to be written) | Intervention and quest policy | TODO(owner) | not started | W3-4 |
 | M5 Multi-channel notifications | AT-8, AT-9, AT-10, AT-11, AT-14 | Multi-channel notification engine | TODO(owner) | not started | W4 |
 | M6 Abuse detection | AT-6 | Abuse rule engine | TODO(owner) | not started | W4-5 |

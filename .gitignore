@@ -36,3 +36,4 @@ htmlcov/
 docker-compose.override.yml
 
 *.pdf 
+changes_week_3.md

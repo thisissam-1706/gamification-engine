@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone as dt_timezone
 from eventsourcing.application import Application
 from eventsourcing.domain import Aggregate, event
 
-from src.state_machine.rules import (
+from .rules import (
     calculate_streak,
     get_ruleset,
     local_activity_date,
@@ -70,6 +70,7 @@ class Learner(Aggregate):
         self.quest_progress: dict[str, int] = {}
         self.quest_instances: dict[str, dict[str, object]] = {}
         self.badges_issued: dict[str, str] = {}
+        self.cohort_memberships: dict[str, dict[str, object]] = {}
 
     def complete_lesson(
         self,
@@ -418,6 +419,38 @@ class Learner(Aggregate):
     def _expire_quest(self, assignment_id: str, quest_id: str, expired_at: str) -> None:
         """Applies an already-decided quest expiry."""
         self.quest_instances[assignment_id]["status"] = "expired"
+
+    def assign_cohort(
+        self,
+        cohort_id: str,
+        membership_epoch: str | int,
+        *,
+        grouping_rule_version: str = "v1",
+        assigned_at: str | datetime | None = None,
+    ) -> bool:
+        """Assigns the learner to a cohort for the given epoch."""
+        epoch_str = str(membership_epoch)
+        if epoch_str in self.cohort_memberships:
+            return False
+        assigned = _as_datetime(assigned_at) or datetime.now(dt_timezone.utc)
+        self._assign_cohort(cohort_id, epoch_str, grouping_rule_version, assigned.isoformat())
+        return True
+
+    @event("CohortAssigned")
+    def _assign_cohort(
+        self,
+        cohort_id: str,
+        membership_epoch: str,
+        grouping_rule_version: str,
+        assigned_at: str,
+    ) -> None:
+        """Applies cohort assignment for a membership epoch."""
+        self.cohort_memberships[membership_epoch] = {
+            "cohort_id": cohort_id,
+            "membership_epoch": membership_epoch,
+            "grouping_rule_version": grouping_rule_version,
+            "assigned_at": assigned_at,
+        }
 
 
 
