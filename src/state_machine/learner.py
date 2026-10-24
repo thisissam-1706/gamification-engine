@@ -286,7 +286,6 @@ class Learner(Aggregate):
             or activity_date >= self.last_activity_date
         ):
             self.new_streak = new_streak
-            self.freezes_remaining = freezes_remaining
             self.last_activity_date = activity_date
         if new_streak == 1 and previous_streak > 1:
             self.streak_before_break = previous_streak
@@ -299,13 +298,10 @@ class Learner(Aggregate):
             f"streak:{self.id}:{activity_date}:{revision}",
             supersedes,
         )
-        if (
-            self.last_activity_date is not None
-            and activity_date >= self.last_activity_date
-        ):
-            self.freezes_remaining = len(self.freeze_acquisitions) - sum(
-                outcome[2] for outcome in self.streak_outcomes.values()
-            )
+        # Recompute on every outcome: an earlier-date correction can consume a freeze.
+        self.freezes_remaining = len(self.freeze_acquisitions) - sum(
+            outcome[2] for outcome in self.streak_outcomes.values()
+        )
 
     @event("XPAwarded")
     def _award_xp(

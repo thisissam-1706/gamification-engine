@@ -49,24 +49,73 @@ class LearnerStreakSummary:
         return self.new_streak
 
 
+def fold_streak_and_freezes(
+    streak_events: Iterable[Any], freeze_events: Iterable[Any]
+) -> tuple[int, int]:
+    """Pure fold of stored streak and freeze facts into (new_streak, freezes_remaining).
+
+    Per activity_date the highest ``revision`` wins; on equal revisions the
+    first event seen wins. The streak is the winning ``new_streak`` of the
+    latest activity_date. The freeze balance is the number of distinct
+    ``freeze_id`` values minus the ``freezes_consumed`` of every winner.
+
+    The result is independent of event order, and of duplicate delivery, for
+    histories in which each (activity_date, revision) pair is unique, which
+    the Learner aggregate guarantees. If two different events shared a pair,
+    arrival order would decide between them.
+    """
+    winners: dict[str, Any] = {}
+    for event in streak_events:
+        prior = winners.get(event.activity_date)
+        if prior is None or event.revision > prior.revision:
+            winners[event.activity_date] = event
+    freeze_ids = {event.freeze_id for event in freeze_events}
+    new_streak = winners[max(winners)].new_streak if winners else 0
+    consumed = sum(event.freezes_consumed for event in winners.values())
+    return new_streak, len(freeze_ids) - consumed
+
+
 class LearnerStreakProjection:
-    """Projects current streak count and freeze balance by learner."""
+    """Projects current streak count and freeze balance by learner.
+
+    Incremental form of ``fold_streak_and_freezes``: per learner it keeps the
+    winning StreakUpdated per activity_date and one FreezeAcquired per
+    freeze_id, so arrival order and redelivery do not change the summary.
+    """
 
     def __init__(self) -> None:
         self.streak_summaries: dict[Any, LearnerStreakSummary] = {}
+        self._winners: dict[Any, dict[str, Any]] = {}
+        self._freezes: dict[Any, dict[str, Any]] = {}
 
     def apply(self, domain_event: Any) -> None:
-        """Updates projection from StreakUpdated facts."""
+        """Updates projection from StreakUpdated and FreezeAcquired facts."""
         if isinstance(domain_event, Learner.StreakUpdated):
             learner_id = domain_event.originator_id
-            self.streak_summaries[learner_id] = LearnerStreakSummary(
-                new_streak=domain_event.new_streak,
-                freezes_remaining=domain_event.freezes_remaining,
+            winners = self._winners.setdefault(learner_id, {})
+            prior = winners.get(domain_event.activity_date)
+            if prior is None or domain_event.revision > prior.revision:
+                winners[domain_event.activity_date] = domain_event
+        elif isinstance(domain_event, Learner.FreezeAcquired):
+            learner_id = domain_event.originator_id
+            self._freezes.setdefault(learner_id, {}).setdefault(
+                domain_event.freeze_id, domain_event
             )
+        else:
+            return
+        new_streak, freezes_remaining = fold_streak_and_freezes(
+            self._winners.get(learner_id, {}).values(),
+            self._freezes.get(learner_id, {}).values(),
+        )
+        self.streak_summaries[learner_id] = LearnerStreakSummary(
+            new_streak=new_streak, freezes_remaining=freezes_remaining
+        )
 
     def clear(self) -> None:
         """Clears the projected streak read model."""
         self.streak_summaries.clear()
+        self._winners.clear()
+        self._freezes.clear()
 
     def rebuild(self, domain_events: Iterable[Any]) -> None:
         """Reconstructs streak projection from stored facts."""
@@ -74,6 +123,8 @@ class LearnerStreakProjection:
         for domain_event in domain_events:
             staged.apply(domain_event)
         self.streak_summaries = staged.streak_summaries
+        self._winners = staged._winners
+        self._freezes = staged._freezes
 
 
 @dataclass(frozen=True)
@@ -171,8 +222,9 @@ def rebuild_learner_state(domain_events: Iterable[Any]) -> LearnerReplayState:
     """Folds persisted facts without making decisions.
 
     Streak values are read from stored ``StreakUpdated`` events. Freeze balance
-    is derived from all ``FreezeAcquired`` events and the winning
-    ``StreakUpdated`` event for each activity date.
+    is derived from the distinct ``FreezeAcquired`` freeze ids and the winning
+    ``StreakUpdated`` event for each activity date (see
+    ``fold_streak_and_freezes``).
     XP totals are read from stored ``XPAwarded`` events.  Replay never calls
     ``calculate_streak``, ``xp_amount_for``, ``quest_target_for``, or any
     other decision function.
@@ -186,22 +238,10 @@ def rebuild_learner_state(domain_events: Iterable[Any]) -> LearnerReplayState:
         event.xp_amount for event in events if isinstance(event, Learner.XPAwarded)
     )
 
-    streak = 0
-    freezes = sum(
-        1 for event in events if isinstance(event, Learner.FreezeAcquired)
+    streak, freezes = fold_streak_and_freezes(
+        (event for event in events if isinstance(event, Learner.StreakUpdated)),
+        (event for event in events if isinstance(event, Learner.FreezeAcquired)),
     )
-    streak_events = [
-        event for event in events if isinstance(event, Learner.StreakUpdated)
-    ]
-    winners: dict[str, Any] = {}
-    for event in streak_events:
-        prior = winners.get(event.activity_date)
-        if prior is None or event.revision > prior.revision:
-            winners[event.activity_date] = event
-    if winners:
-        last_streak = winners[max(winners)]
-        streak = last_streak.new_streak
-        freezes -= sum(event.freezes_consumed for event in winners.values())
 
     activity_dates = sorted(
         {
