@@ -7,16 +7,59 @@ An event-sourced gamification engine with deterministic XP, streaks, quests, bad
 ## Architecture
 
 ```mermaid
-flowchart TD
-    A[Event Generator] --> B[Eventsourcing + SQLite]
-    B --> C[State Machine and Projections]
-    C --> D[Leaderboards]
-    C --> E[Notification Engine]
-    C --> F[Abuse Detection]
-    C --> G[Experiment Engine]
+flowchart LR
+    subgraph Producers["Event producers"]
+        Learning["Learning application"]
+        Simulator["Simulator / test generators"]
+    end
+
+    subgraph Runtime["Single-process gamification engine"]
+        Validate["Ingestion validation<br/>JSON Schema + producer checks"]
+        Ingest["Ingestion service<br/>deduplication + evidence"]
+        Aggregate["Learner aggregate<br/>deterministic XP, streaks,<br/>quests, badges, freezes"]
+        Rules["Versioned rule sets"]
+        EventStore[("Eventsourcing event store<br/>SQLite")]
+        Projections["Read-model projections<br/>completion, streak, quest"]
+        LeaderboardProjection["Leaderboard projection"]
+        LeaderboardAPI["Leaderboard service API"]
+        LeaderboardDB[("SQLite leaderboard<br/>read model")]
+        Reconciler["Reconciliation service<br/>watermark + differential repair"]
+        Experiment["Experiment assignment<br/>and outcome metrics"]
+        EvidenceDB[("SQLite ingestion<br/>evidence")]
+    end
+
+    Learning --> Validate
+    Simulator --> Validate
+    Validate --> Ingest
+    Ingest --> EvidenceDB
+    Ingest --> Aggregate
+    Rules --> Aggregate
+    Aggregate <--> EventStore
+    EventStore --> Projections
+    EventStore --> LeaderboardProjection
+    LeaderboardProjection --> LeaderboardDB
+    LeaderboardDB --> LeaderboardAPI
+    Aggregate -. canonical state .-> Reconciler
+    Reconciler <--> LeaderboardDB
+    EventStore --> Experiment
+    EventStore -. replay / rebuild .-> Aggregate
+
+    Notifications["Notification engine"]:::deferred
+    Abuse["Abuse detection"]:::deferred
+    Kafka["Kafka / Redpanda"]:::deferred
+    Redis["Redis"]:::deferred
+    Postgres["PostgreSQL"]:::deferred
+
+    EventStore -. deferred scale-out .-> Kafka
+    LeaderboardDB -. deferred cache .-> Redis
+    EventStore -. deferred production store .-> Postgres
+    Projections -. future consumers .-> Notifications
+    Projections -. future consumers .-> Abuse
+
+    classDef deferred stroke-dasharray: 5 5,fill:#f5f5f5,color:#666;
 ```
 
-All components currently run in one process against the SQLite-backed event store. Kafka/Redpanda, Redis, PostgreSQL, independent consumers, and adaptive policies are deferred until measurements demonstrate that their operational cost is justified.
+The implemented path runs in one process: producers submit versioned events, ingestion validates and deduplicates them, and the learner aggregate emits durable domain events to the SQLite-backed eventsourcing store. Rebuildable projections provide learner summaries and leaderboard scores; the leaderboard service reads the SQLite leaderboard model and the reconciliation service repairs divergence against canonical aggregate state. Experiment assignment and metrics consume event history. Notifications, abuse detection, Kafka/Redpanda, Redis, and PostgreSQL are shown as deferred extension points rather than active runtime dependencies.
 
 ## Documentation
 

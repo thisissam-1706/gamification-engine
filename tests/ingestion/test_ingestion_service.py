@@ -337,7 +337,7 @@ def test_concurrent_different_completions_retry_without_lost_update(tmp_path):
         application.close()
 
 
-def test_duplicate_quest_completion_writes_durable_evidence(tmp_path):
+def test_lesson_for_completed_quest_is_accepted_and_writes_durable_evidence(tmp_path):
     db = str(tmp_path / "events.db")
     environment = {"PERSISTENCE_MODULE": "eventsourcing.sqlite", "SQLITE_DBNAME": db}
     application = LearnerApplication(env=environment)
@@ -359,19 +359,17 @@ def test_duplicate_quest_completion_writes_durable_evidence(tmp_path):
             assert ingest_lesson_completed(
                 application, evidence, payload, authenticated_producer="learning-svc"
             ).status == "accepted"
-        events_before = list(application.events.get(learner.id))
-        duplicate = _envelope(learner_id, "quest-repeat", "00000000-0000-4000-8000-000000000204")
-        duplicate["payload"]["assignment_id"] = "assignment-1"
+        assert application.repository.get(learner.id).xp_total == 300
+        fresh = _envelope(learner_id, "quest-repeat", "00000000-0000-4000-8000-000000000204")
+        fresh["payload"]["assignment_id"] = "assignment-1"
         result = ingest_lesson_completed(
-            application, evidence, duplicate, authenticated_producer="learning-svc"
+            application, evidence, fresh, authenticated_producer="learning-svc"
         )
-        assert (result.status, result.reason) == (
-            "duplicate",
-            "duplicate_quest_completion",
-        )
-        assert list(application.events.get(learner.id)) == events_before
+        assert result.status == "accepted"
+        assert application.repository.get(learner.id).xp_total == 400
         rows = evidence.list(learner_id)
         assert len(rows) == 1
+        assert rows[0].reason == "quest_already_completed"
         assert rows[0].action_id == "quest_completion:assignment-1"
         assert rows[0].original_ref == "quest_completion:assignment-1"
     finally:
@@ -382,7 +380,9 @@ def test_duplicate_quest_completion_writes_durable_evidence(tmp_path):
     try:
         rows = restarted.list(learner_id)
         assert len(rows) == 1
-        assert rows[0].reason == "duplicate_quest_completion"
+        assert rows[0].reason == "quest_already_completed"
+        assert rows[0].action_id == "quest_completion:assignment-1"
+        assert rows[0].original_ref == "quest_completion:assignment-1"
     finally:
         restarted.close()
 

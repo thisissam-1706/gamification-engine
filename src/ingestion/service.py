@@ -31,6 +31,13 @@ def _original_delivery(
     return evidence.original_event_id(learner_id, action_id)
 
 
+def _quest_already_complete(learner: Learner, assignment_id: str | None) -> bool:
+    return (
+        assignment_id is not None
+        and f"quest_completion:{assignment_id}" in learner.completed_quest_ids
+    )
+
+
 def _envelope_validator() -> Draft7Validator:
     path = Path(__file__).resolve().parents[2] / "schemas" / "envelope.schema.json"
     return Draft7Validator(
@@ -127,20 +134,7 @@ def ingest_lesson_completed(
         )
         return IngestionResult("duplicate", "duplicate_completion_id")
 
-    if (
-        assignment_id is not None
-        and f"quest_completion:{assignment_id}" in learner.completed_quest_ids
-    ):
-        quest_completion_id = f"quest_completion:{assignment_id}"
-        evidence.record(
-            "duplicate",
-            learner_id,
-            "duplicate_quest_completion",
-            action_id=quest_completion_id,
-            event_id=event_id,
-            original_ref=quest_completion_id,
-        )
-        return IngestionResult("duplicate", "duplicate_quest_completion")
+    quest_already_complete = _quest_already_complete(learner, assignment_id)
     accepted = learner.complete_lesson(
         action_id,
         str(envelope["payload"]["lesson_id"]),
@@ -177,6 +171,7 @@ def ingest_lesson_completed(
             )
             return IngestionResult("duplicate", "duplicate_completion_id")
 
+        quest_already_complete = _quest_already_complete(learner, assignment_id)
         accepted = learner.complete_lesson(
             action_id,
             str(envelope["payload"]["lesson_id"]),
@@ -211,4 +206,15 @@ def ingest_lesson_completed(
     if event_id is None:
         raise RuntimeError("validated event_id unexpectedly missing")
     evidence.remember_delivery(learner_id, action_id, event_id)
+    if quest_already_complete:
+        quest_completion_id = f"quest_completion:{assignment_id}"
+        evidence.record(
+            "duplicate",
+            learner_id,
+            "quest_already_completed",
+            action_id=quest_completion_id,
+            event_id=event_id,
+            original_ref=quest_completion_id,
+        )
+        return IngestionResult("accepted", "quest_already_completed")
     return IngestionResult("accepted")
