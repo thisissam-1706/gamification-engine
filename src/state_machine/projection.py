@@ -1,12 +1,13 @@
 """Read models rebuilt from learner aggregate event streams."""
 
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
+from datetime import datetime
 import json
 import sqlite3
 from typing import Any
 
-from src.state_machine.learner import Learner
+from src.state_machine.learner import Learner, _as_datetime
 
 
 class LearnerCompletionProjection:
@@ -128,64 +129,113 @@ class LearnerStreakProjection:
 
 
 @dataclass(frozen=True)
+class AssignmentRecord:
+    """Read model for one quest assignment."""
+
+    assignment_id: str
+    quest_id: str
+    status: str = "assigned"
+    progress: int = 0
+    assigned_at: datetime | None = None
+    deadline_at: datetime | None = None
+    completed_at: datetime | None = None
+
+
+# Higher rank wins, so arrival order and redelivery cannot change the status.
+_STATUS_RANK = {"assigned": 0, "expired": 1, "completed": 2}
+
+
+def _stronger_status(current: str, incoming: str) -> str:
+    return incoming if _STATUS_RANK[incoming] > _STATUS_RANK[current] else current
+
+
+@dataclass(frozen=True)
 class LearnerQuestSummary:
-    """Read model summary for a learner's assigned and completed quests."""
+    """Read model summary for a learner's quest assignments."""
 
     assigned_quests: tuple[str, ...]
     completed_quests: tuple[str, ...]
     quest_progress: dict[str, int]
+    assignments: dict[str, AssignmentRecord] = field(default_factory=dict)
 
 
 class LearnerQuestProjection:
-    """Projects assigned and completed quests by learner."""
+    """Projects quest assignments by learner, keyed by assignment_id."""
 
     def __init__(self) -> None:
-        self.quest_summaries: dict[Any, dict[str, Any]] = {}
+        self.quest_summaries: dict[Any, dict[str, AssignmentRecord]] = {}
 
     def apply(self, domain_event: Any) -> None:
-        """Updates projection from QuestAssigned, QuestProgressed, and QuestCompleted facts."""
+        """Updates projection from QuestAssigned, QuestProgressed, QuestCompleted and QuestExpired facts."""
+        if not isinstance(
+            domain_event,
+            (
+                Learner.QuestAssigned,
+                Learner.QuestProgressed,
+                Learner.QuestCompleted,
+                Learner.QuestExpired,
+            ),
+        ):
+            return
+        records = self.quest_summaries.setdefault(domain_event.originator_id, {})
+        assignment_id = domain_event.assignment_id
+        # Progress, completion or expiry may arrive before the assignment.
+        record = records.get(assignment_id) or AssignmentRecord(
+            assignment_id=assignment_id, quest_id=domain_event.quest_id
+        )
         if isinstance(domain_event, Learner.QuestAssigned):
-            learner_id = domain_event.originator_id
-            if learner_id not in self.quest_summaries:
-                self.quest_summaries[learner_id] = {
-                    "assigned": set(),
-                    "completed": set(),
-                    "progress": {},
-                }
-            self.quest_summaries[learner_id]["assigned"].add(domain_event.quest_id)
-            self.quest_summaries[learner_id]["progress"].setdefault(
-                domain_event.assignment_id, 0
+            record = replace(
+                record,
+                quest_id=domain_event.quest_id,
+                assigned_at=_as_datetime(domain_event.assigned_at),
+                deadline_at=_as_datetime(domain_event.deadline_at),
             )
         elif isinstance(domain_event, Learner.QuestProgressed):
-            learner_id = domain_event.originator_id
-            if learner_id not in self.quest_summaries:
-                self.quest_summaries[learner_id] = {
-                    "assigned": set(),
-                    "completed": set(),
-                    "progress": {},
-                }
-            self.quest_summaries[learner_id]["progress"][domain_event.assignment_id] = (
-                domain_event.current_step
+            record = replace(
+                record, progress=max(record.progress, domain_event.current_step)
             )
         elif isinstance(domain_event, Learner.QuestCompleted):
-            learner_id = domain_event.originator_id
-            if learner_id not in self.quest_summaries:
-                self.quest_summaries[learner_id] = {
-                    "assigned": set(),
-                    "completed": set(),
-                    "progress": {},
-                }
-            self.quest_summaries[learner_id]["completed"].add(domain_event.quest_id)
+            completed_at = _as_datetime(domain_event.completed_at)
+            if record.completed_at is not None and completed_at is not None:
+                completed_at = min(record.completed_at, completed_at)
+            record = replace(
+                record,
+                status=_stronger_status(record.status, "completed"),
+                completed_at=completed_at or record.completed_at,
+            )
+        else:
+            record = replace(record, status=_stronger_status(record.status, "expired"))
+        records[assignment_id] = record
 
-    def get_summary(self, learner_id: Any) -> LearnerQuestSummary:
-        """Returns the summary of assigned and completed quests for a learner."""
-        data = self.quest_summaries.get(
-            learner_id, {"assigned": set(), "completed": set(), "progress": {}}
+    def get_summary(
+        self, learner_id: Any, as_of: datetime | None = None
+    ) -> LearnerQuestSummary:
+        """Returns the summary of quest assignments for a learner.
+
+        With ``as_of``, an assigned record whose deadline is strictly before
+        ``as_of`` is reported as expired. Without it, status is event-derived only.
+        """
+        records = self.quest_summaries.get(learner_id, {})
+        ordered = sorted(
+            records.values(), key=lambda record: (record.quest_id, record.assignment_id)
         )
+        cutoff = _as_datetime(as_of)
+        if cutoff is not None:
+            ordered = [
+                replace(record, status="expired")
+                if record.status == "assigned"
+                and record.deadline_at is not None
+                and cutoff > record.deadline_at
+                else record
+                for record in ordered
+            ]
         return LearnerQuestSummary(
-            assigned_quests=tuple(sorted(data["assigned"])),
-            completed_quests=tuple(sorted(data["completed"])),
-            quest_progress=dict(data.get("progress", {})),
+            assigned_quests=tuple(record.quest_id for record in ordered),
+            completed_quests=tuple(
+                record.quest_id for record in ordered if record.status == "completed"
+            ),
+            quest_progress={record.assignment_id: record.progress for record in ordered},
+            assignments={record.assignment_id: record for record in ordered},
         )
 
     def clear(self) -> None:
