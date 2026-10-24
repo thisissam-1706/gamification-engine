@@ -36,4 +36,6 @@ htmlcov/
 docker-compose.override.yml
 
 *.pdf 
-changes_week_3.md
+reviews/
+ai_documented_changes/
+week3_analysis.md

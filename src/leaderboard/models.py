@@ -14,7 +14,7 @@ class CohortDefinition:
     epoch: str
     min_size: int = 500
     max_size: int = 5000
-    status: Literal["forming", "active", "finalized"] = "forming"
+    status: Literal["forming", "active", "sealed", "finalized"] = "forming"
 
 
 @dataclass(frozen=True)
@@ -72,3 +72,4 @@ class ReconciliationAudit:
     deleted_count: int
     corrected_subject_ids: tuple[str, ...] = field(default_factory=tuple)
     duration_ms: float = 0.0
+    audit_id: str = ""

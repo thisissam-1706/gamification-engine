@@ -8,6 +8,18 @@ from typing import Sequence
 from src.leaderboard.models import CohortDefinition, CohortMembership
 
 
+class CohortCapacityOverflowError(ValueError):
+    """Raised when a cohort merge or assignment would exceed the configured maximum size."""
+
+
+class CohortSealedError(ValueError):
+    """Raised when an operation attempts to modify or add members to a sealed or finalized cohort."""
+
+
+class CohortIncompatibleEpochError(ValueError):
+    """Raised when attempting to merge or operate across mismatched calendar epochs."""
+
+
 def get_calendar_week(dt_value: str | datetime | None = None) -> str:
     """Returns the ISO calendar week string 'YYYY-Www' for a given timestamp."""
     if dt_value is None:
@@ -91,34 +103,72 @@ def merge_undersized_cohorts(
     cohorts: Sequence[CohortDefinition],
     memberships: dict[str, list[CohortMembership]],
     min_size: int = 500,
+    reference_time: str | datetime | None = None,
 ) -> tuple[list[CohortDefinition], dict[str, list[CohortMembership]]]:
     """Merges cohorts with fewer than min_size active members into adjacent cohorts.
 
-    Preserves competition density across difficulty tiers.
+    Enforces:
+    - Target max_size capacity bounds (rejects or prevents overflow).
+    - Counts only active unique members when evaluating density (excludes >30d inactive).
+    - Preserves finalized cohorts and their membership history without dropping them.
+    - Prevents cross-epoch merges.
     """
-    active_cohorts = [c for c in cohorts if c.status != "finalized"]
-    if not active_cohorts:
-        return list(cohorts), memberships
+    if not cohorts:
+        return [], {}
 
-    result_cohorts: list[CohortDefinition] = []
-    result_memberships: dict[str, list[CohortMembership]] = {c.cohort_id: [] for c in cohorts}
+    # Check for cross-epoch conflicts among active cohorts
+    epochs = {c.epoch for c in cohorts if c.status != "finalized"}
+    if len(epochs) > 1:
+        raise CohortIncompatibleEpochError(f"Cannot merge cohorts across mismatched epochs: {epochs}")
+
+    # Finalized cohorts are preserved as-is
+    finalized_cohorts = [c for c in cohorts if c.status == "finalized"]
+    active_cohorts = [c for c in cohorts if c.status != "finalized"]
+
+    result_cohorts: list[CohortDefinition] = list(finalized_cohorts)
+    result_memberships: dict[str, list[CohortMembership]] = {
+        c.cohort_id: list(memberships.get(c.cohort_id, [])) for c in cohorts
+    }
+
+    if not active_cohorts:
+        return list(cohorts), result_memberships
+
     undersized: list[CohortDefinition] = []
+    viable_cohorts: list[CohortDefinition] = []
 
     for c in active_cohorts:
         c_members = memberships.get(c.cohort_id, [])
-        if len(c_members) < min_size:
+        threshold = c.min_size if c.min_size is not None else min_size
+
+        # Count only active members (filter inactive)
+        if reference_time is not None:
+            active_count = sum(
+                1 for m in c_members
+                if m.status == "active" and not is_inactive(m.last_active_at, reference_time)
+            )
+        else:
+            active_count = sum(1 for m in c_members if m.status == "active")
+
+        if active_count < threshold:
             undersized.append(c)
         else:
-            result_cohorts.append(c)
+            viable_cohorts.append(c)
             result_memberships[c.cohort_id] = list(c_members)
 
     if not undersized:
-        return list(cohorts), memberships
+        return list(cohorts), result_memberships
 
-    # If all are undersized, merge all into the first cohort
-    if not result_cohorts and undersized:
+    # If all active cohorts are undersized, merge all into the first active cohort
+    if not viable_cohorts and undersized:
         primary = undersized[0]
-        result_cohorts.append(primary)
+        total_members_to_merge = sum(len(memberships.get(c.cohort_id, [])) for c in undersized)
+
+        # Capacity overflow check
+        if total_members_to_merge > primary.max_size:
+            raise CohortCapacityOverflowError(
+                f"Merged cohort size {total_members_to_merge} exceeds maximum capacity {primary.max_size}"
+            )
+
         merged_members: list[CohortMembership] = []
         for c in undersized:
             for m in memberships.get(c.cohort_id, []):
@@ -132,24 +182,82 @@ def merge_undersized_cohorts(
                         last_active_at=m.last_active_at,
                     )
                 )
+            if c.cohort_id != primary.cohort_id:
+                result_memberships[c.cohort_id] = []
+
         result_memberships[primary.cohort_id] = merged_members
+        result_cohorts.append(primary)
         return result_cohorts, result_memberships
 
-    # Distribute undersized cohort members into existing viable cohorts
-    target_idx = 0
+    # Distribute undersized members into existing viable cohorts with capacity bounds
+    result_cohorts.extend(viable_cohorts)
     for c in undersized:
-        for m in memberships.get(c.cohort_id, []):
-            target = result_cohorts[target_idx % len(result_cohorts)]
-            target_idx += 1
-            result_memberships[target.cohort_id].append(
-                CohortMembership(
-                    subject_id=m.subject_id,
-                    cohort_id=target.cohort_id,
-                    epoch=m.epoch,
-                    assigned_at=m.assigned_at,
-                    status=m.status,
-                    last_active_at=m.last_active_at,
+        c_members = memberships.get(c.cohort_id, [])
+        for m in c_members:
+            # Find a viable cohort that has capacity remaining
+            placed = False
+            for target in viable_cohorts:
+                if len(result_memberships[target.cohort_id]) < target.max_size:
+                    result_memberships[target.cohort_id].append(
+                        CohortMembership(
+                            subject_id=m.subject_id,
+                            cohort_id=target.cohort_id,
+                            epoch=m.epoch,
+                            assigned_at=m.assigned_at,
+                            status=m.status,
+                            last_active_at=m.last_active_at,
+                        )
+                    )
+                    placed = True
+                    break
+
+            if not placed:
+                raise CohortCapacityOverflowError(
+                    f"Cannot merge member {m.subject_id}: all viable cohorts have reached max_size"
                 )
-            )
+
+        result_memberships[c.cohort_id] = []
 
     return result_cohorts, result_memberships
+
+
+class CohortLifecycleService:
+    """Manages cohort lifecycle transitions, capacity bounds, and assignment validation."""
+
+    VALID_TRANSITIONS = {
+        "forming": {"active", "finalized"},
+        "active": {"sealed", "finalized"},
+        "sealed": {"finalized"},
+        "finalized": set(),
+    }
+
+    @classmethod
+    def transition(cls, cohort: CohortDefinition, target_status: str) -> CohortDefinition:
+        """Transitions a cohort's status following strict lifecycle rules."""
+        allowed = cls.VALID_TRANSITIONS.get(cohort.status, set())
+        if target_status not in allowed:
+            raise ValueError(
+                f"Invalid cohort lifecycle transition from '{cohort.status}' to '{target_status}'. Allowed: {allowed}"
+            )
+        return CohortDefinition(
+            cohort_id=cohort.cohort_id,
+            strategy=cohort.strategy,
+            epoch=cohort.epoch,
+            min_size=cohort.min_size,
+            max_size=cohort.max_size,
+            status=target_status,  # type: ignore
+        )
+
+    @classmethod
+    def assert_can_admit_member(
+        cls, cohort: CohortDefinition, current_active_count: int
+    ) -> None:
+        """Enforces admission rules: prevents admitting to sealed/finalized cohorts or exceeding max_size."""
+        if cohort.status in {"sealed", "finalized"}:
+            raise CohortSealedError(
+                f"Cohort '{cohort.cohort_id}' is {cohort.status}; mid-week arrivals cannot enter sealed cohorts."
+            )
+        if current_active_count >= cohort.max_size:
+            raise CohortCapacityOverflowError(
+                f"Cohort '{cohort.cohort_id}' has reached maximum capacity of {cohort.max_size} members."
+            )

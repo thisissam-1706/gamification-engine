@@ -21,9 +21,9 @@
 |---|---|---|---|---|---|
 | M1 Canonical engagement events | AT-1 | Canonical event envelope and ingestion | TODO(owner) | partial (lesson_completed only) | W2-3 |
 | M2 Deterministic gamification | AT-2, AT-3, AT-4, AT-5, AT-16 | Deterministic state machine and replay | TODO(owner) | slice done | W2-4 |
-| M3 Cohorts and leaderboards | AT-7 | Cohort projections and leaderboard service | Group 14 | implemented & passing | W3 |
+| M3 Cohorts and leaderboards | AT-7 | Cohort projections and leaderboard service | Madhava Asrith | implemented & passing (recovery & constraints verified) | W3-4 |
 | M4 Intervention/quest policy (learning-oriented remediation) | AT-17 (to be written) | Intervention and quest policy | TODO(owner) | not started | W3-4 |
-| M5 Multi-channel notifications | AT-8, AT-9, AT-10, AT-11, AT-14 | Multi-channel notification engine | TODO(owner) | not started | W4 |
+| M5 Multi-channel notifications | AT-8, AT-9, AT-10, AT-11, AT-14 | Multi-channel notification engine | Madhava Asrith | implemented & passing | W4 |
 | M6 Abuse detection | AT-6 | Abuse rule engine | TODO(owner) | not started | W4-5 |
 | M7 Experimentation and metrics | AT-12, AT-13, AT-15 (partial), AT-18 (to be written) | Experimentation and metrics pipeline; simulator: stub, not implemented, planned for milestone M7 | TODO(owner) | protocol in progress | protocol W2 / run W5 |
 | M8 Scale and recovery | AT-2, AT-15 | Full rebuild and recovery orchestration | TODO(owner) | not started | W5-6 |
@@ -36,7 +36,7 @@
 4. **Late Event Streak Recalc (M2):** Given StreakCount = 5, Freezes = 1, last active 2026-09-20, when a valid event with occurred_at = 2026-09-22 (∆d = 2) arrives within 72h, then Freezes ≥ (∆d − 1) = 1 holds, so StreakCount = 6 and Freezes = 0.
 5. **Historical Rule Versioning (M2):** Given xp_awarded was stamped with rule_version = v1 when E = 100, when the global rule config changes to E = 150 and replay occurs, then the historical event still yields XP_awarded = 100, not 150.
 6. **Point Farming / Decay Cap (M6):** Given E = 100, K = 20, learner completes lesson l_492 for the 3rd time (N = 2), when XP is calculated, then XP_awarded = max(0, 0.5(100) − 20(1)) = 30, and if this pattern pushes a cohort’s decayed-XP share above 15% of weekly total, the policy is flagged.
-7. **Leaderboard Reconciliation (M3):** Given Redis and Postgres diverge on L1’s score by a dropped event, when the daily reconciliation job runs, then it applies a differential ZADD correction (not a full flush) and resolves any tie using occurred_at of the first event reaching that score, then subject_id.
+7. **Leaderboard Reconciliation (M3):** Given the read model diverges on L1’s score by a dropped event or phantom entry, when the daily reconciliation job runs, then it applies a differential correction (pinpoint INSERT, UPDATE, or DELETE without full table flush) and resolves any tie using normalized UTC occurred_at of the event first reaching that score, then subject_id.
 8. **Quiet-Hour Delay (M5):** Given L1’s timezone is Asia/Kolkata and the [defined quiet-hours and daily-cap constraints](problem-boundaries.md#notification-channels-and-constraints), when a streak-risk candidate generates at 23:10 local, then delivery reschedules to 08:00 next day and counts against that day’s cap.
 9. **Duplicate Notification Proposals (M5):** Given proposal_id = p_001 was already generated for L1, when the policy attempts to generate a second candidate for the same trigger, then it is deduplicated by proposal_id before dispatch.
 10. **Retry & DLQ (M5):** Given a notification delivery attempt fails due to a provider error, when retries are exhausted, then the message routes to the DLQ and is recoverable after the channel failure is resolved.

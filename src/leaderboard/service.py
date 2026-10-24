@@ -60,3 +60,21 @@ class LeaderboardService:
     ) -> bool:
         """Verifies read-your-writes guarantee: read model is at least at expected watermark."""
         return self.get_watermark(scope_type, scope_id, epoch) >= expected_watermark
+
+    def check_watermark_lag(
+        self,
+        scope_type: Literal["cohort", "global"],
+        scope_id: str,
+        epoch: str,
+        required_watermark: int,
+    ) -> dict[str, int | bool]:
+        """Returns watermark consistency verification and explicit lag count."""
+        current = self.get_watermark(scope_type, scope_id, epoch)
+        lag = max(0, required_watermark - current)
+        return {
+            "current_watermark": current,
+            "required_watermark": required_watermark,
+            "is_consistent": current >= required_watermark,
+            "lag": lag,
+        }
+

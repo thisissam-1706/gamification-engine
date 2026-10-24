@@ -1,14 +1,75 @@
-"""Pluggable leaderboard storage implementations supporting deterministic tie-breaking."""
-
 from abc import ABC, abstractmethod
+from datetime import datetime, timezone
+import json
 import sqlite3
-from typing import Sequence
+import time
+from typing import Any, Sequence
 
-from src.leaderboard.models import LeaderboardEntry, RankedLearner
+from src.leaderboard.models import LeaderboardEntry, RankedLearner, ReconciliationAudit
 
 
 class LeaderboardStore(ABC):
     """Abstract interface for leaderboard read model persistence."""
+
+    @abstractmethod
+    def apply_award_atomic(
+        self,
+        event_id: str,
+        subject_id: str,
+        epoch: str,
+        xp_amount: int,
+        occurred_at: str,
+        global_score: int,
+        global_first_reached_at: str,
+        cohort_id: str | None,
+        cohort_score: int | None,
+        cohort_first_reached_at: str | None,
+        watermark_offset: int,
+    ) -> bool:
+        """Applies global + cohort score updates, tracking record, and checkpoint in one atomic transaction.
+
+        Returns False if event_id was already processed (duplicate).
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def is_event_applied(self, event_id: str) -> bool:
+        """Returns True if event_id has already been processed."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_committed_offset(self, scope_key: str = "global") -> int:
+        """Returns contiguous committed application offset."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def set_committed_offset(self, scope_key: str, offset: int) -> None:
+        """Updates contiguous committed application offset."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def record_reconciliation_audit(self, audit: ReconciliationAudit) -> None:
+        """Persists a reconciliation audit record."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_epoch_entries(
+        self, scope_type: str, epoch: str
+    ) -> list[LeaderboardEntry]:
+        """Returns all entries for an epoch across all scopes of scope_type."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_member_cohort(self, epoch: str, subject_id: str) -> str | None:
+        """Returns the cohort ID for a subject in a specific epoch, if assigned."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_applied_events(
+        self, subject_id: str | None = None, epoch: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Returns historical applied award facts, optionally filtered by subject and epoch."""
+        raise NotImplementedError
 
     @abstractmethod
     def upsert_score(
@@ -120,7 +181,276 @@ class SQLiteLeaderboardStore(LeaderboardStore):
             ON leaderboard_entries (scope_type, scope_id, epoch, score DESC, first_reached_at ASC, subject_id ASC)
             """
         )
+        self.connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS leaderboard_applied_events (
+                event_id TEXT PRIMARY KEY,
+                subject_id TEXT NOT NULL,
+                epoch TEXT NOT NULL,
+                xp_amount INTEGER NOT NULL,
+                applied_at TEXT NOT NULL,
+                stream_offset INTEGER NOT NULL DEFAULT 0
+            )
+            """
+        )
+        self.connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS leaderboard_checkpoints (
+                scope_key TEXT PRIMARY KEY,
+                committed_offset INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        self.connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS leaderboard_reconciliation_audits (
+                audit_id TEXT PRIMARY KEY,
+                scope_type TEXT NOT NULL,
+                scope_id TEXT NOT NULL,
+                epoch TEXT NOT NULL,
+                audited_at TEXT NOT NULL,
+                canonical_count INTEGER NOT NULL,
+                projection_count INTEGER NOT NULL,
+                divergence_count INTEGER NOT NULL,
+                inserted_count INTEGER NOT NULL,
+                updated_count INTEGER NOT NULL,
+                deleted_count INTEGER NOT NULL,
+                corrected_subjects_json TEXT NOT NULL,
+                duration_ms REAL NOT NULL
+            )
+            """
+        )
         self.connection.commit()
+
+    def apply_award_atomic(
+        self,
+        event_id: str,
+        subject_id: str,
+        epoch: str,
+        xp_amount: int,
+        occurred_at: str,
+        global_score: int,
+        global_first_reached_at: str,
+        cohort_id: str | None,
+        cohort_score: int | None,
+        cohort_first_reached_at: str | None,
+        watermark_offset: int,
+    ) -> bool:
+        cursor = self.connection.cursor()
+        try:
+            cursor.execute(
+                """
+                INSERT INTO leaderboard_applied_events (
+                    event_id, subject_id, epoch, xp_amount, applied_at, stream_offset
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (event_id, subject_id, epoch, xp_amount, occurred_at, watermark_offset),
+            )
+        except sqlite3.IntegrityError:
+            # Duplicate event delivery -> idempotent no-op!
+            return False
+
+        # 1. Update Global Leaderboard
+        cursor.execute(
+            """
+            INSERT INTO leaderboard_entries (
+                scope_type, scope_id, epoch, subject_id, score, first_reached_at, last_updated_at, watermark_offset
+            ) VALUES ('global', 'global', ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(scope_type, scope_id, epoch, subject_id) DO UPDATE SET
+                score = excluded.score,
+                first_reached_at = excluded.first_reached_at,
+                last_updated_at = excluded.last_updated_at,
+                watermark_offset = MAX(leaderboard_entries.watermark_offset, excluded.watermark_offset)
+            """,
+            (epoch, subject_id, global_score, global_first_reached_at, occurred_at, watermark_offset),
+        )
+
+        # 2. Update Cohort Leaderboard if applicable
+        if cohort_id and cohort_score is not None and cohort_first_reached_at is not None:
+            cursor.execute(
+                """
+                INSERT INTO leaderboard_entries (
+                    scope_type, scope_id, epoch, subject_id, score, first_reached_at, last_updated_at, watermark_offset
+                ) VALUES ('cohort', ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(scope_type, scope_id, epoch, subject_id) DO UPDATE SET
+                    score = excluded.score,
+                    first_reached_at = excluded.first_reached_at,
+                    last_updated_at = excluded.last_updated_at,
+                    watermark_offset = MAX(leaderboard_entries.watermark_offset, excluded.watermark_offset)
+                """,
+                (cohort_id, epoch, subject_id, cohort_score, cohort_first_reached_at, occurred_at, watermark_offset),
+            )
+
+        # 3. Update Contiguous Committed Checkpoints
+        # Checkpoint advances only through contiguous gap-free prefix of applied stream_offsets
+        cursor.execute(
+            "SELECT committed_offset FROM leaderboard_checkpoints WHERE scope_key = 'global'"
+        )
+        row = cursor.fetchone()
+        current_committed = row[0] if row else 0
+
+        cursor.execute(
+            """
+            SELECT stream_offset FROM leaderboard_applied_events
+            WHERE stream_offset > ?
+            ORDER BY stream_offset ASC
+            """,
+            (current_committed,),
+        )
+        for (off,) in cursor.fetchall():
+            if off == current_committed + 1:
+                current_committed = off
+            else:
+                break
+
+        cursor.execute(
+            """
+            INSERT INTO leaderboard_checkpoints (scope_key, committed_offset, updated_at)
+            VALUES ('global', ?, ?)
+            ON CONFLICT(scope_key) DO UPDATE SET
+                committed_offset = excluded.committed_offset,
+                updated_at = excluded.updated_at
+            """,
+            (current_committed, occurred_at),
+        )
+        if cohort_id:
+            cursor.execute(
+                """
+                INSERT INTO leaderboard_checkpoints (scope_key, committed_offset, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(scope_key) DO UPDATE SET
+                    committed_offset = excluded.committed_offset,
+                    updated_at = excluded.updated_at
+                """,
+                (f"cohort:{cohort_id}", current_committed, occurred_at),
+            )
+
+        self.connection.commit()
+        return True
+
+    def is_event_applied(self, event_id: str) -> bool:
+        cursor = self.connection.cursor()
+        cursor.execute("SELECT 1 FROM leaderboard_applied_events WHERE event_id = ?", (event_id,))
+        return cursor.fetchone() is not None
+
+    def get_committed_offset(self, scope_key: str = "global") -> int:
+        cursor = self.connection.cursor()
+        cursor.execute("SELECT committed_offset FROM leaderboard_checkpoints WHERE scope_key = ?", (scope_key,))
+        row = cursor.fetchone()
+        return row[0] if row else 0
+
+    def set_committed_offset(self, scope_key: str, offset: int) -> None:
+        cursor = self.connection.cursor()
+        now_ts = datetime.now(timezone.utc).isoformat()
+        cursor.execute(
+            """
+            INSERT INTO leaderboard_checkpoints (scope_key, committed_offset, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(scope_key) DO UPDATE SET
+                committed_offset = excluded.committed_offset,
+                updated_at = excluded.updated_at
+            """,
+            (scope_key, offset, now_ts),
+        )
+        self.connection.commit()
+
+    def record_reconciliation_audit(self, audit: ReconciliationAudit) -> None:
+        cursor = self.connection.cursor()
+        audit_id = audit.audit_id or f"audit_{int(time.time() * 1000)}"
+        cursor.execute(
+            """
+            INSERT INTO leaderboard_reconciliation_audits (
+                audit_id, scope_type, scope_id, epoch, audited_at,
+                canonical_count, projection_count, divergence_count,
+                inserted_count, updated_count, deleted_count,
+                corrected_subjects_json, duration_ms
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                audit_id,
+                audit.scope_type,
+                audit.scope_id,
+                audit.epoch,
+                audit.audited_at,
+                audit.canonical_count,
+                audit.projection_count,
+                audit.divergence_count,
+                audit.inserted_count,
+                audit.updated_count,
+                audit.deleted_count,
+                json.dumps(list(audit.corrected_subject_ids)),
+                audit.duration_ms,
+            ),
+        )
+        self.connection.commit()
+
+    def get_epoch_entries(
+        self, scope_type: str, epoch: str
+    ) -> list[LeaderboardEntry]:
+        cursor = self.connection.cursor()
+        cursor.execute(
+            """
+            SELECT scope_type, scope_id, epoch, subject_id, score, first_reached_at, last_updated_at, watermark_offset
+            FROM leaderboard_entries
+            WHERE scope_type = ? AND epoch = ?
+            """,
+            (scope_type, epoch),
+        )
+        return [
+            LeaderboardEntry(
+                scope_type=r[0],
+                scope_id=r[1],
+                epoch=r[2],
+                subject_id=r[3],
+                score=r[4],
+                first_reached_at=r[5],
+                last_updated_at=r[6],
+                watermark_offset=r[7],
+            )
+            for r in cursor.fetchall()
+        ]
+
+    def get_member_cohort(self, epoch: str, subject_id: str) -> str | None:
+        cursor = self.connection.cursor()
+        cursor.execute(
+            """
+            SELECT scope_id FROM leaderboard_entries
+            WHERE scope_type = 'cohort' AND epoch = ? AND subject_id = ?
+            """,
+            (epoch, subject_id),
+        )
+        row = cursor.fetchone()
+        return row[0] if row else None
+
+    def get_applied_events(
+        self, subject_id: str | None = None, epoch: str | None = None
+    ) -> list[dict[str, Any]]:
+        cursor = self.connection.cursor()
+        query = (
+            "SELECT event_id, subject_id, epoch, xp_amount, applied_at, stream_offset "
+            "FROM leaderboard_applied_events WHERE 1=1"
+        )
+        params: list[Any] = []
+        if subject_id is not None:
+            query += " AND subject_id = ?"
+            params.append(subject_id)
+        if epoch is not None:
+            query += " AND epoch = ?"
+            params.append(epoch)
+        query += " ORDER BY applied_at ASC"
+        cursor.execute(query, tuple(params))
+        return [
+            {
+                "event_id": r[0],
+                "subject_id": r[1],
+                "epoch": r[2],
+                "xp_amount": r[3],
+                "applied_at": r[4],
+                "stream_offset": r[5],
+            }
+            for r in cursor.fetchall()
+        ]
 
     def upsert_score(
         self,
@@ -344,16 +674,15 @@ class SQLiteLeaderboardStore(LeaderboardStore):
 
     def get_watermark(self, scope_type: str, scope_id: str, epoch: str) -> int:
         cursor = self.connection.cursor()
+        scope_key = "global" if scope_type == "global" else f"cohort:{scope_id}"
         cursor.execute(
-            """
-            SELECT COALESCE(MAX(watermark_offset), 0)
-            FROM leaderboard_entries
-            WHERE scope_type = ? AND scope_id = ? AND epoch = ?
-            """,
-            (scope_type, scope_id, epoch),
+            "SELECT committed_offset FROM leaderboard_checkpoints WHERE scope_key = ?",
+            (scope_key,),
         )
         row = cursor.fetchone()
-        return row[0] if row else 0
+        if row and row[0] is not None:
+            return row[0]
+        return 0
 
     def clear(
         self,
@@ -379,6 +708,9 @@ class SQLiteLeaderboardStore(LeaderboardStore):
             cursor.execute("DELETE FROM leaderboard_entries" + where, params)
         else:
             cursor.execute("DELETE FROM leaderboard_entries")
+            cursor.execute("DELETE FROM leaderboard_applied_events")
+            cursor.execute("DELETE FROM leaderboard_checkpoints")
+            cursor.execute("DELETE FROM leaderboard_reconciliation_audits")
         self.connection.commit()
 
     def close(self) -> None:
@@ -390,6 +722,112 @@ class InMemoryLeaderboardStore(LeaderboardStore):
 
     def __init__(self) -> None:
         self._entries: dict[tuple[str, str, str, str], LeaderboardEntry] = {}
+        self._applied_events: set[str] = set()
+        self._applied_events_list: list[dict[str, Any]] = []
+        self._checkpoints: dict[str, int] = {}
+        self._reconciliation_audits: list[ReconciliationAudit] = []
+
+    def apply_award_atomic(
+        self,
+        event_id: str,
+        subject_id: str,
+        epoch: str,
+        xp_amount: int,
+        occurred_at: str,
+        global_score: int,
+        global_first_reached_at: str,
+        cohort_id: str | None,
+        cohort_score: int | None,
+        cohort_first_reached_at: str | None,
+        watermark_offset: int,
+    ) -> bool:
+        if event_id in self._applied_events:
+            return False
+        self._applied_events.add(event_id)
+        self._applied_events_list.append(
+            {
+                "event_id": event_id,
+                "subject_id": subject_id,
+                "epoch": epoch,
+                "xp_amount": xp_amount,
+                "applied_at": occurred_at,
+                "stream_offset": watermark_offset,
+            }
+        )
+        self.upsert_score(
+            "global",
+            "global",
+            epoch,
+            subject_id,
+            global_score,
+            global_first_reached_at,
+            occurred_at,
+            watermark_offset,
+        )
+        if cohort_id and cohort_score is not None and cohort_first_reached_at is not None:
+            self.upsert_score(
+                "cohort",
+                cohort_id,
+                epoch,
+                subject_id,
+                cohort_score,
+                cohort_first_reached_at,
+                occurred_at,
+                watermark_offset,
+            )
+
+        # Contiguous committed offset advance
+        curr = self._checkpoints.get("global", 0)
+        offsets = sorted(
+            e["stream_offset"] for e in self._applied_events_list if e["stream_offset"] > curr
+        )
+        for off in offsets:
+            if off == curr + 1:
+                curr = off
+            else:
+                break
+
+        self._checkpoints["global"] = curr
+        if cohort_id:
+            self._checkpoints[f"cohort:{cohort_id}"] = curr
+        return True
+
+    def is_event_applied(self, event_id: str) -> bool:
+        return event_id in self._applied_events
+
+    def get_committed_offset(self, scope_key: str = "global") -> int:
+        return self._checkpoints.get(scope_key, 0)
+
+    def set_committed_offset(self, scope_key: str, offset: int) -> None:
+        self._checkpoints[scope_key] = offset
+
+    def record_reconciliation_audit(self, audit: ReconciliationAudit) -> None:
+        self._reconciliation_audits.append(audit)
+
+    def get_epoch_entries(
+        self, scope_type: str, epoch: str
+    ) -> list[LeaderboardEntry]:
+        return [
+            e
+            for (st, _, ep, _), e in self._entries.items()
+            if st == scope_type and ep == epoch
+        ]
+
+    def get_member_cohort(self, epoch: str, subject_id: str) -> str | None:
+        for (st, si, ep, sub), _ in self._entries.items():
+            if st == "cohort" and ep == epoch and sub == subject_id:
+                return si
+        return None
+
+    def get_applied_events(
+        self, subject_id: str | None = None, epoch: str | None = None
+    ) -> list[dict[str, Any]]:
+        res = list(self._applied_events_list)
+        if subject_id is not None:
+            res = [e for e in res if e["subject_id"] == subject_id]
+        if epoch is not None:
+            res = [e for e in res if e["epoch"] == epoch]
+        return sorted(res, key=lambda e: e["applied_at"])
 
     def upsert_score(
         self,
@@ -509,8 +947,8 @@ class InMemoryLeaderboardStore(LeaderboardStore):
         return self._sorted_scope_entries(scope_type, scope_id, epoch)
 
     def get_watermark(self, scope_type: str, scope_id: str, epoch: str) -> int:
-        entries = self._sorted_scope_entries(scope_type, scope_id, epoch)
-        return max((e.watermark_offset for e in entries), default=0)
+        scope_key = "global" if scope_type == "global" else f"cohort:{scope_id}"
+        return self._checkpoints.get(scope_key, 0)
 
     def clear(
         self,
@@ -520,6 +958,10 @@ class InMemoryLeaderboardStore(LeaderboardStore):
     ) -> None:
         if scope_type is None and scope_id is None and epoch is None:
             self._entries.clear()
+            self._applied_events.clear()
+            self._applied_events_list.clear()
+            self._checkpoints.clear()
+            self._reconciliation_audits.clear()
             return
         keys_to_remove = [
             k for k in self._entries

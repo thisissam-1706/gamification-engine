@@ -69,31 +69,34 @@ class LeaderboardReconciler:
                 inserted_count += 1
                 corrected_subjects.append(subject_id)
             elif proj.score != true_score or proj.first_reached_at != true_first_reached:
-                # Score or tie timestamp diverged -> differential update
-                self.store.upsert_score(
-                    scope_type=scope_type,
-                    scope_id=scope_id,
-                    epoch=epoch,
-                    subject_id=subject_id,
-                    score=true_score,
-                    first_reached_at=true_first_reached,
-                    updated_at=now_ts,
-                    watermark_offset=watermark_offset,
-                )
-                updated_count += 1
-                corrected_subjects.append(subject_id)
+                # Score or tie timestamp diverged -> differential update (only if not newer than pinned offset)
+                if watermark_offset == 0 or proj.watermark_offset <= watermark_offset:
+                    self.store.upsert_score(
+                        scope_type=scope_type,
+                        scope_id=scope_id,
+                        epoch=epoch,
+                        subject_id=subject_id,
+                        score=true_score,
+                        first_reached_at=true_first_reached,
+                        updated_at=now_ts,
+                        watermark_offset=watermark_offset,
+                    )
+                    updated_count += 1
+                    corrected_subjects.append(subject_id)
 
         # 3. Check for orphan entries in projection that do not exist in canonical truth
         orphans = projected_subjects - canonical_subjects
         for orphan_id in orphans:
-            self.store.remove_member(scope_type, scope_id, epoch, orphan_id)
-            deleted_count += 1
-            corrected_subjects.append(orphan_id)
+            proj = projected_entries[orphan_id]
+            if watermark_offset == 0 or proj.watermark_offset <= watermark_offset:
+                self.store.remove_member(scope_type, scope_id, epoch, orphan_id)
+                deleted_count += 1
+                corrected_subjects.append(orphan_id)
 
         duration_ms = (time.perf_counter() - start_time) * 1000.0
         divergence_count = inserted_count + updated_count + deleted_count
 
-        return ReconciliationAudit(
+        audit = ReconciliationAudit(
             scope_type=scope_type,  # type: ignore
             scope_id=scope_id,
             epoch=epoch,
@@ -106,4 +109,7 @@ class LeaderboardReconciler:
             deleted_count=deleted_count,
             corrected_subject_ids=tuple(sorted(corrected_subjects)),
             duration_ms=round(duration_ms, 3),
+            audit_id=f"audit_{int(time.time() * 1000)}_{scope_type}_{scope_id}",
         )
+        self.store.record_reconciliation_audit(audit)
+        return audit
