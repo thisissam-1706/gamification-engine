@@ -229,39 +229,12 @@ class LeaderboardProjection:
         epoch = epoch or get_calendar_week(occurred_at)
         key = (subject_id, epoch)
 
-        # Lazily load past events from store if not in memory (M3-1)
-        if key not in self._subject_events:
-            for ev in self.store.get_applied_events(subject_id=subject_id, epoch=epoch):
-                self._subject_events[key].append((ev["applied_at"], ev["xp_amount"], ev["event_id"]))
-
-        # Lazily load score and first_reached from store if not in memory
-        if key not in self._epoch_scores:
-            existing_entry = self.store.get_entry("global", "global", epoch, subject_id)
-            if existing_entry is not None:
-                self._epoch_scores[key] = existing_entry.score
-                self._first_reached[key] = existing_entry.first_reached_at
-
         # Derive event ID if not explicitly provided
         event_id = event_id or f"xp_event:{subject_id}:{epoch}:{occurred_at}:{xp_amount}"
 
         # Fast in-memory deduplication check (optimisation; store is ultimate authority)
         if self.store.is_event_applied(event_id, subject_id=subject_id):
             return False
-
-        old_score = self._epoch_scores.get(key, 0)
-        candidate_score = old_score + xp_amount
-
-        # Chronological first_reached_at computation on local candidate structures (M3-2)
-        candidate_events = list(self._subject_events.get(key, [])) + [(occurred_at, xp_amount, event_id)]
-        sorted_events = sorted(candidate_events, key=lambda item: item[0])
-
-        running_sum = 0
-        candidate_first_reached = occurred_at
-        for ev_ts, ev_xp, _ in sorted_events:
-            running_sum += ev_xp
-            if running_sum >= candidate_score:
-                candidate_first_reached = ev_ts
-                break
 
         # Keyed cohort membership lookup (M3-5)
         cohort_id = self._cohort_memberships.get(key)
@@ -271,17 +244,14 @@ class LeaderboardProjection:
                 self._cohort_memberships[key] = cohort_id
 
         # Atomic commit boundary across global and cohort scopes (M3-2, M3-3)
+        # Delegate score increment and first_reached_at derivation directly to the store
         applied = self.store.apply_award_atomic(
             event_id=event_id,
             subject_id=subject_id,
             epoch=epoch,
             xp_amount=xp_amount,
             occurred_at=occurred_at,
-            global_score=candidate_score,
-            global_first_reached_at=candidate_first_reached,
             cohort_id=cohort_id,
-            cohort_score=candidate_score if cohort_id else None,
-            cohort_first_reached_at=candidate_first_reached if cohort_id else None,
             watermark_offset=watermark_offset,
         )
 
@@ -289,10 +259,16 @@ class LeaderboardProjection:
             # Atomic commit rejected as duplicate -> leave memory untouched!
             return False
 
-        # Mutate in-memory structures only after successful persistence!
-        self._subject_events[key] = candidate_events
-        self._epoch_scores[key] = candidate_score
-        self._first_reached[key] = candidate_first_reached
+        # Treat in-memory structures strictly as a read cache refreshed from the store
+        global_entry = self.store.get_entry("global", "global", epoch, subject_id)
+        if global_entry is not None:
+            self._epoch_scores[key] = global_entry.score
+            self._first_reached[key] = global_entry.first_reached_at
+
+        events = self.store.get_applied_events(subject_id=subject_id, epoch=epoch)
+        self._subject_events[key] = [
+            (ev["applied_at"], ev["xp_amount"], ev["event_id"]) for ev in events
+        ]
         self._watermark = max(self._watermark, watermark_offset)
         return True
 
@@ -307,43 +283,47 @@ class LeaderboardProjection:
         """Assigns a subject to a cohort and projects any accumulated epoch XP into the cohort leaderboard.
 
         Cleans up obsolete cohort leaderboard rows if reassigned.
+        Runs remove_member and upsert_score in a single atomic transaction.
         """
         assigned_at = normalize_to_utc_iso(assigned_at)
         key = (subject_id, epoch)
         old_cohort = self._cohort_memberships.get(key)
+        if not old_cohort:
+            old_cohort = self.store.get_member_cohort(epoch, subject_id)
 
-        # If reassigned to a different cohort, clean up obsolete row
-        if old_cohort and old_cohort != cohort_id:
-            self.store.remove_member(
+        # Read global score and first_reached from store (not process memory)
+        global_entry = self.store.get_entry("global", "global", epoch, subject_id)
+        current_score = global_entry.score if global_entry is not None else 0
+        first_reached = (
+            global_entry.first_reached_at if global_entry is not None else assigned_at
+        )
+
+        with self.store.transaction():
+            # If reassigned to a different cohort, clean up obsolete row
+            if old_cohort and old_cohort != cohort_id:
+                self.store.remove_member(
+                    scope_type="cohort",
+                    scope_id=old_cohort,
+                    epoch=epoch,
+                    subject_id=subject_id,
+                )
+
+            self.store.upsert_score(
                 scope_type="cohort",
-                scope_id=old_cohort,
+                scope_id=cohort_id,
                 epoch=epoch,
                 subject_id=subject_id,
+                score=current_score,
+                first_reached_at=first_reached,
+                updated_at=assigned_at,
+                watermark_offset=max(self._watermark, watermark_offset),
             )
 
+        # Refresh in-memory read cache
         self._cohort_memberships[key] = cohort_id
+        self._epoch_scores[key] = current_score
+        self._first_reached[key] = first_reached
         self._watermark = max(self._watermark, watermark_offset)
-
-        # M3-6: Load global score from store if not in memory to avoid projecting 0
-        if key not in self._epoch_scores:
-            existing_entry = self.store.get_entry("global", "global", epoch, subject_id)
-            if existing_entry is not None:
-                self._epoch_scores[key] = existing_entry.score
-                self._first_reached[key] = existing_entry.first_reached_at
-
-        current_score = self._epoch_scores.get(key, 0)
-        first_reached = self._first_reached.get(key, assigned_at)
-
-        self.store.upsert_score(
-            scope_type="cohort",
-            scope_id=cohort_id,
-            epoch=epoch,
-            subject_id=subject_id,
-            score=current_score,
-            first_reached_at=first_reached,
-            updated_at=assigned_at,
-            watermark_offset=self._watermark,
-        )
 
     def clear(self) -> None:
         """Clears in-memory projection tracking and storage."""
