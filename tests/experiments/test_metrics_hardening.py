@@ -45,7 +45,7 @@ def test_completion_before_its_attempt_is_not_mastery():
 
     # Completion (Jan 3) precedes its attempt (Jan 5): invalid ordering,
     # so 0 mastered / 1 assigned = 0.0.
-    assert first_eligible_checkpoint_mastery(assignments, attempts, completions) == 0.0
+    assert first_eligible_checkpoint_mastery(assignments, attempts, completions, as_of="2100-01-01T00:00:00Z") == 0.0
 
 
 # (2) Conflicting duplicate completions for one attempt_id.
@@ -55,8 +55,8 @@ def test_conflicting_duplicate_completions_are_order_independent_and_not_mastery
     passed = _completion("A1", "2026-01-02T01:00:00+00:00", passed=True)
     failed = _completion("A1", "2026-01-02T01:00:00+00:00", passed=False)
 
-    forward = first_eligible_checkpoint_mastery(assignments, attempts, [passed, failed])
-    reverse = first_eligible_checkpoint_mastery(assignments, attempts, [failed, passed])
+    forward = first_eligible_checkpoint_mastery(assignments, attempts, [passed, failed], as_of="2100-01-01T00:00:00Z")
+    reverse = first_eligible_checkpoint_mastery(assignments, attempts, [failed, passed], as_of="2100-01-01T00:00:00Z")
 
     # A1 has both passed=True and passed=False: conflicting, not mastered.
     # 0 / 1 = 0.0 in both input orders.
@@ -72,8 +72,8 @@ def test_identical_duplicate_completions_collapse_to_one():
     completions = [completion, dict(completion)]
 
     # Two identical rows are one completion, not a conflict: 1 / 1 = 1.0.
-    assert first_eligible_checkpoint_mastery(assignments, attempts, completions) == 1.0
-    report = mastery_report(assignments, attempts, completions)
+    assert first_eligible_checkpoint_mastery(assignments, attempts, completions, as_of="2100-01-01T00:00:00Z") == 1.0
+    report = mastery_report(assignments, attempts, completions, as_of="2100-01-01T00:00:00Z")
     assert (report.mastered, report.conflicting) == (1, 0)
 
 
@@ -87,8 +87,8 @@ def test_tied_first_attempts_use_smallest_attempt_id():
         _completion("A2", "2026-01-02T01:00:00+00:00", passed=False),
     ]
 
-    forward = first_eligible_checkpoint_mastery(assignments, [a2, a1], completions)
-    reverse = first_eligible_checkpoint_mastery(assignments, [a1, a2], completions)
+    forward = first_eligible_checkpoint_mastery(assignments, [a2, a1], completions, as_of="2100-01-01T00:00:00Z")
+    reverse = first_eligible_checkpoint_mastery(assignments, [a1, a2], completions, as_of="2100-01-01T00:00:00Z")
 
     # Same instant: the tie goes to the smallest attempt_id, "A1", which passed.
     # 1 / 1 = 1.0 in both input orders.
@@ -114,7 +114,7 @@ def test_naive_and_offset_timestamps_are_normalized_to_utc():
     ]
 
     # L1 mastered, L2 has no eligible attempt: 1 / 2 = 0.5.
-    assert first_eligible_checkpoint_mastery(assignments, attempts, completions) == 0.5
+    assert first_eligible_checkpoint_mastery(assignments, attempts, completions, as_of="2100-01-01T00:00:00Z") == 0.5
 
 
 # (4) Learners whose 14-day window has not closed are not failures.
@@ -192,8 +192,8 @@ def test_report_buckets_partition_assigned_learners():
         _completion("A7", "2026-01-20T00:00:00Z", passed=True),   # after +14 d
     ]
 
-    report = mastery_report(assignments, attempts, completions)
-    reverse = mastery_report(assignments, attempts, list(reversed(completions)))
+    report = mastery_report(assignments, attempts, completions, as_of="2100-01-01T00:00:00Z")
+    reverse = mastery_report(assignments, attempts, list(reversed(completions)), as_of="2100-01-01T00:00:00Z")
 
     # mastered L1; failed L2; missing L3, L4, L7; invalid L5; conflicting L6.
     assert report == reverse
@@ -215,8 +215,8 @@ def test_true_and_one_are_conflicting_in_either_order():
     as_bool = _completion("A1", "2026-01-02T01:00:00Z", passed=True)
     as_int = _completion("A1", "2026-01-02T01:00:00Z", passed=1)
 
-    forward = mastery_report(assignments, attempts, [as_bool, as_int])
-    reverse = mastery_report(assignments, attempts, [as_int, as_bool])
+    forward = mastery_report(assignments, attempts, [as_bool, as_int], as_of="2100-01-01T00:00:00Z")
+    reverse = mastery_report(assignments, attempts, [as_int, as_bool], as_of="2100-01-01T00:00:00Z")
 
     # True == 1 in Python, but the rows are not identical: conflicting, 0 / 1.
     assert forward == reverse
@@ -305,7 +305,7 @@ def test_completion_after_as_of_is_ignored():
     # As of Jan 10 only the Dec 21 pass is observable: mastered, 1 / 1 = 1.0.
     # Without a cutoff both rows are visible and disagree: conflicting, 0.0.
     observed = mastery_report(assignments, attempts, completions, as_of="2026-01-10T00:00:00Z")
-    everything = mastery_report(assignments, attempts, completions)
+    everything = mastery_report(assignments, attempts, completions, as_of="2100-01-01T00:00:00Z")
     assert (observed.mastered, observed.conflicting, observed.rate) == (1, 0, 1.0)
     assert (everything.mastered, everything.conflicting, everything.rate) == (0, 1, 0.0)
 
@@ -325,7 +325,7 @@ def test_zero_mature_learners_gives_rate_none():
     assert first_eligible_checkpoint_mastery(
         assignments, attempts, completions, as_of=as_of
     ) == 0.0
-    assert mastery_report({}, [], []).rate is None
+    assert mastery_report({}, [], [], as_of="2100-01-01T00:00:00Z").rate is None
     _assert_partition(report)
 
 
@@ -393,11 +393,24 @@ def _permutation_fixture():
     return assignments, attempts, completions
 
 
+def test_as_of_is_required_and_none_is_rejected():
+    from src.experiments.metrics import mastery_report
+
+    with pytest.raises(TypeError):
+        mastery_report({}, [], [])
+    with pytest.raises(ValueError, match="as_of is required"):
+        mastery_report({}, [], [], as_of=None)
+    with pytest.raises(TypeError):
+        first_eligible_checkpoint_mastery({}, [], [])
+    with pytest.raises(ValueError, match="as_of is required"):
+        first_eligible_checkpoint_mastery({}, [], [], as_of=None)
+
+
 def test_every_input_permutation_gives_identical_report():
     from src.experiments.metrics import mastery_report
 
     assignments, attempts, completions = _permutation_fixture()
-    reference = mastery_report(assignments, attempts, completions)
+    reference = mastery_report(assignments, attempts, completions, as_of="2100-01-01T00:00:00Z")
 
     # L1 -> A1 (smallest id at the tie) passed; L2 passed; L3 conflicting.
     # 2 / 3.
@@ -410,7 +423,8 @@ def test_every_input_permutation_gives_identical_report():
         for attempt_order in permutations(attempts):
             for completion_order in permutations(completions):
                 assert mastery_report(
-                    ordered, list(attempt_order), list(completion_order)
+                    ordered, list(attempt_order), list(completion_order),
+                    as_of="2100-01-01T00:00:00Z",
                 ) == reference
                 runs += 1
     assert runs == 6 * 24 * 120
@@ -422,20 +436,20 @@ FIXTURES = {
         {"L1": "2026-01-01T00:00:00+00:00"},
         [_attempt("L1", "A1", "2026-01-05T00:00:00+00:00")],
         [_completion("A1", "2026-01-03T00:00:00+00:00", passed=True)],
-        None,
+        "2100-01-01T00:00:00Z",
     ),
     "conflicting": lambda: (
         {"L1": "2026-01-01T00:00:00+00:00"},
         [_attempt("L1", "A1", "2026-01-02T00:00:00+00:00")],
         [_completion("A1", "2026-01-02T01:00:00+00:00", passed=True),
          _completion("A1", "2026-01-02T01:00:00+00:00", passed=False)],
-        None,
+        "2100-01-01T00:00:00Z",
     ),
     "identical": lambda: (
         {"L1": "2026-01-01T00:00:00+00:00"},
         [_attempt("L1", "A1", "2026-01-02T00:00:00+00:00")],
         [_completion("A1", "2026-01-02T01:00:00+00:00", passed=True)] * 2,
-        None,
+        "2100-01-01T00:00:00Z",
     ),
     "timestamps": lambda: (
         {"L1": "2026-01-01T00:00:00", "L2": "2026-01-01T00:00:00Z"},
@@ -443,7 +457,7 @@ FIXTURES = {
          _attempt("L2", "A2", "2026-01-01T05:00:00+05:30")],
         [_completion("A1", "2026-01-15T00:00:00Z", passed=True),
          _completion("A2", "2026-01-01T06:00:00+05:30", passed=True)],
-        None,
+        "2100-01-01T00:00:00Z",
     ),
     "maturity": lambda: (*_maturity_fixture(), "2026-01-10T00:00:00Z"),
     "boundary_mature": lambda: (
@@ -455,14 +469,14 @@ FIXTURES = {
     "two_arms": lambda: (
         {**_two_arms()[0], **_two_arms()[1]}, *_two_arms()[2:], "2026-01-16T00:00:00Z"
     ),
-    "permutation": lambda: (*_permutation_fixture(), None),
+    "permutation": lambda: (*_permutation_fixture(), "2100-01-01T00:00:00Z"),
     "tie": lambda: (
         {"L1": "2026-01-01T00:00:00+00:00"},
         [_attempt("L1", "A2", "2026-01-02T00:00:00+00:00"),
          _attempt("L1", "A1", "2026-01-02T00:00:00+00:00")],
         [_completion("A1", "2026-01-02T01:00:00+00:00", passed=True),
          _completion("A2", "2026-01-02T01:00:00+00:00", passed=False)],
-        None,
+        "2100-01-01T00:00:00Z",
     ),
     "partition": lambda: (
         {f"L{n}": "2026-01-01T00:00:00Z" for n in range(1, 8)},
@@ -474,20 +488,20 @@ FIXTURES = {
          _completion("A6", "2026-01-02T01:00:00Z", passed=True),
          _completion("A6", "2026-01-02T01:00:00Z", passed=False),
          _completion("A7", "2026-01-20T00:00:00Z", passed=True)],
-        None,
+        "2100-01-01T00:00:00Z",
     ),
     "true_and_one": lambda: (
         {"L1": "2026-01-01T00:00:00Z"},
         [_attempt("L1", "A1", "2026-01-02T00:00:00Z")],
         [_completion("A1", "2026-01-02T01:00:00Z", passed=True),
          _completion("A1", "2026-01-02T01:00:00Z", passed=1)],
-        None,
+        "2100-01-01T00:00:00Z",
     ),
     "zero_mature": lambda: (
         {"L1": "2026-01-01T00:00:00Z", "L2": "2026-01-03T00:00:00Z"},
         *_passed_on_jan_2(), "2026-01-10T00:00:00Z",
     ),
-    "empty": lambda: ({}, [], [], None),
+    "empty": lambda: ({}, [], [], "2100-01-01T00:00:00Z"),
 }
 
 

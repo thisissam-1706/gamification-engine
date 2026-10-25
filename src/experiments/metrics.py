@@ -84,7 +84,7 @@ def mastery_report(
     assignments: Mapping[str, str],
     attempts: Iterable[Mapping[str, object]],
     completions: Iterable[Mapping[str, object]],
-    as_of: datetime | str | None = None,
+    as_of: datetime | str,
 ) -> MasteryReport:
     """Count first eligible checkpoint outcomes for every assigned learner.
 
@@ -92,23 +92,31 @@ def mastery_report(
     minimum by ``(occurred_at, attempt_id)``, has one matching passing
     completion and ``assignment <= attempt <= completion <= assignment + 14 days``.
 
-    With ``as_of``, attempts and completions after it are ignored, and a
+    ``as_of`` is required: attempts and completions after it are ignored, and a
     learner whose window has not closed (``assignment + 14 days > as_of``) is
-    counted as immature and left out of the denominator. ``as_of=None`` treats
-    every learner as mature.
+    counted as immature and left out of the denominator. Passing None raises
+    ValueError; declare the data cutoff explicitly.
     """
+    if as_of is None:
+        raise ValueError("as_of is required: declare the data cutoff")
     cutoff = _cutoff(as_of)
     assigned_at = {
         learner_id: _timestamp(value) for learner_id, value in assignments.items()
     }
 
     first_attempts: dict[str, tuple[tuple[datetime, object], Mapping[str, object]]] = {}
+    # Every observable record per attempt_id, to detect ids reused with other content.
+    attempt_records: dict[object, set[tuple]] = {}
     for attempt in attempts:
         learner_id = attempt["learner_id"]
+        attempted_at = _timestamp(attempt["occurred_at"])
+        if cutoff is None or attempted_at <= cutoff:
+            attempt_records.setdefault(attempt["attempt_id"], set()).add(
+                (learner_id, attempt["assessment_id"], attempt["assessment_version"], attempted_at)
+            )
         if learner_id not in assigned_at:
             continue
         start = assigned_at[learner_id]
-        attempted_at = _timestamp(attempt["occurred_at"])
         if cutoff is not None and attempted_at > cutoff:
             continue
         if start <= attempted_at <= start + WINDOW:
@@ -148,6 +156,12 @@ def mastery_report(
         )
         if cutoff is not None:
             records = [r for r in records if _timestamp(r["occurred_at"]) <= cutoff]
+        if attempt is not None and (
+            len(attempt_records[attempt["attempt_id"]]) > 1
+            or any(r.get("learner_id", learner_id) != learner_id for r in records)
+        ):
+            counts["conflicting"] += 1
+            continue
         counts[_outcome(start, attempt, records)] += 1
 
     denominator = len(assigned_at) - counts["immature"]
@@ -163,7 +177,7 @@ def first_eligible_checkpoint_mastery(
     assignments: Mapping[str, str],
     attempts: Iterable[Mapping[str, object]],
     completions: Iterable[Mapping[str, object]],
-    as_of: datetime | str | None = None,
+    as_of: datetime | str,
 ) -> float:
     """Return the share passing their first eligible checkpoint within 14 days.
 
@@ -172,7 +186,8 @@ def first_eligible_checkpoint_mastery(
     ``assessment_version``, and ``occurred_at``. Completions must include
     ``attempt_id``, ``assessment_id``, ``assessment_version``, ``passed``, and
     ``occurred_at``. Learners without a matching passing completion are
-    counted as not mastered. ``as_of`` is passed to ``mastery_report``.
+    counted as not mastered. ``as_of`` is required (None raises ValueError) and is passed
+    to ``mastery_report``.
 
     Returns 0.0 when there are no mature assigned learners. That 0.0 is
     ambiguous: it looks the same as "nobody mastered". Use

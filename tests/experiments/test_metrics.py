@@ -146,4 +146,4 @@ def test_first_eligible_checkpoint_mastery_uses_first_attempt_and_fourteen_day_w
     ]
 
     # L1 and L7 passed: 2 mastered / 10 eligible assigned = 20%.
-    assert first_eligible_checkpoint_mastery(assignments, attempts, completions) == 0.2
+    assert first_eligible_checkpoint_mastery(assignments, attempts, completions, as_of="2100-01-01T00:00:00Z") == 0.2
