@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 import hashlib
 import json
+from importlib.resources import files
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any
@@ -87,7 +88,11 @@ def load_rulesets(path: str | Path | None = None) -> dict[str, RuleSet]:
     """Loads and verifies the versioned rule sets; any defect raises RuleConfigError."""
     source = Path(path) if path is not None else RULESETS_FILE
     try:
-        document = json.loads(source.read_text(encoding="utf-8"))
+        if path is None:
+            text = (files("src.state_machine") / "rulesets.json").read_text(encoding="utf-8")
+        else:
+            text = source.read_text(encoding="utf-8")
+        document = json.loads(text)
     except (OSError, ValueError) as exc:
         raise RuleConfigError(f"cannot read rule sets from {source}: {exc}") from exc
     if not isinstance(document, dict) or not document:

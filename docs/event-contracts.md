@@ -16,7 +16,7 @@ This is a source learning event. It records that a learner completed a specific 
 | `timezone` | Yes | Learner IANA timezone at completion, such as `Asia/Kolkata`. |
 | `completion_kind` | No | One of `lesson`, `review`, or `remediation`. |
 
-The machine-readable payload contract is [lesson_completed.schema.json](../schemas/events/lesson_completed.schema.json).
+The machine-readable payload contract is [lesson_completed.schema.json](../src/schemas/events/lesson_completed.schema.json).
 
 ### Producer and idempotency rules
 

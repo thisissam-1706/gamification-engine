@@ -1,0 +1,18 @@
+# Python 3.14.6
+# Generated: 2026-10-25
+# Command: .venv/bin/python -m pip freeze --exclude-editable
+# Install: pip install -r requirements-lock.txt && pip install -e . --no-deps
+attrs==26.1.0
+eventsourcing==9.5.5
+iniconfig==2.3.0
+jsonschema==4.26.0
+jsonschema-specifications==2025.9.1
+packaging==26.3
+pluggy==1.6.0
+Pygments==2.21.0
+pytest==9.1.1
+referencing==0.37.0
+rpds-py==2026.6.3
+setuptools==84.2.1
+typing_extensions==4.16.0
+wheel==0.48.0

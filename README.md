@@ -81,7 +81,7 @@ The architecture diagram above is the repository's single high-level architectur
 
 ## How to Run Locally
 
-1. Create and activate a Python 3.11+ virtual environment.
+1. Create and activate a Python 3.11+ virtual environment. For the exact pinned versions, use `pip install -r requirements-lock.txt && pip install -e . --no-deps` instead of the steps below.
 2. Install the project and its development dependencies defined in `pyproject.toml`:
 
    ```bash
@@ -94,7 +94,15 @@ The architecture diagram above is the repository's single high-level architectur
    python -m pytest
    ```
 
+   `pytest -m integration` runs the packaging test.
+
 Kafka/Redpanda, Redis, and PostgreSQL setup instructions will be added only if measured scale or reliability needs require those components.
+
+## Reproducing the evidence
+
+- `requirements-lock.txt` pins the exact dependency versions used for the recorded test runs.
+- `scripts/capture_evidence.sh` writes the commit, environment and full pytest output to `docs/evidence/<short-sha>/`; run it only on a clean, committed tree.
+- `.github/workflows/ci.yml` runs the same install and test steps on GitHub Actions.
 
 ## Milestone Status
 

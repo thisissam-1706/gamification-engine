@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime
 import hashlib
 import json
-from pathlib import Path
+from importlib.resources import files
 from typing import Any, Mapping
 from uuid import UUID
 
@@ -107,9 +107,9 @@ def _quest_already_complete(learner: Learner, assignment_id: str | None) -> bool
 
 
 def _envelope_validator() -> Draft7Validator:
-    path = Path(__file__).resolve().parents[2] / "schemas" / "envelope.schema.json"
+    text = (files("src") / "schemas" / "envelope.schema.json").read_text(encoding="utf-8")
     return Draft7Validator(
-        json.loads(path.read_text(encoding="utf-8")),
+        json.loads(text),
         format_checker=FormatChecker(),
     )
 
