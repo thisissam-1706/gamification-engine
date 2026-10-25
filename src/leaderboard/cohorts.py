@@ -20,6 +20,10 @@ class CohortIncompatibleEpochError(ValueError):
     """Raised when attempting to merge or operate across mismatched calendar epochs."""
 
 
+class CohortIncompatibleStrategyError(ValueError):
+    """Raised when attempting to merge cohorts across mismatched grouping strategies."""
+
+
 def get_calendar_week(dt_value: str | datetime) -> str:
     """Returns the ISO calendar week string 'YYYY-Www' for a given timestamp."""
     if dt_value is None:
@@ -108,10 +112,10 @@ def merge_undersized_cohorts(
     """Merges cohorts with fewer than min_size active members into adjacent cohorts.
 
     Enforces:
-    - Target max_size capacity bounds (rejects or prevents overflow).
+    - Target max_size capacity bounds (counts only active members).
     - Counts only active unique members when evaluating density (excludes >30d inactive).
     - Preserves finalized cohorts and their membership history without dropping them.
-    - Prevents cross-epoch merges.
+    - Prevents cross-epoch and cross-strategy merges.
     """
     if not cohorts:
         return [], {}
@@ -120,6 +124,11 @@ def merge_undersized_cohorts(
     epochs = {c.epoch for c in cohorts if c.status != "finalized"}
     if len(epochs) > 1:
         raise CohortIncompatibleEpochError(f"Cannot merge cohorts across mismatched epochs: {epochs}")
+
+    # Check for cross-strategy conflicts among active cohorts
+    strategies = {c.strategy for c in cohorts if c.status != "finalized"}
+    if len(strategies) > 1:
+        raise CohortIncompatibleStrategyError(f"Cannot merge cohorts across mismatched strategies: {strategies}")
 
     # Finalized cohorts are preserved as-is
     finalized_cohorts = [c for c in cohorts if c.status == "finalized"]
@@ -133,6 +142,13 @@ def merge_undersized_cohorts(
     if not active_cohorts:
         return list(cohorts), result_memberships
 
+    def _is_active_member(m: CohortMembership) -> bool:
+        if m.status != "active":
+            return False
+        if reference_time is not None and is_inactive(m.last_active_at, reference_time):
+            return False
+        return True
+
     undersized: list[CohortDefinition] = []
     viable_cohorts: list[CohortDefinition] = []
 
@@ -141,13 +157,7 @@ def merge_undersized_cohorts(
         threshold = c.min_size if c.min_size is not None else min_size
 
         # Count only active members (filter inactive)
-        if reference_time is not None:
-            active_count = sum(
-                1 for m in c_members
-                if m.status == "active" and not is_inactive(m.last_active_at, reference_time)
-            )
-        else:
-            active_count = sum(1 for m in c_members if m.status == "active")
+        active_count = sum(1 for m in c_members if _is_active_member(m))
 
         if active_count < threshold:
             undersized.append(c)
@@ -161,12 +171,15 @@ def merge_undersized_cohorts(
     # If all active cohorts are undersized, merge all into the first active cohort
     if not viable_cohorts and undersized:
         primary = undersized[0]
-        total_members_to_merge = sum(len(memberships.get(c.cohort_id, [])) for c in undersized)
+        total_active_to_merge = sum(
+            sum(1 for m in memberships.get(c.cohort_id, []) if _is_active_member(m))
+            for c in undersized
+        )
 
-        # Capacity overflow check
-        if total_members_to_merge > primary.max_size:
+        # Capacity overflow check (counts only active members)
+        if total_active_to_merge > primary.max_size:
             raise CohortCapacityOverflowError(
-                f"Merged cohort size {total_members_to_merge} exceeds maximum capacity {primary.max_size}"
+                f"Merged cohort active size {total_active_to_merge} exceeds maximum capacity {primary.max_size}"
             )
 
         merged_members: list[CohortMembership] = []
@@ -189,15 +202,20 @@ def merge_undersized_cohorts(
         result_cohorts.append(primary)
         return result_cohorts, result_memberships
 
-    # Distribute undersized members into existing viable cohorts with capacity bounds
+    # Distribute undersized members into existing viable cohorts with active capacity bounds
     result_cohorts.extend(viable_cohorts)
     for c in undersized:
         c_members = memberships.get(c.cohort_id, [])
         for m in c_members:
-            # Find a viable cohort that has capacity remaining
+            is_m_active = _is_active_member(m)
+            # Find a viable cohort that has capacity remaining (evaluating active capacity)
             placed = False
             for target in viable_cohorts:
-                if len(result_memberships[target.cohort_id]) < target.max_size:
+                target_active_count = sum(
+                    1 for tm in result_memberships[target.cohort_id]
+                    if _is_active_member(tm)
+                )
+                if not is_m_active or target_active_count < target.max_size:
                     result_memberships[target.cohort_id].append(
                         CohortMembership(
                             subject_id=m.subject_id,
@@ -213,7 +231,7 @@ def merge_undersized_cohorts(
 
             if not placed:
                 raise CohortCapacityOverflowError(
-                    f"Cannot merge member {m.subject_id}: all viable cohorts have reached max_size"
+                    f"Cannot merge active member {m.subject_id}: all viable cohorts have reached active capacity bound {target.max_size}"
                 )
 
         result_memberships[c.cohort_id] = []

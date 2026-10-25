@@ -13,8 +13,8 @@ Cohorts partition active synthetic learners into bounded competitive communities
 ## 3. Membership Epochs & Calendar Weeks
 To provide clear weekly reset cycles and avoid rank instability from mid-cycle backfilling:
 - Epochs are scoped to ISO calendar weeks formatted as `YYYY-Www` (e.g. `2026-W42`).
-- Active cohorts are **sealed** upon epoch commencement.
-- Learners arriving mid-week are placed into provisional forming cohorts or queued for the next epoch, preserving rank stability for established cohorts.
+- Cohorts follow explicit lifecycle states (`forming`, `active`, `sealed`, `finalized`).
+- When a cohort is transitioned to `sealed` (caller-invoked transition via `CohortLifecycleService.transition`), mid-week arrivals cannot enter sealed cohorts and are rejected deterministically with `CohortSealedError`. Learners arriving after a seal are placed into forming or active cohorts.
 
 ## 4. Deterministic Tie-Breaking Rules
 Ties in scores are resolved deterministically using exact compound precedence:
@@ -44,8 +44,8 @@ Per-learner actions are causally consistent:
 - In measured SQLite benchmarks, $P_{99}$ update latency is under $4\text{ ms}$, and query latency is under $3\text{ ms}$.
 
 ## 6. Reconciliation Semantics (AT-7)
-The scheduled daily reconciliation job (`LeaderboardReconciler`) audits the read projection against canonical event logs:
-1. **Audit**: Compares authoritative scores and normalized UTC `first_reached_at` timestamps against projection state.
-2. **Divergence Detection**: Identifies dropped events (score lag), missing entries, or phantom projection rows.
-3. **Differential Updates**: Applies pinpoint `INSERT`, `UPDATE`, and `DELETE` queries. The job **never executes destructive flushes** (`FLUSHDB` or table truncations).
-4. **Audit Evidence**: Emits a `ReconciliationAudit` record and persists it to the SQLite `leaderboard_reconciliation_audits` table, documenting audited count, mismatch count, corrected learner IDs, and execution latency.
+The caller-invoked reconciliation service (`LeaderboardReconciler`) audits the read projection against canonical event streams (`applied_events` log) up to a pinned stream offset:
+1. **Canonical Stream Rebuilding**: Authoritative learner scores and normalized UTC tie-breaking timestamps (`first_reached_at`) are rebuilt deterministically from the applied event stream up to `pinned_offset` without caller-supplied drift.
+2. **Pinned Offset Isolation**: Any projection row with `watermark_offset > pinned_offset` is strictly left alone, preventing reconciliation from overwriting newer in-flight updates. New insertions also record the pinned offset.
+3. **Differential Updates**: Applies pinpoint `INSERT`, `UPDATE`, and `DELETE` queries. The reconciler **never executes destructive flushes** (`FLUSHDB` or table truncations).
+4. **Collision-Safe Audit Records**: Emits a `ReconciliationAudit` record with a collision-safe audit ID (incorporating high-resolution nanosecond timestamps, atomic sequence counters, and entropy) and persists `pinned_offset`, divergence counts, corrected learner IDs, and execution latency to `leaderboard_reconciliation_audits`.

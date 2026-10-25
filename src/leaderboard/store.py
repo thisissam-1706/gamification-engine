@@ -6,7 +6,12 @@ import sqlite3
 import time
 from typing import Any, Sequence
 
-from src.leaderboard.models import LeaderboardEntry, RankedLearner, ReconciliationAudit
+from src.leaderboard.models import (
+    CohortDefinition,
+    LeaderboardEntry,
+    RankedLearner,
+    ReconciliationAudit,
+)
 
 
 class LeaderboardStore(ABC):
@@ -99,6 +104,21 @@ class LeaderboardStore(ABC):
         self, epoch: str, subject_id: str, except_cohort_id: str | None = None
     ) -> int:
         """Removes any cohort memberships for subject_id in epoch, optionally preserving except_cohort_id."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def save_cohort_definition(self, cohort: CohortDefinition) -> None:
+        """Persists or updates a cohort definition."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_cohort_definition(self, cohort_id: str) -> CohortDefinition | None:
+        """Retrieves a cohort definition by ID."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_cohort_member_count(self, cohort_id: str, epoch: str) -> int:
+        """Returns the number of distinct learners assigned to cohort_id in epoch."""
         raise NotImplementedError
 
     @abstractmethod
@@ -326,7 +346,20 @@ class SQLiteLeaderboardStore(LeaderboardStore):
                 updated_count INTEGER NOT NULL,
                 deleted_count INTEGER NOT NULL,
                 corrected_subjects_json TEXT NOT NULL,
-                duration_ms REAL NOT NULL
+                duration_ms REAL NOT NULL,
+                pinned_offset INTEGER NOT NULL DEFAULT 0
+            )
+            """
+        )
+        self.connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS leaderboard_cohort_definitions (
+                cohort_id TEXT PRIMARY KEY,
+                strategy TEXT NOT NULL,
+                epoch TEXT NOT NULL,
+                min_size INTEGER NOT NULL DEFAULT 500,
+                max_size INTEGER NOT NULL DEFAULT 5000,
+                status TEXT NOT NULL DEFAULT 'forming'
             )
             """
         )
@@ -443,6 +476,12 @@ class SQLiteLeaderboardStore(LeaderboardStore):
                         "INSERT OR IGNORE INTO leaderboard_processed_offsets (stream_offset, processed_at) VALUES (?, '')",
                         (off,),
                     )
+        cursor.execute("PRAGMA table_info(leaderboard_reconciliation_audits)")
+        audit_cols = [c[1] for c in cursor.fetchall()]
+        if audit_cols and "pinned_offset" not in audit_cols:
+            cursor.execute(
+                "ALTER TABLE leaderboard_reconciliation_audits ADD COLUMN pinned_offset INTEGER NOT NULL DEFAULT 0"
+            )
         self.connection.commit()
 
     def apply_award_atomic(
@@ -676,8 +715,8 @@ class SQLiteLeaderboardStore(LeaderboardStore):
                 audit_id, scope_type, scope_id, epoch, audited_at,
                 canonical_count, projection_count, divergence_count,
                 inserted_count, updated_count, deleted_count,
-                corrected_subjects_json, duration_ms
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                corrected_subjects_json, duration_ms, pinned_offset
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 audit_id,
@@ -693,6 +732,7 @@ class SQLiteLeaderboardStore(LeaderboardStore):
                 audit.deleted_count,
                 json.dumps(list(audit.corrected_subject_ids)),
                 audit.duration_ms,
+                audit.pinned_offset,
             ),
         )
         if self._transaction_depth == 0:
@@ -705,7 +745,7 @@ class SQLiteLeaderboardStore(LeaderboardStore):
             SELECT audit_id, scope_type, scope_id, epoch, audited_at,
                    canonical_count, projection_count, divergence_count,
                    inserted_count, updated_count, deleted_count,
-                   corrected_subjects_json, duration_ms
+                   corrected_subjects_json, duration_ms, pinned_offset
             FROM leaderboard_reconciliation_audits
             ORDER BY audited_at ASC, audit_id ASC
             """
@@ -725,6 +765,7 @@ class SQLiteLeaderboardStore(LeaderboardStore):
                 deleted_count=r[10],
                 corrected_subject_ids=tuple(json.loads(r[11])),
                 duration_ms=r[12],
+                pinned_offset=r[13] if len(r) > 13 else 0,
             )
             for r in cursor.fetchall()
         ]
@@ -803,6 +844,66 @@ class SQLiteLeaderboardStore(LeaderboardStore):
         if self._transaction_depth == 0:
             self.connection.commit()
         return count
+
+    def save_cohort_definition(self, cohort: CohortDefinition) -> None:
+        cursor = self.connection.cursor()
+        cursor.execute(
+            """
+            INSERT INTO leaderboard_cohort_definitions (
+                cohort_id, strategy, epoch, min_size, max_size, status
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(cohort_id) DO UPDATE SET
+                strategy = excluded.strategy,
+                epoch = excluded.epoch,
+                min_size = excluded.min_size,
+                max_size = excluded.max_size,
+                status = excluded.status
+            """,
+            (
+                cohort.cohort_id,
+                cohort.strategy,
+                cohort.epoch,
+                cohort.min_size,
+                cohort.max_size,
+                cohort.status,
+            ),
+        )
+        if self._transaction_depth == 0:
+            self.connection.commit()
+
+    def get_cohort_definition(self, cohort_id: str) -> CohortDefinition | None:
+        cursor = self.connection.cursor()
+        cursor.execute(
+            """
+            SELECT cohort_id, strategy, epoch, min_size, max_size, status
+            FROM leaderboard_cohort_definitions
+            WHERE cohort_id = ?
+            """,
+            (cohort_id,),
+        )
+        row = cursor.fetchone()
+        if not row:
+            return None
+        return CohortDefinition(
+            cohort_id=row[0],
+            strategy=row[1],
+            epoch=row[2],
+            min_size=row[3],
+            max_size=row[4],
+            status=row[5],
+        )
+
+    def get_cohort_member_count(self, cohort_id: str, epoch: str) -> int:
+        cursor = self.connection.cursor()
+        cursor.execute(
+            """
+            SELECT COUNT(DISTINCT subject_id) FROM leaderboard_entries
+            WHERE scope_type = 'cohort' AND scope_id = ? AND epoch = ?
+            """,
+            (cohort_id, epoch),
+        )
+        row = cursor.fetchone()
+        return row[0] if row else 0
 
     def get_applied_events(
         self, subject_id: str | None = None, epoch: str | None = None
@@ -1240,6 +1341,7 @@ class InMemoryLeaderboardStore(LeaderboardStore):
         self._reconciliation_audits: list[ReconciliationAudit] = []
         self._completion_times: dict[tuple[str, str], str] = {}
         self._pending_awards: list[dict[str, Any]] = []
+        self._cohort_definitions: dict[str, CohortDefinition] = {}
         self._transaction_depth = 0
 
     @contextmanager
@@ -1260,6 +1362,7 @@ class InMemoryLeaderboardStore(LeaderboardStore):
                 list(self._reconciliation_audits),
                 dict(self._completion_times),
                 [dict(d) for d in self._pending_awards],
+                dict(self._cohort_definitions),
             )
         try:
             yield
@@ -1274,6 +1377,7 @@ class InMemoryLeaderboardStore(LeaderboardStore):
                     self._reconciliation_audits,
                     self._completion_times,
                     self._pending_awards,
+                    self._cohort_definitions,
                 ) = snapshot
             raise
         finally:
@@ -1440,6 +1544,20 @@ class InMemoryLeaderboardStore(LeaderboardStore):
             self._entries.pop(k, None)
         return len(keys_to_remove)
 
+    def save_cohort_definition(self, cohort: CohortDefinition) -> None:
+        self._cohort_definitions[cohort.cohort_id] = cohort
+
+    def get_cohort_definition(self, cohort_id: str) -> CohortDefinition | None:
+        return self._cohort_definitions.get(cohort_id)
+
+    def get_cohort_member_count(self, cohort_id: str, epoch: str) -> int:
+        members = {
+            sub
+            for (st, si, ep, sub) in self._entries
+            if st == "cohort" and si == cohort_id and ep == epoch
+        }
+        return len(members)
+
     def get_applied_events(
         self, subject_id: str | None = None, epoch: str | None = None
     ) -> list[dict[str, Any]]:
@@ -1588,6 +1706,7 @@ class InMemoryLeaderboardStore(LeaderboardStore):
         """Full wipe of all storage state including audits; tests only."""
         self.clear_derived()
         self._reconciliation_audits.clear()
+        self._cohort_definitions.clear()
 
     def clear(
         self,

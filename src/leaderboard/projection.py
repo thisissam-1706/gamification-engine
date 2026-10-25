@@ -5,7 +5,13 @@ from collections.abc import Iterable, Sequence
 from datetime import datetime, timezone
 from typing import Any
 
-from src.leaderboard.cohorts import get_calendar_week
+from src.leaderboard.cohorts import (
+    CohortCapacityOverflowError,
+    CohortLifecycleService,
+    CohortSealedError,
+    get_calendar_week,
+)
+from src.leaderboard.models import CohortDefinition
 from src.leaderboard.store import LeaderboardStore
 from src.state_machine.learner import Learner
 
@@ -385,6 +391,27 @@ class LeaderboardProjection:
         if not old_cohort:
             old_cohort = self.store.get_member_cohort(epoch, subject_id)
 
+        # Enforce cohort lifecycle admission rules
+        cohort_def = self.store.get_cohort_definition(cohort_id)
+        if cohort_def is None:
+            cohort_def = CohortDefinition(
+                cohort_id=cohort_id,
+                strategy="activity_volume",
+                epoch=epoch,
+                status="forming",
+            )
+            self.store.save_cohort_definition(cohort_def)
+
+        # Enforce admission check for arrivals/reassignments
+        if old_cohort != cohort_id:
+            current_count = self.store.get_cohort_member_count(cohort_id, epoch)
+            CohortLifecycleService.assert_can_admit_member(cohort_def, current_count)
+
+            # Auto-advance forming cohort to active when minimum threshold is met
+            if cohort_def.status == "forming" and (current_count + 1) >= cohort_def.min_size:
+                cohort_def = CohortLifecycleService.transition(cohort_def, "active")
+                self.store.save_cohort_definition(cohort_def)
+
         # Read global score and first_reached from store (not process memory)
         global_entry = self.store.get_entry("global", "global", epoch, subject_id)
         current_score = global_entry.score if global_entry is not None else 0
@@ -416,6 +443,26 @@ class LeaderboardProjection:
         self._epoch_scores[key] = current_score
         self._first_reached[key] = first_reached
         self._watermark = self.store.get_committed_offset("global")
+
+    def register_cohort(self, cohort: CohortDefinition) -> None:
+        """Registers or updates a cohort definition in the store."""
+        self.store.save_cohort_definition(cohort)
+
+    def transition_cohort(
+        self, cohort_id: str, target_status: str, epoch: str = ""
+    ) -> CohortDefinition:
+        """Transitions a cohort's status using CohortLifecycleService and persists it."""
+        cohort_def = self.store.get_cohort_definition(cohort_id)
+        if cohort_def is None:
+            cohort_def = CohortDefinition(
+                cohort_id=cohort_id,
+                strategy="activity_volume",
+                epoch=epoch,
+                status="forming",
+            )
+        new_def = CohortLifecycleService.transition(cohort_def, target_status)
+        self.store.save_cohort_definition(new_def)
+        return new_def
 
     def clear(self) -> None:
         """Clears in-memory projection tracking and derived storage, preserving reconciliation audits."""

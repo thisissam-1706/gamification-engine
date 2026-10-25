@@ -8,6 +8,11 @@ from .models import (
     ReconciliationAudit,
 )
 from .cohorts import (
+    CohortCapacityOverflowError,
+    CohortIncompatibleEpochError,
+    CohortIncompatibleStrategyError,
+    CohortLifecycleService,
+    CohortSealedError,
     assign_activity_volume_cohort,
     assign_module_cohort,
     get_calendar_week,
@@ -26,6 +31,11 @@ from .reconciliation import LeaderboardReconciler
 __all__ = [
     "CohortDefinition",
     "CohortMembership",
+    "CohortLifecycleService",
+    "CohortSealedError",
+    "CohortCapacityOverflowError",
+    "CohortIncompatibleEpochError",
+    "CohortIncompatibleStrategyError",
     "LeaderboardEntry",
     "RankedLearner",
     "ReconciliationAudit",

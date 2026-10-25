@@ -10,8 +10,8 @@ class CohortDefinition:
     """Represents a bounded group of learners competing in an epoch."""
 
     cohort_id: str
-    strategy: Literal["activity_volume", "course_module"]
-    epoch: str
+    strategy: Literal["activity_volume", "course_module"] = "activity_volume"
+    epoch: str = ""
     min_size: int = 500
     max_size: int = 5000
     status: Literal["forming", "active", "sealed", "finalized"] = "forming"
@@ -73,3 +73,5 @@ class ReconciliationAudit:
     corrected_subject_ids: tuple[str, ...] = field(default_factory=tuple)
     duration_ms: float = 0.0
     audit_id: str = ""
+    pinned_offset: int = 0
+
