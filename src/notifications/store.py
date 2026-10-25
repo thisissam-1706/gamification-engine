@@ -79,7 +79,10 @@ class NotificationStore:
                 reason TEXT NOT NULL,
                 attempts INTEGER NOT NULL,
                 payload_json TEXT NOT NULL,
-                resolved INTEGER NOT NULL DEFAULT 0
+                resolved INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT DEFAULT '',
+                template_id TEXT DEFAULT 'default_template',
+                ttl_seconds INTEGER DEFAULT 86400
             )
             """
         )
@@ -93,10 +96,33 @@ class NotificationStore:
                 rescheduled_for TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 payload_json TEXT NOT NULL,
-                released INTEGER NOT NULL DEFAULT 0
+                released INTEGER NOT NULL DEFAULT 0,
+                template_id TEXT DEFAULT 'default_template',
+                ttl_seconds INTEGER DEFAULT 86400
             )
             """
         )
+        self.connection.commit()
+        self._migrate_schema()
+
+    def _migrate_schema(self) -> None:
+        """Safely migrates existing notification_dlq and notification_rescheduled tables."""
+        cursor = self.connection.cursor()
+        cursor.execute("PRAGMA table_info(notification_rescheduled)")
+        rescheduled_cols = {row[1] for row in cursor.fetchall()}
+        if "template_id" not in rescheduled_cols:
+            cursor.execute("ALTER TABLE notification_rescheduled ADD COLUMN template_id TEXT DEFAULT 'default_template'")
+        if "ttl_seconds" not in rescheduled_cols:
+            cursor.execute("ALTER TABLE notification_rescheduled ADD COLUMN ttl_seconds INTEGER DEFAULT 86400")
+
+        cursor.execute("PRAGMA table_info(notification_dlq)")
+        dlq_cols = {row[1] for row in cursor.fetchall()}
+        if "created_at" not in dlq_cols:
+            cursor.execute("ALTER TABLE notification_dlq ADD COLUMN created_at TEXT DEFAULT ''")
+        if "template_id" not in dlq_cols:
+            cursor.execute("ALTER TABLE notification_dlq ADD COLUMN template_id TEXT DEFAULT 'default_template'")
+        if "ttl_seconds" not in dlq_cols:
+            cursor.execute("ALTER TABLE notification_dlq ADD COLUMN ttl_seconds INTEGER DEFAULT 86400")
         self.connection.commit()
 
     def get_proposal_status(self, proposal_id: str) -> NotificationStatus | None:
@@ -174,6 +200,8 @@ class NotificationStore:
         category: NotificationCategory,
         dispatched_at: str,
         payload: Any,
+        release_proposal_id: str | None = None,
+        resolve_dlq_id: str | None = None,
     ) -> None:
         with self.connection:
             cursor = self.connection.cursor()
@@ -213,6 +241,16 @@ class NotificationStore:
                         NotificationStatus.DISPATCHED.value,
                     ),
                 )
+            if release_proposal_id:
+                cursor.execute(
+                    "UPDATE notification_rescheduled SET released = 1 WHERE proposal_id = ?",
+                    (release_proposal_id,),
+                )
+            if resolve_dlq_id:
+                cursor.execute(
+                    "UPDATE notification_dlq SET resolved = 1 WHERE dlq_id = ?",
+                    (resolve_dlq_id,),
+                )
 
     def record_suppression(
         self,
@@ -223,6 +261,7 @@ class NotificationStore:
         category: NotificationCategory,
         suppressed_at: str,
         reason: str,
+        release_proposal_id: str | None = None,
     ) -> None:
         with self.connection:
             cursor = self.connection.cursor()
@@ -262,6 +301,11 @@ class NotificationStore:
                         NotificationStatus.SUPPRESSED.value,
                     ),
                 )
+            if release_proposal_id:
+                cursor.execute(
+                    "UPDATE notification_rescheduled SET released = 1 WHERE proposal_id = ?",
+                    (release_proposal_id,),
+                )
 
     def record_dlq(
         self,
@@ -274,14 +318,19 @@ class NotificationStore:
         reason: str,
         attempts: int,
         payload: Any,
+        created_at: str = "",
+        template_id: str = "default_template",
+        ttl_seconds: int = 86400,
+        release_proposal_id: str | None = None,
     ) -> None:
         with self.connection:
             cursor = self.connection.cursor()
             cursor.execute(
                 """
                 INSERT INTO notification_dlq (
-                    dlq_id, proposal_id, learner_id, channel, category, failed_at, reason, attempts, payload_json, resolved
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+                    dlq_id, proposal_id, learner_id, channel, category, failed_at, reason, attempts, payload_json, resolved,
+                    created_at, template_id, ttl_seconds
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
                 """,
                 (
                     dlq_id,
@@ -293,6 +342,9 @@ class NotificationStore:
                     reason,
                     attempts,
                     json.dumps(payload),
+                    created_at or failed_at,
+                    template_id or "default_template",
+                    ttl_seconds if ttl_seconds is not None else 86400,
                 ),
             )
             cursor.execute(
@@ -315,6 +367,11 @@ class NotificationStore:
                         NotificationStatus.FAILED.value,
                     ),
                 )
+            if release_proposal_id:
+                cursor.execute(
+                    "UPDATE notification_rescheduled SET released = 1 WHERE proposal_id = ?",
+                    (release_proposal_id,),
+                )
 
     def resolve_dlq(self, dlq_id: str) -> bool:
         """Marks a DLQ entry as resolved after successful replay."""
@@ -328,7 +385,8 @@ class NotificationStore:
         cursor = self.connection.cursor()
         cursor.execute(
             """
-            SELECT dlq_id, proposal_id, learner_id, channel, category, failed_at, reason, attempts, payload_json, resolved
+            SELECT dlq_id, proposal_id, learner_id, channel, category, failed_at, reason, attempts, payload_json, resolved,
+                   created_at, template_id, ttl_seconds
             FROM notification_dlq
             WHERE dlq_id = ?
             """,
@@ -348,6 +406,9 @@ class NotificationStore:
             "attempts": row[7],
             "payload": json.loads(row[8]),
             "resolved": bool(row[9]),
+            "created_at": row[10] or row[5],
+            "template_id": row[11] or "default_template",
+            "ttl_seconds": row[12] if row[12] is not None else 86400,
         }
 
     def record_rescheduled(
@@ -359,16 +420,21 @@ class NotificationStore:
         rescheduled_for: str,
         created_at: str,
         payload: Any,
+        template_id: str = "default_template",
+        ttl_seconds: int = 86400,
     ) -> None:
         with self.connection:
             cursor = self.connection.cursor()
             cursor.execute(
                 """
                 INSERT INTO notification_rescheduled (
-                    proposal_id, learner_id, channel, category, rescheduled_for, created_at, payload_json, released
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, 0)
+                    proposal_id, learner_id, channel, category, rescheduled_for, created_at, payload_json, released,
+                    template_id, ttl_seconds
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
                 ON CONFLICT(proposal_id) DO UPDATE SET
-                    rescheduled_for = excluded.rescheduled_for
+                    rescheduled_for = excluded.rescheduled_for,
+                    template_id = excluded.template_id,
+                    ttl_seconds = excluded.ttl_seconds
                 """,
                 (
                     proposal_id,
@@ -378,6 +444,8 @@ class NotificationStore:
                     rescheduled_for,
                     created_at,
                     json.dumps(payload),
+                    template_id or "default_template",
+                    ttl_seconds if ttl_seconds is not None else 86400,
                 ),
             )
             cursor.execute(
@@ -406,7 +474,8 @@ class NotificationStore:
         cursor = self.connection.cursor()
         cursor.execute(
             """
-            SELECT proposal_id, learner_id, channel, category, rescheduled_for, created_at, payload_json, released
+            SELECT proposal_id, learner_id, channel, category, rescheduled_for, created_at, payload_json, released,
+                   template_id, ttl_seconds
             FROM notification_rescheduled
             WHERE proposal_id = ?
             """,
@@ -424,6 +493,8 @@ class NotificationStore:
             "created_at": row[5],
             "payload": json.loads(row[6]),
             "released": bool(row[7]),
+            "template_id": row[8] or "default_template",
+            "ttl_seconds": row[9] if row[9] is not None else 86400,
         }
 
     def get_suppression_entries(self, proposal_id: str | None = None) -> list[dict[str, Any]]:
@@ -456,7 +527,8 @@ class NotificationStore:
         cursor = self.connection.cursor()
         cursor.execute(
             """
-            SELECT proposal_id, learner_id, channel, category, rescheduled_for, created_at, payload_json
+            SELECT proposal_id, learner_id, channel, category, rescheduled_for, created_at, payload_json,
+                   template_id, ttl_seconds
             FROM notification_rescheduled
             WHERE released = 0 AND rescheduled_for <= ?
             ORDER BY rescheduled_for ASC
@@ -472,6 +544,8 @@ class NotificationStore:
                 "rescheduled_for": row[4],
                 "created_at": row[5],
                 "payload": json.loads(row[6]),
+                "template_id": row[7] or "default_template",
+                "ttl_seconds": row[8] if row[8] is not None else 86400,
             }
             for row in cursor.fetchall()
         ]
@@ -518,7 +592,8 @@ class NotificationStore:
     def get_dlq_entries(self, resolved: bool | None = None) -> list[dict[str, Any]]:
         cursor = self.connection.cursor()
         query = (
-            "SELECT dlq_id, proposal_id, learner_id, channel, category, failed_at, reason, attempts, payload_json, resolved "
+            "SELECT dlq_id, proposal_id, learner_id, channel, category, failed_at, reason, attempts, payload_json, resolved, "
+            "created_at, template_id, ttl_seconds "
             "FROM notification_dlq"
         )
         params: list[Any] = []
@@ -538,6 +613,9 @@ class NotificationStore:
                 "attempts": row[7],
                 "payload": json.loads(row[8]),
                 "resolved": bool(row[9]),
+                "created_at": row[10] or row[5],
+                "template_id": row[11] or "default_template",
+                "ttl_seconds": row[12] if row[12] is not None else 86400,
             }
             for row in cursor.fetchall()
         ]

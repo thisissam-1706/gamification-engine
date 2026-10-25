@@ -271,6 +271,8 @@ class NotificationDispatcher:
                 rescheduled_iso,
                 created_ts,
                 proposal.payload,
+                template_id=proposal.template_id,
+                ttl_seconds=proposal.ttl_seconds,
             )
             return TerminalFact(
                 event_id=f"resched_{uuid.uuid4().hex[:12]}",
@@ -348,6 +350,9 @@ class NotificationDispatcher:
                 err or "provider_exhausted",
                 attempts,
                 proposal.payload,
+                created_at=created_ts,
+                template_id=proposal.template_id,
+                ttl_seconds=proposal.ttl_seconds,
             )
             return TerminalFact(
                 event_id=dlq_id,
@@ -369,7 +374,8 @@ class NotificationDispatcher:
     ) -> list[TerminalFact]:
         """Explicit caller-invoked release operation for due rescheduled notifications (F5).
 
-        Rechecks consent, TTL, and fatigue cap before delivery.
+        Rechecks quiet hours, consent, TTL, and fatigue cap before delivery.
+        Marks released in the same transaction as the terminal fact.
         """
         now_dt, now_iso = self._resolve_now_dt(now_utc)
 
@@ -383,19 +389,19 @@ class NotificationDispatcher:
             category = NotificationCategory(item["category"])
             created_at = item["created_at"]
             payload = item["payload"]
+            template_id = item.get("template_id", "default_template")
+            ttl_seconds = item.get("ttl_seconds", 86400)
 
-            # Mark released so it cannot be double-processed
-            self.store.mark_rescheduled_released(proposal_id)
-            self.store.update_proposal_status(proposal_id, NotificationStatus.IN_PROGRESS)
-
-            # Reconstruct proposal
+            # Reconstruct proposal preserving stored template_id, created_at, and ttl_seconds
             proposal = NotificationProposal(
                 proposal_id=proposal_id,
                 learner_id=learner_id,
                 channel=channel,
                 category=category,
+                template_id=template_id,
                 payload=payload,
                 created_at=created_at,
+                ttl_seconds=ttl_seconds,
             )
 
             # Retrieve preferences
@@ -415,6 +421,7 @@ class NotificationDispatcher:
                     category,
                     now_iso,
                     "missing_preferences",
+                    release_proposal_id=proposal_id,
                 )
                 facts.append(
                     TerminalFact(
@@ -431,7 +438,69 @@ class NotificationDispatcher:
                 )
                 continue
 
-            # 1. Recheck consent / opt-out
+            # 1. Recheck quiet hours with learner's current timezone
+            try:
+                in_quiet, next_allowed = evaluate_quiet_hours(
+                    now_dt, prefs.timezone, self.quiet_start_hour, self.quiet_end_hour
+                )
+            except ValueError:
+                suppression_id = f"supp_{uuid.uuid4().hex[:12]}"
+                self.store.record_suppression(
+                    suppression_id,
+                    proposal_id,
+                    learner_id,
+                    channel,
+                    category,
+                    now_iso,
+                    "invalid_timezone",
+                    release_proposal_id=proposal_id,
+                )
+                facts.append(
+                    TerminalFact(
+                        event_id=suppression_id,
+                        event_type="notification_suppressed",
+                        proposal_id=proposal_id,
+                        learner_id=learner_id,
+                        channel=channel.value,
+                        category=category.value,
+                        timestamp=now_iso,
+                        status=NotificationStatus.SUPPRESSED,
+                        reason="invalid_timezone",
+                    )
+                )
+                continue
+
+            if in_quiet and next_allowed is not None:
+                # Still inside quiet hours or changed timezone -> re-reschedule
+                next_allowed_iso = next_allowed.strftime("%Y-%m-%dT%H:%M:%SZ")
+                self.store.record_rescheduled(
+                    proposal_id,
+                    learner_id,
+                    channel,
+                    category,
+                    next_allowed_iso,
+                    created_at,
+                    payload,
+                    template_id=template_id,
+                    ttl_seconds=ttl_seconds,
+                )
+                facts.append(
+                    TerminalFact(
+                        event_id=f"resched_{uuid.uuid4().hex[:12]}",
+                        event_type="notification_rescheduled",
+                        proposal_id=proposal_id,
+                        learner_id=learner_id,
+                        channel=channel.value,
+                        category=category.value,
+                        timestamp=now_iso,
+                        status=NotificationStatus.QUEUED,
+                        rescheduled_for=next_allowed_iso,
+                        reason="quiet_hours_rescheduled",
+                    )
+                )
+                continue
+
+            # 2. Recheck consent / opt-out
             consent_ok, consent_reason = check_consent(proposal, prefs)
             if not consent_ok:
                 suppression_id = f"supp_{uuid.uuid4().hex[:12]}"
@@ -443,6 +512,7 @@ class NotificationDispatcher:
                     category,
                     now_iso,
                     consent_reason or "opt_out",
+                    release_proposal_id=proposal_id,
                 )
                 facts.append(
                     TerminalFact(
@@ -459,7 +529,7 @@ class NotificationDispatcher:
                 )
                 continue
 
-            # 2. Recheck TTL at release instant
+            # 3. Recheck TTL at release instant
             if is_ttl_expired(created_at, proposal.ttl_seconds, now_dt):
                 suppression_id = f"supp_{uuid.uuid4().hex[:12]}"
                 self.store.record_suppression(
@@ -470,6 +540,7 @@ class NotificationDispatcher:
                     category,
                     now_iso,
                     "ttl_expired",
+                    release_proposal_id=proposal_id,
                 )
                 facts.append(
                     TerminalFact(
@@ -486,7 +557,7 @@ class NotificationDispatcher:
                 )
                 continue
 
-            # 3. Recheck fatigue cap across all channels
+            # 4. Recheck fatigue cap across all channels
             cutoff_24h = (now_dt - timedelta(hours=24)).strftime("%Y-%m-%dT%H:%M:%SZ")
             recent_dispatches = self.store.get_dispatch_history_since(
                 learner_id,
@@ -508,6 +579,7 @@ class NotificationDispatcher:
                     category,
                     now_iso,
                     fatigue_reason or "daily_cap_exceeded",
+                    release_proposal_id=proposal_id,
                 )
                 facts.append(
                     TerminalFact(
@@ -524,7 +596,7 @@ class NotificationDispatcher:
                 )
                 continue
 
-            # 4. Attempt delivery
+            # 5. Delivery attempt
             adapter = self.adapters.get(channel)
             if adapter is None:
                 suppression_id = f"supp_{uuid.uuid4().hex[:12]}"
@@ -536,6 +608,7 @@ class NotificationDispatcher:
                     category,
                     now_iso,
                     "unsupported_channel",
+                    release_proposal_id=proposal_id,
                 )
                 facts.append(
                     TerminalFact(
@@ -563,6 +636,7 @@ class NotificationDispatcher:
                     category,
                     now_iso,
                     payload,
+                    release_proposal_id=proposal_id,
                 )
                 facts.append(
                     TerminalFact(
@@ -589,6 +663,10 @@ class NotificationDispatcher:
                     err or "provider_exhausted",
                     attempts,
                     payload,
+                    created_at=created_at,
+                    template_id=template_id,
+                    ttl_seconds=ttl_seconds,
+                    release_proposal_id=proposal_id,
                 )
                 facts.append(
                     TerminalFact(
@@ -615,7 +693,7 @@ class NotificationDispatcher:
     ) -> TerminalFact:
         """Replays a failed notification from DLQ preserving the original proposal identity (F3).
 
-        On successful delivery, marks the DLQ entry as resolved.
+        On successful delivery, marks the DLQ entry as resolved in the same transaction.
         """
         now_dt, now_iso = self._resolve_now_dt(now_utc)
 
@@ -623,13 +701,22 @@ class NotificationDispatcher:
         if not entry:
             raise ValueError(f"DLQ entry '{dlq_id}' not found.")
 
+        if entry.get("resolved"):
+            raise ValueError(f"DLQ entry '{dlq_id}' has already been resolved.")
+
+        created_at = entry.get("created_at") or entry["failed_at"]
+        template_id = entry.get("template_id", "default_template")
+        ttl_seconds = entry.get("ttl_seconds", 86400)
+
         proposal = NotificationProposal(
             proposal_id=entry["proposal_id"],
             learner_id=entry["learner_id"],
             channel=ChannelType(entry["channel"]),
             category=NotificationCategory(entry["category"]),
+            template_id=template_id,
             payload=entry["payload"],
-            created_at=entry["failed_at"],
+            created_at=created_at,
+            ttl_seconds=ttl_seconds,
         )
 
         # 1. Preferences requirement
@@ -681,7 +768,85 @@ class NotificationDispatcher:
                 reason=consent_reason or "opt_out",
             )
 
-        # 3. Check fatigue cap
+        # 3. Check TTL against the original created_at
+        if is_ttl_expired(created_at, proposal.ttl_seconds, now_dt):
+            suppression_id = f"supp_{uuid.uuid4().hex[:12]}"
+            self.store.record_suppression(
+                suppression_id,
+                proposal.proposal_id,
+                proposal.learner_id,
+                proposal.channel,
+                proposal.category,
+                now_iso,
+                "ttl_expired",
+            )
+            return TerminalFact(
+                event_id=suppression_id,
+                event_type="notification_suppressed",
+                proposal_id=proposal.proposal_id,
+                learner_id=proposal.learner_id,
+                channel=proposal.channel.value,
+                category=proposal.category.value,
+                timestamp=now_iso,
+                status=NotificationStatus.SUPPRESSED,
+                reason="ttl_expired",
+            )
+
+        # 4. Recheck quiet hours (re-queue if inside)
+        try:
+            in_quiet, next_allowed = evaluate_quiet_hours(
+                now_dt, prefs.timezone, self.quiet_start_hour, self.quiet_end_hour
+            )
+        except ValueError:
+            suppression_id = f"supp_{uuid.uuid4().hex[:12]}"
+            self.store.record_suppression(
+                suppression_id,
+                proposal.proposal_id,
+                proposal.learner_id,
+                proposal.channel,
+                proposal.category,
+                now_iso,
+                "invalid_timezone",
+            )
+            return TerminalFact(
+                event_id=suppression_id,
+                event_type="notification_suppressed",
+                proposal_id=proposal.proposal_id,
+                learner_id=proposal.learner_id,
+                channel=proposal.channel.value,
+                category=proposal.category.value,
+                timestamp=now_iso,
+                status=NotificationStatus.SUPPRESSED,
+                reason="invalid_timezone",
+            )
+
+        if in_quiet and next_allowed is not None:
+            rescheduled_iso = next_allowed.strftime("%Y-%m-%dT%H:%M:%SZ")
+            self.store.record_rescheduled(
+                proposal.proposal_id,
+                proposal.learner_id,
+                proposal.channel,
+                proposal.category,
+                rescheduled_iso,
+                created_at,
+                proposal.payload,
+                template_id=template_id,
+                ttl_seconds=ttl_seconds,
+            )
+            return TerminalFact(
+                event_id=f"resched_{uuid.uuid4().hex[:12]}",
+                event_type="notification_rescheduled",
+                proposal_id=proposal.proposal_id,
+                learner_id=proposal.learner_id,
+                channel=proposal.channel.value,
+                category=proposal.category.value,
+                timestamp=now_iso,
+                status=NotificationStatus.QUEUED,
+                rescheduled_for=rescheduled_iso,
+                reason="quiet_hours_rescheduled",
+            )
+
+        # 5. Check fatigue cap
         cutoff_24h = (now_dt - timedelta(hours=24)).strftime("%Y-%m-%dT%H:%M:%SZ")
         recent_dispatches = self.store.get_dispatch_history_since(
             proposal.learner_id,
@@ -716,11 +881,21 @@ class NotificationDispatcher:
                 reason=fatigue_reason or "daily_cap_exceeded",
             )
 
-        # 4. Attempt delivery through adapter
+        # 6. Attempt delivery through adapter (record suppression if unsupported channel)
         adapter = self.adapters.get(proposal.channel)
         if adapter is None:
+            suppression_id = f"supp_{uuid.uuid4().hex[:12]}"
+            self.store.record_suppression(
+                suppression_id,
+                proposal.proposal_id,
+                proposal.learner_id,
+                proposal.channel,
+                proposal.category,
+                now_iso,
+                "unsupported_channel",
+            )
             return TerminalFact(
-                event_id=f"supp_{uuid.uuid4().hex[:12]}",
+                event_id=suppression_id,
                 event_type="notification_suppressed",
                 proposal_id=proposal.proposal_id,
                 learner_id=proposal.learner_id,
@@ -742,8 +917,8 @@ class NotificationDispatcher:
                 proposal.category,
                 now_iso,
                 proposal.payload,
+                resolve_dlq_id=dlq_id,
             )
-            self.store.resolve_dlq(dlq_id)
             return TerminalFact(
                 event_id=dispatch_id,
                 event_type="notification_dispatched",
@@ -756,8 +931,10 @@ class NotificationDispatcher:
                 attempt_count=attempts,
             )
         else:
+            # A failed replay must not reuse the DLQ ID as a terminal event ID.
+            fail_event_id = f"replay_fail_{uuid.uuid4().hex[:12]}"
             return TerminalFact(
-                event_id=dlq_id,
+                event_id=fail_event_id,
                 event_type="notification_failed",
                 proposal_id=proposal.proposal_id,
                 learner_id=proposal.learner_id,

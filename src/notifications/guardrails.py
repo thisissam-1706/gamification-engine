@@ -82,9 +82,14 @@ def evaluate_quiet_hours(
         return False, None
 
     # Calculate next dispatch time at quiet_end_hour:00 local time
-    if local_dt.hour >= quiet_start_hour:
-        next_date = local_dt.date() + timedelta(days=1)
+    if quiet_start_hour > quiet_end_hour:
+        # Spans midnight (e.g. 22:00 to 07:00)
+        if local_dt.hour >= quiet_start_hour:
+            next_date = local_dt.date() + timedelta(days=1)
+        else:
+            next_date = local_dt.date()
     else:
+        # Does not span midnight (e.g. 13:00 to 15:00)
         next_date = local_dt.date()
 
     target_local = datetime(
