@@ -737,7 +737,6 @@ files). Nothing that passed before fails now. Skips unchanged.
 Scratch order/redelivery check (not a repo test):
 
 ```bash
-.venv/bin/python /tmp/claude-1000/-home-sampadram-Sampadram-IITH-SEM-7-DATGC-project-gamification-engine/a93d7b85-cff5-4a0a-9ead-f83d7190ac7f/scratchpad/quest_order_check.py
 ```
 
 ```
@@ -822,7 +821,6 @@ Scratch mutation check (not a repo test). It monkeypatches the projection
 with known-bad rules and runs the new tests directly:
 
 ```bash
-.venv/bin/python /tmp/claude-1000/-home-sampadram-Sampadram-IITH-SEM-7-DATGC-project-gamification-engine/a93d7b85-cff5-4a0a-9ead-f83d7190ac7f/scratchpad/quest_mutation_check.py
 ```
 
 ```
@@ -881,7 +879,6 @@ still passes. Only the test generator changed.
 #### Coverage (scratch script, final generator)
 
 ```bash
-.venv/bin/python /tmp/claude-1000/-home-sampadram-Sampadram-IITH-SEM-7-DATGC-project-gamification-engine/a93d7b85-cff5-4a0a-9ead-f83d7190ac7f/scratchpad/quest_crosscheck_stats.py
 ```
 
 ```

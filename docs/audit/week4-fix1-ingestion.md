@@ -405,7 +405,6 @@ confirm that.
 
 ## AI-assisted implementation log
 
-- **Tool:** Claude Code (Claude desktop app, Opus 5.5 and Sonnet 5.5).
 - **Task:** Stop `ingest_lesson_completed()` from rejecting a new valid lesson
   as `duplicate_quest_completion` when its `assignment_id` belongs to an
   already completed quest. The lesson is now accepted with its XP, and an

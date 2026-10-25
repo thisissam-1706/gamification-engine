@@ -483,7 +483,6 @@ differs in `freezes_remaining` only** (the aggregate is 1 higher each time).
 
 Shrinking method: greedily drop one op at a time while the mismatch still
 reproduces, until no single op can be removed. Script:
-`/tmp/claude-1000/-home-sampadram-Sampadram-IITH-SEM-7-DATGC-project-gamification-engine/e3a7c790-d9c1-4f01-937a-38fe02d04b9b/scratchpad/shrink.py`
 (scratch, not part of the repo).
 
 ### Minimal failing sequence
@@ -1023,7 +1022,6 @@ Decisions:
   operation, not just at the end:
 
   ```bash
-  .venv/bin/python -I /tmp/claude-1000/-home-sampadram-Sampadram-IITH-SEM-7-DATGC-project-gamification-engine/e3a7c790-d9c1-4f01-937a-38fe02d04b9b/scratchpad/acquire_check.py
   ```
 
   ```

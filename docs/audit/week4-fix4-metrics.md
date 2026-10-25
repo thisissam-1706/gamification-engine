@@ -1076,7 +1076,6 @@ then restored the original. It confirmed the restored file is byte-identical
 (`restored: True`).
 
 ```bash
-.venv/bin/python /tmp/claude-1000/-home-sampadram-Sampadram-IITH-SEM-7-DATGC-project-gamification-engine/a93d7b85-cff5-4a0a-9ead-f83d7190ac7f/scratchpad/metrics_mutation_check.py "$PWD"
 ```
 
 ```
@@ -1123,7 +1122,6 @@ the filter and `conflicting` without it. I added
 (The 1 failure is the yaml test, as before.)
 
 ```bash
-.venv/bin/python /tmp/claude-1000/-home-sampadram-Sampadram-IITH-SEM-7-DATGC-project-gamification-engine/a93d7b85-cff5-4a0a-9ead-f83d7190ac7f/scratchpad/metrics_mutation_check.py "$PWD"
 ```
 
 ```
