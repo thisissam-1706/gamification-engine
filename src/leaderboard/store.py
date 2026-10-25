@@ -33,8 +33,8 @@ class LeaderboardStore(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def is_event_applied(self, event_id: str) -> bool:
-        """Returns True if event_id has already been processed."""
+    def is_event_applied(self, event_id: str, subject_id: str | None = None) -> bool:
+        """Returns True if event_id has already been processed for the subject."""
         raise NotImplementedError
 
     @abstractmethod
@@ -43,7 +43,9 @@ class LeaderboardStore(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def set_committed_offset(self, scope_key: str, offset: int) -> None:
+    def set_committed_offset(
+        self, scope_key: str, offset: int, updated_at: str = ""
+    ) -> None:
         """Updates contiguous committed application offset."""
         raise NotImplementedError
 
@@ -139,6 +141,50 @@ class LeaderboardStore(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    def record_completion_time(
+        self, completion_id: str, learner_id: str, occurred_at: str
+    ) -> None:
+        """Persists the completion_id -> (learner_id, occurred_at) mapping."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_completion_time(
+        self, completion_id: str, learner_id: str | None = None
+    ) -> str | None:
+        """Retrieves occurred_at for a given completion_id and learner_id."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def record_pending_award(
+        self,
+        event_id: str,
+        subject_id: str,
+        completion_id: str,
+        xp_amount: int,
+        status: str = "pending_time",
+        watermark_offset: int = 0,
+    ) -> None:
+        """Parks an award that cannot yet be placed on a leaderboard (e.g. pending_time)."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_pending_awards(
+        self, subject_id: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Returns parked pending awards, optionally filtered by subject_id."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def delete_pending_award(self, event_id: str, subject_id: str) -> bool:
+        """Deletes a resolved or cleared pending award."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_all_epochs(self) -> list[str]:
+        """Returns all distinct epochs present in the store."""
+        raise NotImplementedError
+
+    @abstractmethod
     def clear(
         self,
         scope_type: str | None = None,
@@ -160,6 +206,7 @@ class SQLiteLeaderboardStore(LeaderboardStore):
     def __init__(self, database: str = ":memory:") -> None:
         self.connection = sqlite3.connect(database)
         self.connection.execute("PRAGMA journal_mode=WAL")
+        self._migrate_schema()
         self.connection.execute(
             """
             CREATE TABLE IF NOT EXISTS leaderboard_entries (
@@ -184,12 +231,13 @@ class SQLiteLeaderboardStore(LeaderboardStore):
         self.connection.execute(
             """
             CREATE TABLE IF NOT EXISTS leaderboard_applied_events (
-                event_id TEXT PRIMARY KEY,
+                event_id TEXT NOT NULL,
                 subject_id TEXT NOT NULL,
                 epoch TEXT NOT NULL,
                 xp_amount INTEGER NOT NULL,
                 applied_at TEXT NOT NULL,
-                stream_offset INTEGER NOT NULL DEFAULT 0
+                stream_offset INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (event_id, subject_id)
             )
             """
         )
@@ -221,7 +269,66 @@ class SQLiteLeaderboardStore(LeaderboardStore):
             )
             """
         )
+        self.connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS leaderboard_completion_times (
+                completion_id TEXT NOT NULL,
+                learner_id TEXT NOT NULL,
+                occurred_at TEXT NOT NULL,
+                PRIMARY KEY (completion_id, learner_id)
+            )
+            """
+        )
+        self.connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS leaderboard_pending_awards (
+                event_id TEXT NOT NULL,
+                subject_id TEXT NOT NULL,
+                completion_id TEXT NOT NULL,
+                xp_amount INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending_time',
+                watermark_offset INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (event_id, subject_id)
+            )
+            """
+        )
         self.connection.commit()
+
+    def _migrate_schema(self) -> None:
+        """Safely migrates applied_events table to compound (event_id, subject_id) primary key."""
+        cursor = self.connection.cursor()
+        cursor.execute("PRAGMA table_info(leaderboard_applied_events)")
+        cols = cursor.fetchall()
+        if cols:
+            pk_cols = {col[1] for col in cols if col[5] > 0}
+            if pk_cols == {"event_id"}:
+                cursor.execute(
+                    """
+                    CREATE TABLE leaderboard_applied_events_v2 (
+                        event_id TEXT NOT NULL,
+                        subject_id TEXT NOT NULL,
+                        epoch TEXT NOT NULL,
+                        xp_amount INTEGER NOT NULL,
+                        applied_at TEXT NOT NULL,
+                        stream_offset INTEGER NOT NULL DEFAULT 0,
+                        PRIMARY KEY (event_id, subject_id)
+                    )
+                    """
+                )
+                cursor.execute(
+                    """
+                    INSERT OR IGNORE INTO leaderboard_applied_events_v2 (
+                        event_id, subject_id, epoch, xp_amount, applied_at, stream_offset
+                    )
+                    SELECT event_id, subject_id, epoch, xp_amount, applied_at, stream_offset
+                    FROM leaderboard_applied_events
+                    """
+                )
+                cursor.execute("DROP TABLE leaderboard_applied_events")
+                cursor.execute(
+                    "ALTER TABLE leaderboard_applied_events_v2 RENAME TO leaderboard_applied_events"
+                )
+                self.connection.commit()
 
     def apply_award_atomic(
         self,
@@ -329,9 +436,18 @@ class SQLiteLeaderboardStore(LeaderboardStore):
         self.connection.commit()
         return True
 
-    def is_event_applied(self, event_id: str) -> bool:
+    def is_event_applied(self, event_id: str, subject_id: str | None = None) -> bool:
         cursor = self.connection.cursor()
-        cursor.execute("SELECT 1 FROM leaderboard_applied_events WHERE event_id = ?", (event_id,))
+        if subject_id is not None:
+            cursor.execute(
+                "SELECT 1 FROM leaderboard_applied_events WHERE event_id = ? AND subject_id = ?",
+                (event_id, subject_id),
+            )
+        else:
+            cursor.execute(
+                "SELECT 1 FROM leaderboard_applied_events WHERE event_id = ?",
+                (event_id,),
+            )
         return cursor.fetchone() is not None
 
     def get_committed_offset(self, scope_key: str = "global") -> int:
@@ -340,9 +456,10 @@ class SQLiteLeaderboardStore(LeaderboardStore):
         row = cursor.fetchone()
         return row[0] if row else 0
 
-    def set_committed_offset(self, scope_key: str, offset: int) -> None:
+    def set_committed_offset(
+        self, scope_key: str, offset: int, updated_at: str = ""
+    ) -> None:
         cursor = self.connection.cursor()
-        now_ts = datetime.now(timezone.utc).isoformat()
         cursor.execute(
             """
             INSERT INTO leaderboard_checkpoints (scope_key, committed_offset, updated_at)
@@ -351,7 +468,7 @@ class SQLiteLeaderboardStore(LeaderboardStore):
                 committed_offset = excluded.committed_offset,
                 updated_at = excluded.updated_at
             """,
-            (scope_key, offset, now_ts),
+            (scope_key, offset, updated_at),
         )
         self.connection.commit()
 
@@ -711,7 +828,117 @@ class SQLiteLeaderboardStore(LeaderboardStore):
             cursor.execute("DELETE FROM leaderboard_applied_events")
             cursor.execute("DELETE FROM leaderboard_checkpoints")
             cursor.execute("DELETE FROM leaderboard_reconciliation_audits")
+            cursor.execute("DELETE FROM leaderboard_completion_times")
+            cursor.execute("DELETE FROM leaderboard_pending_awards")
         self.connection.commit()
+
+    def record_completion_time(
+        self, completion_id: str, learner_id: str, occurred_at: str
+    ) -> None:
+        cursor = self.connection.cursor()
+        cursor.execute(
+            """
+            INSERT INTO leaderboard_completion_times (completion_id, learner_id, occurred_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(completion_id, learner_id) DO UPDATE SET
+                occurred_at = excluded.occurred_at
+            """,
+            (completion_id, learner_id, occurred_at),
+        )
+        self.connection.commit()
+
+    def get_completion_time(
+        self, completion_id: str, learner_id: str | None = None
+    ) -> str | None:
+        cursor = self.connection.cursor()
+        if learner_id is not None:
+            cursor.execute(
+                "SELECT occurred_at FROM leaderboard_completion_times WHERE completion_id = ? AND learner_id = ?",
+                (completion_id, learner_id),
+            )
+        else:
+            cursor.execute(
+                "SELECT occurred_at FROM leaderboard_completion_times WHERE completion_id = ?",
+                (completion_id,),
+            )
+        row = cursor.fetchone()
+        return row[0] if row else None
+
+    def record_pending_award(
+        self,
+        event_id: str,
+        subject_id: str,
+        completion_id: str,
+        xp_amount: int,
+        status: str = "pending_time",
+        watermark_offset: int = 0,
+    ) -> None:
+        cursor = self.connection.cursor()
+        cursor.execute(
+            """
+            INSERT INTO leaderboard_pending_awards (
+                event_id, subject_id, completion_id, xp_amount, status, watermark_offset
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(event_id, subject_id) DO UPDATE SET
+                completion_id = excluded.completion_id,
+                xp_amount = excluded.xp_amount,
+                status = excluded.status,
+                watermark_offset = excluded.watermark_offset
+            """,
+            (event_id, subject_id, completion_id, xp_amount, status, watermark_offset),
+        )
+        self.connection.commit()
+
+    def get_pending_awards(
+        self, subject_id: str | None = None
+    ) -> list[dict[str, Any]]:
+        cursor = self.connection.cursor()
+        if subject_id is not None:
+            cursor.execute(
+                """
+                SELECT event_id, subject_id, completion_id, xp_amount, status, watermark_offset
+                FROM leaderboard_pending_awards WHERE subject_id = ?
+                """,
+                (subject_id,),
+            )
+        else:
+            cursor.execute(
+                """
+                SELECT event_id, subject_id, completion_id, xp_amount, status, watermark_offset
+                FROM leaderboard_pending_awards
+                """
+            )
+        return [
+            {
+                "event_id": r[0],
+                "subject_id": r[1],
+                "completion_id": r[2],
+                "xp_amount": r[3],
+                "status": r[4],
+                "watermark_offset": r[5],
+            }
+            for r in cursor.fetchall()
+        ]
+
+    def delete_pending_award(self, event_id: str, subject_id: str) -> bool:
+        cursor = self.connection.cursor()
+        cursor.execute(
+            "DELETE FROM leaderboard_pending_awards WHERE event_id = ? AND subject_id = ?",
+            (event_id, subject_id),
+        )
+        self.connection.commit()
+        return cursor.rowcount > 0
+
+    def get_all_epochs(self) -> list[str]:
+        cursor = self.connection.cursor()
+        cursor.execute(
+            """
+            SELECT DISTINCT epoch FROM leaderboard_entries
+            UNION
+            SELECT DISTINCT epoch FROM leaderboard_applied_events
+            """
+        )
+        return sorted([r[0] for r in cursor.fetchall() if r[0]])
 
     def close(self) -> None:
         self.connection.close()
@@ -722,10 +949,12 @@ class InMemoryLeaderboardStore(LeaderboardStore):
 
     def __init__(self) -> None:
         self._entries: dict[tuple[str, str, str, str], LeaderboardEntry] = {}
-        self._applied_events: set[str] = set()
+        self._applied_events: set[Any] = set()
         self._applied_events_list: list[dict[str, Any]] = []
         self._checkpoints: dict[str, int] = {}
         self._reconciliation_audits: list[ReconciliationAudit] = []
+        self._completion_times: dict[tuple[str, str], str] = {}
+        self._pending_awards: list[dict[str, Any]] = []
 
     def apply_award_atomic(
         self,
@@ -741,8 +970,9 @@ class InMemoryLeaderboardStore(LeaderboardStore):
         cohort_first_reached_at: str | None,
         watermark_offset: int,
     ) -> bool:
-        if event_id in self._applied_events:
+        if (event_id, subject_id) in self._applied_events or event_id in self._applied_events:
             return False
+        self._applied_events.add((event_id, subject_id))
         self._applied_events.add(event_id)
         self._applied_events_list.append(
             {
@@ -792,13 +1022,17 @@ class InMemoryLeaderboardStore(LeaderboardStore):
             self._checkpoints[f"cohort:{cohort_id}"] = curr
         return True
 
-    def is_event_applied(self, event_id: str) -> bool:
+    def is_event_applied(self, event_id: str, subject_id: str | None = None) -> bool:
+        if subject_id is not None and (event_id, subject_id) in self._applied_events:
+            return True
         return event_id in self._applied_events
 
     def get_committed_offset(self, scope_key: str = "global") -> int:
         return self._checkpoints.get(scope_key, 0)
 
-    def set_committed_offset(self, scope_key: str, offset: int) -> None:
+    def set_committed_offset(
+        self, scope_key: str, offset: int, updated_at: str = ""
+    ) -> None:
         self._checkpoints[scope_key] = offset
 
     def record_reconciliation_audit(self, audit: ReconciliationAudit) -> None:
@@ -962,6 +1196,8 @@ class InMemoryLeaderboardStore(LeaderboardStore):
             self._applied_events_list.clear()
             self._checkpoints.clear()
             self._reconciliation_audits.clear()
+            self._completion_times.clear()
+            self._pending_awards.clear()
             return
         keys_to_remove = [
             k for k in self._entries
@@ -971,6 +1207,66 @@ class InMemoryLeaderboardStore(LeaderboardStore):
         ]
         for k in keys_to_remove:
             self._entries.pop(k, None)
+
+    def record_completion_time(
+        self, completion_id: str, learner_id: str, occurred_at: str
+    ) -> None:
+        self._completion_times[(completion_id, learner_id)] = occurred_at
+
+    def get_completion_time(
+        self, completion_id: str, learner_id: str | None = None
+    ) -> str | None:
+        if learner_id is not None:
+            return self._completion_times.get((completion_id, learner_id))
+        for (cid, _), occ in self._completion_times.items():
+            if cid == completion_id:
+                return occ
+        return None
+
+    def record_pending_award(
+        self,
+        event_id: str,
+        subject_id: str,
+        completion_id: str,
+        xp_amount: int,
+        status: str = "pending_time",
+        watermark_offset: int = 0,
+    ) -> None:
+        self.delete_pending_award(event_id, subject_id)
+        self._pending_awards.append(
+            {
+                "event_id": event_id,
+                "subject_id": subject_id,
+                "completion_id": completion_id,
+                "xp_amount": xp_amount,
+                "status": status,
+                "watermark_offset": watermark_offset,
+            }
+        )
+
+    def get_pending_awards(
+        self, subject_id: str | None = None
+    ) -> list[dict[str, Any]]:
+        return [
+            a
+            for a in self._pending_awards
+            if subject_id is None or a["subject_id"] == subject_id
+        ]
+
+    def delete_pending_award(self, event_id: str, subject_id: str) -> bool:
+        orig = len(self._pending_awards)
+        self._pending_awards = [
+            a
+            for a in self._pending_awards
+            if not (a["event_id"] == event_id and a["subject_id"] == subject_id)
+        ]
+        return len(self._pending_awards) < orig
+
+    def get_all_epochs(self) -> list[str]:
+        eps = {e.epoch for e in self._entries.values()} | {
+            e["epoch"] for e in self._applied_events_list
+        }
+        return sorted(eps)
 
     def close(self) -> None:
         self._entries.clear()

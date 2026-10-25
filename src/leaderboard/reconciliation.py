@@ -21,6 +21,7 @@ class LeaderboardReconciler:
         scope_id: str,
         epoch: str,
         watermark_offset: int = 0,
+        audited_at: str | None = None,
     ) -> ReconciliationAudit:
         """Audits a leaderboard scope and applies differential updates without flushing state.
 
@@ -30,12 +31,13 @@ class LeaderboardReconciler:
             scope_id: cohort_id or 'global'.
             epoch: Calendar week epoch string.
             watermark_offset: Authoritative event watermark.
+            audited_at: Optional explicit audit timestamp.
 
         Returns:
             ReconciliationAudit with detailed counts and corrected subject IDs.
         """
         start_time = time.perf_counter()
-        now_ts = datetime.now(timezone.utc).isoformat()
+        now_ts = audited_at or datetime.now(timezone.utc).isoformat()
 
         # 1. Fetch current read-model entries
         projected_entries = {

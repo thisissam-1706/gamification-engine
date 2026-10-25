@@ -19,7 +19,7 @@ from .store import (
     LeaderboardStore,
     SQLiteLeaderboardStore,
 )
-from .projection import LeaderboardProjection
+from .projection import LeaderboardProjection, MissingTimestampError
 from .service import LeaderboardService
 from .reconciliation import LeaderboardReconciler
 
@@ -38,6 +38,7 @@ __all__ = [
     "SQLiteLeaderboardStore",
     "InMemoryLeaderboardStore",
     "LeaderboardProjection",
+    "MissingTimestampError",
     "LeaderboardService",
     "LeaderboardReconciler",
 ]

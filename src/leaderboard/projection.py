@@ -13,7 +13,7 @@ from src.state_machine.learner import Learner
 def normalize_to_utc_iso(ts: str | datetime | None) -> str:
     """Normalizes any ISO timestamp or datetime to standard UTC ISO string (ending in Z)."""
     if ts is None:
-        dt = datetime.now(timezone.utc)
+        raise ValueError("Timestamp cannot be None; guessing with datetime.now is prohibited")
     elif isinstance(ts, datetime):
         dt = ts if ts.tzinfo is not None else ts.replace(tzinfo=timezone.utc)
     elif isinstance(ts, str):
@@ -26,6 +26,24 @@ def normalize_to_utc_iso(ts: str | datetime | None) -> str:
     utc_dt = dt.astimezone(timezone.utc)
     # Format with Z for clean deterministic string comparison
     return utc_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+class MissingTimestampError(ValueError):
+    """Raised when an XPAwarded event cannot be timed because occurred_at is missing."""
+
+    def __init__(
+        self,
+        message: str,
+        event_id: str | None = None,
+        subject_id: str | None = None,
+        completion_id: str | None = None,
+        status: str = "pending_time",
+    ) -> None:
+        super().__init__(message)
+        self.event_id = event_id
+        self.subject_id = subject_id
+        self.completion_id = completion_id
+        self.status = status
 
 
 class LeaderboardProjection:
@@ -49,15 +67,15 @@ class LeaderboardProjection:
         self._subject_events: dict[tuple[str, str], list[tuple[str, int, str]]] = defaultdict(list)
         # Tracks (subject_id, epoch) -> cohort_id
         self._cohort_memberships: dict[tuple[str, str], str] = {}
-        # Tracks completion_id -> occurred_at timestamp
-        self._completion_occurred_at: dict[str, str] = {}
+        # Tracks completion_id -> occurred_at timestamp or (completion_id, subject_id) -> timestamp
+        self._completion_occurred_at: dict[tuple[str, str] | str, str] = {}
+        self._pending_awards: list[dict[str, Any]] = []
         self._watermark = self.store.get_committed_offset("global")
 
     def rehydrate(self, epoch: str | None = None) -> None:
         """Rehydrates projection state from SQLite store into memory."""
         if epoch is None:
-            now_epoch = get_calendar_week()
-            epochs_to_load = [now_epoch]
+            epochs_to_load = self.store.get_all_epochs()
         else:
             epochs_to_load = [epoch]
 
@@ -80,8 +98,17 @@ class LeaderboardProjection:
 
         self._watermark = max(self._watermark, self.store.get_committed_offset("global"))
 
-    def apply(self, domain_event: Any, watermark_offset: int | None = None) -> None:
-        """Applies a domain event to the read model."""
+    def apply(
+        self,
+        domain_event: Any,
+        watermark_offset: int | None = None,
+        raise_on_missing_time: bool = False,
+    ) -> str:
+        """Applies a domain event to the read model.
+
+        Returns status string ('applied', 'duplicate', 'pending_time', or 'ignored'),
+        or raises MissingTimestampError if raise_on_missing_time is True and no timestamp can be found.
+        """
         if watermark_offset is not None:
             self._watermark = max(self._watermark, watermark_offset)
         elif hasattr(domain_event, "originator_version"):
@@ -89,9 +116,28 @@ class LeaderboardProjection:
 
         if isinstance(domain_event, Learner.LessonCompleted):
             occ = getattr(domain_event, "occurred_at", None)
+            subject_id = str(domain_event.originator_id)
+            completion_id = str(domain_event.completion_id)
             if occ:
                 ts = normalize_to_utc_iso(occ)
-                self._completion_occurred_at[domain_event.completion_id] = ts
+                self._completion_occurred_at[(completion_id, subject_id)] = ts
+                self._completion_occurred_at[completion_id] = ts
+                self.store.record_completion_time(completion_id, subject_id, ts)
+
+                # Resolve any pending awards waiting for this completion's timestamp
+                for award in self.store.get_pending_awards(subject_id=subject_id):
+                    if award.get("completion_id") == completion_id and award.get("status") == "pending_time":
+                        aw_epoch = get_calendar_week(ts)
+                        self.record_xp(
+                            subject_id=subject_id,
+                            xp_amount=award["xp_amount"],
+                            occurred_at=ts,
+                            epoch=aw_epoch,
+                            watermark_offset=award.get("watermark_offset", self._watermark),
+                            event_id=award["event_id"],
+                        )
+                        self.store.delete_pending_award(award["event_id"], subject_id)
+            return "applied"
 
         elif isinstance(domain_event, Learner.CohortAssigned):
             subject_id = str(domain_event.originator_id)
@@ -99,23 +145,65 @@ class LeaderboardProjection:
             epoch = str(domain_event.membership_epoch)
             assigned_at = normalize_to_utc_iso(domain_event.assigned_at)
             self.assign_cohort(subject_id, cohort_id, epoch, assigned_at, self._watermark)
+            return "applied"
 
         elif isinstance(domain_event, Learner.XPAwarded):
             subject_id = str(domain_event.originator_id)
             xp_amount = domain_event.xp_amount
-            raw_occ = (
-                getattr(domain_event, "occurred_at", None)
-                or self._completion_occurred_at.get(domain_event.completion_id)
-            )
+            completion_id = getattr(domain_event, "completion_id", None)
+            raw_occ = getattr(domain_event, "occurred_at", None)
+            if not raw_occ and completion_id:
+                raw_occ = (
+                    self._completion_occurred_at.get((completion_id, subject_id))
+                    or self._completion_occurred_at.get(completion_id)
+                    or self.store.get_completion_time(completion_id, learner_id=subject_id)
+                )
+
+            # Unique event tracking identifier (M3-4, Bug 1 fix: must include learner_id)
+            reward_id = getattr(domain_event, "reward_id", None)
+            if reward_id:
+                if reward_id.startswith(f"{subject_id}:"):
+                    event_id = reward_id
+                else:
+                    event_id = f"{subject_id}:{reward_id}"
+            else:
+                event_id = f"{subject_id}:{domain_event.originator_version}"
+
+            # Bug 2 fix: if no timestamp can be found, park as pending_time
+            if not raw_occ:
+                self.store.record_pending_award(
+                    event_id=event_id,
+                    subject_id=subject_id,
+                    completion_id=completion_id or "",
+                    xp_amount=xp_amount,
+                    status="pending_time",
+                    watermark_offset=self._watermark,
+                )
+                self._pending_awards.append(
+                    {
+                        "event_id": event_id,
+                        "subject_id": subject_id,
+                        "completion_id": completion_id or "",
+                        "xp_amount": xp_amount,
+                        "status": "pending_time",
+                        "watermark_offset": self._watermark,
+                    }
+                )
+                if raise_on_missing_time:
+                    raise MissingTimestampError(
+                        f"Missing occurred_at for XPAwarded event '{event_id}' (completion_id='{completion_id}'). "
+                        "Award parked as 'pending_time'; guessing with datetime.now is prohibited.",
+                        event_id=event_id,
+                        subject_id=subject_id,
+                        completion_id=completion_id,
+                        status="pending_time",
+                    )
+                return "pending_time"
+
             occurred_at = normalize_to_utc_iso(raw_occ)
             epoch = get_calendar_week(occurred_at)
 
-            # Unique event tracking identifier (M3-4)
-            event_id = getattr(domain_event, "reward_id", None)
-            if not event_id:
-                event_id = f"{subject_id}:{domain_event.originator_version}"
-
-            self.record_xp(
+            applied = self.record_xp(
                 subject_id=subject_id,
                 xp_amount=xp_amount,
                 occurred_at=occurred_at,
@@ -123,6 +211,9 @@ class LeaderboardProjection:
                 watermark_offset=self._watermark,
                 event_id=event_id,
             )
+            return "applied" if applied else "duplicate"
+
+        return "ignored"
 
     def record_xp(
         self,
@@ -154,7 +245,7 @@ class LeaderboardProjection:
         event_id = event_id or f"xp_event:{subject_id}:{epoch}:{occurred_at}:{xp_amount}"
 
         # Fast in-memory deduplication check (optimisation; store is ultimate authority)
-        if self.store.is_event_applied(event_id):
+        if self.store.is_event_applied(event_id, subject_id=subject_id):
             return False
 
         old_score = self._epoch_scores.get(key, 0)
@@ -261,6 +352,7 @@ class LeaderboardProjection:
         self._subject_events.clear()
         self._cohort_memberships.clear()
         self._completion_occurred_at.clear()
+        self._pending_awards.clear()
         self._watermark = 0
         self.store.clear()
 

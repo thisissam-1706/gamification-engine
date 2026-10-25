@@ -20,10 +20,10 @@ class CohortIncompatibleEpochError(ValueError):
     """Raised when attempting to merge or operate across mismatched calendar epochs."""
 
 
-def get_calendar_week(dt_value: str | datetime | None = None) -> str:
+def get_calendar_week(dt_value: str | datetime) -> str:
     """Returns the ISO calendar week string 'YYYY-Www' for a given timestamp."""
     if dt_value is None:
-        dt = datetime.now(timezone.utc)
+        raise ValueError("dt_value is required to determine calendar week; guessing with datetime.now is prohibited")
     elif isinstance(dt_value, datetime):
         dt = dt_value if dt_value.tzinfo is not None else dt_value.replace(tzinfo=timezone.utc)
     elif isinstance(dt_value, str):
