@@ -431,14 +431,37 @@ class Learner(Aggregate):
         *,
         grouping_rule_version: str = "v1",
         assigned_at: str | datetime | None = None,
+        reassign: bool = False,
     ) -> bool:
         """Assigns the learner to a cohort for the given epoch."""
         epoch_str = str(membership_epoch)
         if epoch_str in self.cohort_memberships:
-            return False
-        assigned = _as_datetime(assigned_at) or datetime.now(dt_timezone.utc)
+            if not reassign or self.cohort_memberships[epoch_str]["cohort_id"] == cohort_id:
+                return False
+        assigned = _as_datetime(assigned_at)
+        if assigned is None:
+            assigned = datetime.now(dt_timezone.utc)
         self._assign_cohort(cohort_id, epoch_str, grouping_rule_version, assigned.isoformat())
         return True
+
+    def reassign_cohort(
+        self,
+        cohort_id: str,
+        membership_epoch: str | int,
+        *,
+        grouping_rule_version: str = "v1",
+        assigned_at: str | datetime | None = None,
+    ) -> bool:
+        """Reassigns the learner to a different cohort for the given epoch."""
+        if assigned_at is None:
+            raise ValueError("assigned_at cannot be None; guessing with datetime.now is prohibited")
+        return self.assign_cohort(
+            cohort_id,
+            membership_epoch,
+            grouping_rule_version=grouping_rule_version,
+            assigned_at=assigned_at,
+            reassign=True,
+        )
 
     @event("CohortAssigned")
     def _assign_cohort(

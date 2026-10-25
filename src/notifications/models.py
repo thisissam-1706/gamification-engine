@@ -21,6 +21,7 @@ class NotificationCategory(str, Enum):
 
 
 class NotificationStatus(str, Enum):
+    IN_PROGRESS = "in_progress"
     QUEUED = "queued"
     DISPATCHED = "dispatched"
     SUPPRESSED = "suppressed"

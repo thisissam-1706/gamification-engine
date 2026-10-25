@@ -45,11 +45,14 @@ class RetryScheduler:
                 if success:
                     return True, attempts, None
                 last_error = "adapter_returned_false"
-            except TransientProviderError as exc:
-                last_error = str(exc)
             except PermanentProviderError as exc:
                 # Permanent failure bypasses remaining retry attempts
                 return False, attempts, f"permanent_failure: {exc}"
+            except TransientProviderError as exc:
+                last_error = str(exc)
+            except Exception as exc:
+                # Treat unknown adapter exceptions like transient errors
+                last_error = f"{type(exc).__name__}: {exc}"
 
             # Exponential backoff: base_delay * (2 ** (attempts - 1))
             if self.backoff_delay_sec > 0 and attempts < self.max_retries:

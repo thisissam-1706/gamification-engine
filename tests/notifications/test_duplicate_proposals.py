@@ -32,12 +32,12 @@ def test_duplicate_proposals(tmp_path):
     prefs = LearnerPreferences(learner_id="L1")
 
     # First dispatch succeeds
-    res1 = dispatcher.dispatch(proposal, prefs=prefs)
+    res1 = dispatcher.dispatch(proposal, prefs=prefs, now_utc="2026-10-12T12:00:00Z")
     assert res1.status == NotificationStatus.DISPATCHED
     assert len(in_app.delivered_messages) == 1
 
     # Second dispatch with identical proposal_id is deduplicated and suppressed
-    res2 = dispatcher.dispatch(proposal, prefs=prefs)
+    res2 = dispatcher.dispatch(proposal, prefs=prefs, now_utc="2026-10-12T12:00:00Z")
     assert res2.status == NotificationStatus.SUPPRESSED
     assert res2.reason == "duplicate_proposal"
     # No second delivery attempt occurred

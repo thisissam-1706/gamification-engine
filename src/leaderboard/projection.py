@@ -5,6 +5,14 @@ from collections.abc import Iterable, Sequence
 from datetime import datetime, timezone
 from typing import Any
 
+from eventsourcing.persistence import (
+    DatetimeAsISO,
+    DecimalAsStr,
+    JSONTranscoder,
+    Mapper,
+    UUIDAsHex,
+)
+
 from src.leaderboard.cohorts import (
     CohortCapacityOverflowError,
     CohortLifecycleService,
@@ -77,6 +85,16 @@ class LeaderboardProjection:
         self._completion_occurred_at: dict[tuple[str, str] | str, str] = {}
         self._pending_awards: list[dict[str, Any]] = []
         self._watermark = self.store.get_committed_offset("global")
+        self._mapper: Mapper | None = None
+
+    def _get_mapper(self) -> Mapper:
+        if self._mapper is None:
+            transcoder = JSONTranscoder()
+            transcoder.register(UUIDAsHex())
+            transcoder.register(DecimalAsStr())
+            transcoder.register(DatetimeAsISO())
+            self._mapper = Mapper(transcoder=transcoder)
+        return self._mapper
 
     def rehydrate(self, epoch: str | Sequence[str]) -> None:
         """Rehydrates projection state from SQLite store into memory.
@@ -177,13 +195,19 @@ class LeaderboardProjection:
         """
         real_offset = offset if offset is not None else watermark_offset
         if real_offset is None:
-            raise TypeError(
-                "apply() missing required argument: 'offset' (global notification-log position)"
-            )
+            if hasattr(domain_event, "id") and isinstance(domain_event.id, int):
+                real_offset = domain_event.id
+            else:
+                raise TypeError(
+                    "apply() missing required argument: 'offset' (global notification-log position)"
+                )
 
         # Duplicate delivery of an already-processed offset is a no-op that does not move checkpoint backwards
         if self.store.is_offset_processed(real_offset):
             return "duplicate"
+
+        if hasattr(domain_event, "topic") and hasattr(domain_event, "state"):
+            domain_event = self._get_mapper().to_domain_event(domain_event)
 
         if isinstance(domain_event, Learner.LessonCompleted):
             occ = getattr(domain_event, "occurred_at", None)

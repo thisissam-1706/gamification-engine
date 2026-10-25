@@ -34,7 +34,7 @@ def test_opt_out_enforcement(tmp_path):
         template_id="streak_warning_v1",
     )
 
-    res = dispatcher.dispatch(prop, prefs=prefs)
+    res = dispatcher.dispatch(prop, prefs=prefs, now_utc="2026-10-12T12:00:00Z")
 
     # Dispatched proposal is suppressed due to opt-out
     assert res.status == NotificationStatus.SUPPRESSED

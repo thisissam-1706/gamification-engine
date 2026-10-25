@@ -40,7 +40,7 @@ def test_retry_dlq(tmp_path):
         payload={"module": "math_101"},
     )
 
-    res = dispatcher.dispatch(prop, prefs=prefs)
+    res = dispatcher.dispatch(prop, prefs=prefs, now_utc="2026-10-12T12:00:00Z")
 
     # All 3 retries were exhausted -> routed to DLQ with terminal failure fact
     assert res.status == NotificationStatus.FAILED
@@ -66,7 +66,7 @@ def test_retry_dlq(tmp_path):
         adapters={ChannelType.PUSH: recovered_push},
     )
 
-    replay_res = recovery_dispatcher.replay_dlq(dlq_id, prefs=prefs)
+    replay_res = recovery_dispatcher.replay_dlq(dlq_id, prefs=prefs, now_utc="2026-10-12T12:00:00Z")
     assert replay_res.status == NotificationStatus.DISPATCHED
     assert replay_res.proposal_id == "p_retry_01"  # Preserved original ID
     assert len(recovered_push.delivered_messages) == 1
@@ -99,7 +99,7 @@ def test_permanent_failure_bypasses_retries(tmp_path):
         payload={"error": "invalid_token"},
     )
 
-    res = dispatcher.dispatch(prop, prefs=prefs)
+    res = dispatcher.dispatch(prop, prefs=prefs, now_utc="2026-10-12T12:00:00Z")
     assert res.status == NotificationStatus.FAILED
     assert res.attempt_count == 1  # Bypassed remaining 2 retries
     assert "permanent_failure" in (res.reason or "")
@@ -130,7 +130,7 @@ def test_adapter_returning_false_is_handled(tmp_path):
         payload={},
     )
 
-    res = dispatcher.dispatch(prop, prefs=prefs)
+    res = dispatcher.dispatch(prop, prefs=prefs, now_utc="2026-10-12T12:00:00Z")
     assert res.status == NotificationStatus.FAILED
     assert res.attempt_count == 2
     assert "adapter_returned_false" in (res.reason or "")

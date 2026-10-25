@@ -38,6 +38,7 @@ class NotificationDispatcher:
         fatigue_cap: int = 5,
         quiet_start_hour: int = 22,
         quiet_end_hour: int = 7,
+        clock: Callable[[], datetime | str] | None = None,
     ) -> None:
         self.store = store
         self.adapters = adapters or {
@@ -48,6 +49,24 @@ class NotificationDispatcher:
         self.fatigue_cap = fatigue_cap
         self.quiet_start_hour = quiet_start_hour
         self.quiet_end_hour = quiet_end_hour
+        self.clock = clock
+
+    def _resolve_now_dt(self, now_utc: datetime | str | None) -> tuple[datetime, str]:
+        """Resolves current timestamp from parameter or injected clock.
+        
+        Raises ValueError if neither is provided (wall-clock fallback is removed).
+        """
+        if now_utc is not None:
+            now_dt = normalize_iso_to_utc_dt(now_utc)
+        elif self.clock is not None:
+            raw_clock = self.clock()
+            now_dt = normalize_iso_to_utc_dt(raw_clock)
+        else:
+            raise ValueError(
+                "now_utc or an injected clock is required; wall-clock fallback is disabled."
+            )
+        now_iso = now_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+        return now_dt, now_iso
 
     def dispatch(
         self,
@@ -56,13 +75,9 @@ class NotificationDispatcher:
         now_utc: datetime | str | None = None,
     ) -> TerminalFact:
         """Processes a single proposal through all guardrails, attempting dispatch or routing to DLQ."""
-        if now_utc is None:
-            now_dt = datetime.now(timezone.utc)
-        else:
-            now_dt = normalize_iso_to_utc_dt(now_utc)
-        now_iso = now_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+        now_dt, now_iso = self._resolve_now_dt(now_utc)
 
-        # 1. Deduplication check (AT-9)
+        # 1. Deduplication check (AT-9, M5-N1)
         if self.store.is_proposal_seen(proposal.proposal_id):
             return TerminalFact(
                 event_id=f"supp_dup_{proposal.proposal_id}",
@@ -75,6 +90,10 @@ class NotificationDispatcher:
                 status=NotificationStatus.SUPPRESSED,
                 reason="duplicate_proposal",
             )
+
+        # Register proposal as in_progress if not already registered
+        if self.store.get_proposal_status(proposal.proposal_id) is None:
+            self.store.register_proposal(proposal, status=NotificationStatus.IN_PROGRESS)
 
         # 2. Preferences requirement (M5-2)
         if prefs is None:
@@ -267,8 +286,6 @@ class NotificationDispatcher:
             )
 
         # 7. Delivery via Channel Adapter & Retry/DLQ (AT-10)
-        self.store.register_proposal(proposal)
-
         adapter = self.adapters.get(proposal.channel)
         if adapter is None:
             suppression_id = f"supp_{uuid.uuid4().hex[:12]}"
@@ -354,11 +371,7 @@ class NotificationDispatcher:
 
         Rechecks consent, TTL, and fatigue cap before delivery.
         """
-        if now_utc is None:
-            now_dt = datetime.now(timezone.utc)
-        else:
-            now_dt = normalize_iso_to_utc_dt(now_utc)
-        now_iso = now_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+        now_dt, now_iso = self._resolve_now_dt(now_utc)
 
         due_items = self.store.get_due_rescheduled(now_iso)
         facts: list[TerminalFact] = []
@@ -373,6 +386,7 @@ class NotificationDispatcher:
 
             # Mark released so it cannot be double-processed
             self.store.mark_rescheduled_released(proposal_id)
+            self.store.update_proposal_status(proposal_id, NotificationStatus.IN_PROGRESS)
 
             # Reconstruct proposal
             proposal = NotificationProposal(
@@ -511,7 +525,6 @@ class NotificationDispatcher:
                 continue
 
             # 4. Attempt delivery
-            self.store.register_proposal(proposal)
             adapter = self.adapters.get(channel)
             if adapter is None:
                 suppression_id = f"supp_{uuid.uuid4().hex[:12]}"
@@ -604,11 +617,7 @@ class NotificationDispatcher:
 
         On successful delivery, marks the DLQ entry as resolved.
         """
-        if now_utc is None:
-            now_dt = datetime.now(timezone.utc)
-        else:
-            now_dt = normalize_iso_to_utc_dt(now_utc)
-        now_iso = now_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+        now_dt, now_iso = self._resolve_now_dt(now_utc)
 
         entry = self.store.get_dlq_entry(dlq_id)
         if not entry:

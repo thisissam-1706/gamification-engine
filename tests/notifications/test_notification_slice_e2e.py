@@ -179,7 +179,7 @@ def test_missing_preferences_and_invalid_timezone(tmp_path):
     )
 
     # 1. Missing preferences
-    res_noprefs = dispatcher.dispatch(prop, prefs=None)
+    res_noprefs = dispatcher.dispatch(prop, prefs=None, now_utc="2026-10-12T12:00:00Z")
     assert res_noprefs.status == NotificationStatus.SUPPRESSED
     assert res_noprefs.reason == "missing_preferences"
 
@@ -191,7 +191,7 @@ def test_missing_preferences_and_invalid_timezone(tmp_path):
         category=NotificationCategory.GENERAL,
     )
     bad_prefs = LearnerPreferences(learner_id="L_err", timezone="Invalid/Nonexistent_Timezone")
-    res_bad_tz = dispatcher.dispatch(prop_bad_tz, prefs=bad_prefs)
+    res_bad_tz = dispatcher.dispatch(prop_bad_tz, prefs=bad_prefs, now_utc="2026-10-12T12:00:00Z")
     assert res_bad_tz.status == NotificationStatus.SUPPRESSED
     assert res_bad_tz.reason == "invalid_timezone"
 
@@ -220,7 +220,7 @@ def test_terminal_facts_distinguish_suppression_from_provider_failure(tmp_path):
         category=NotificationCategory.GENERAL,
         template_id="t1",
     )
-    fact_suppressed = dispatcher.dispatch(prop_suppressed, prefs=optout_prefs)
+    fact_suppressed = dispatcher.dispatch(prop_suppressed, prefs=optout_prefs, now_utc="2026-10-12T12:00:00Z")
 
     assert fact_suppressed.status == NotificationStatus.SUPPRESSED
     assert fact_suppressed.event_type == "notification_suppressed"
@@ -235,7 +235,7 @@ def test_terminal_facts_distinguish_suppression_from_provider_failure(tmp_path):
         category=NotificationCategory.GENERAL,
         template_id="t2",
     )
-    fact_failed = dispatcher.dispatch(prop_failed, prefs=normal_prefs)
+    fact_failed = dispatcher.dispatch(prop_failed, prefs=normal_prefs, now_utc="2026-10-12T12:00:00Z")
 
     assert fact_failed.status == NotificationStatus.FAILED
     assert fact_failed.event_type == "notification_failed"
