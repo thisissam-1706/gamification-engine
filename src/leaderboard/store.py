@@ -44,6 +44,18 @@ class LeaderboardStore(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    def is_offset_processed(self, offset: int) -> bool:
+        """Returns True if the offset has already been recorded as processed."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def record_processed_offset(
+        self, offset: int, cohort_id: str | None = None, occurred_at: str = ""
+    ) -> int:
+        """Records stream offset as processed and returns the highest contiguous committed offset."""
+        raise NotImplementedError
+
+    @abstractmethod
     def get_committed_offset(self, scope_key: str = "global") -> int:
         """Returns contiguous committed application offset."""
         raise NotImplementedError
@@ -266,6 +278,14 @@ class SQLiteLeaderboardStore(LeaderboardStore):
         )
         self.connection.execute(
             """
+            CREATE TABLE IF NOT EXISTS leaderboard_processed_offsets (
+                stream_offset INTEGER PRIMARY KEY,
+                processed_at TEXT NOT NULL DEFAULT ''
+            )
+            """
+        )
+        self.connection.execute(
+            """
             CREATE TABLE IF NOT EXISTS leaderboard_reconciliation_audits (
                 audit_id TEXT PRIMARY KEY,
                 scope_type TEXT NOT NULL,
@@ -327,7 +347,7 @@ class SQLiteLeaderboardStore(LeaderboardStore):
             self._transaction_depth -= 1
 
     def _migrate_schema(self) -> None:
-        """Safely migrates applied_events table to compound (event_id, subject_id) primary key."""
+        """Safely migrates schema to compound primary keys and processed_offsets table."""
         cursor = self.connection.cursor()
         cursor.execute("PRAGMA table_info(leaderboard_applied_events)")
         cols = cursor.fetchall()
@@ -362,6 +382,42 @@ class SQLiteLeaderboardStore(LeaderboardStore):
                 )
                 self.connection.commit()
 
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS leaderboard_processed_offsets (
+                stream_offset INTEGER PRIMARY KEY,
+                processed_at TEXT NOT NULL DEFAULT ''
+            )
+            """
+        )
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='leaderboard_applied_events'"
+        )
+        if cursor.fetchone():
+            cursor.execute(
+                """
+                INSERT OR IGNORE INTO leaderboard_processed_offsets (stream_offset, processed_at)
+                SELECT stream_offset, applied_at
+                FROM leaderboard_applied_events
+                WHERE stream_offset > 0
+                """
+            )
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='leaderboard_checkpoints'"
+        )
+        if cursor.fetchone():
+            cursor.execute(
+                "SELECT committed_offset FROM leaderboard_checkpoints WHERE scope_key = 'global'"
+            )
+            row = cursor.fetchone()
+            if row and row[0] > 0:
+                for off in range(1, row[0] + 1):
+                    cursor.execute(
+                        "INSERT OR IGNORE INTO leaderboard_processed_offsets (stream_offset, processed_at) VALUES (?, '')",
+                        (off,),
+                    )
+        self.connection.commit()
+
     def apply_award_atomic(
         self,
         event_id: str,
@@ -389,7 +445,10 @@ class SQLiteLeaderboardStore(LeaderboardStore):
                 )
             except sqlite3.IntegrityError:
                 # Duplicate event delivery -> authoritative rejection
-                self.connection.rollback()
+                if watermark_offset > 0:
+                    self.record_processed_offset(
+                        watermark_offset, cohort_id=cohort_id, occurred_at=occurred_at
+                    )
                 return False
 
             # Recompute total score and chronological first_reached_at from store's applied events
@@ -471,7 +530,50 @@ class SQLiteLeaderboardStore(LeaderboardStore):
                     ),
                 )
 
-            # 3. Update Contiguous Committed Checkpoints
+            # 3. Update Contiguous Committed Checkpoints via processed_offsets
+            if watermark_offset > 0:
+                self.record_processed_offset(
+                    watermark_offset, cohort_id=cohort_id, occurred_at=occurred_at
+                )
+
+            return True
+
+    def is_event_applied(self, event_id: str, subject_id: str | None = None) -> bool:
+        cursor = self.connection.cursor()
+        if subject_id is not None:
+            cursor.execute(
+                "SELECT 1 FROM leaderboard_applied_events WHERE event_id = ? AND subject_id = ?",
+                (event_id, subject_id),
+            )
+        else:
+            cursor.execute(
+                "SELECT 1 FROM leaderboard_applied_events WHERE event_id = ?",
+                (event_id,),
+            )
+        return cursor.fetchone() is not None
+
+    def is_offset_processed(self, offset: int) -> bool:
+        cursor = self.connection.cursor()
+        cursor.execute(
+            "SELECT 1 FROM leaderboard_processed_offsets WHERE stream_offset = ?",
+            (offset,),
+        )
+        return cursor.fetchone() is not None
+
+    def record_processed_offset(
+        self, offset: int, cohort_id: str | None = None, occurred_at: str = ""
+    ) -> int:
+        with self.transaction():
+            cursor = self.connection.cursor()
+            if offset > 0:
+                cursor.execute(
+                    """
+                    INSERT OR IGNORE INTO leaderboard_processed_offsets (stream_offset, processed_at)
+                    VALUES (?, ?)
+                    """,
+                    (offset, occurred_at),
+                )
+
             cursor.execute(
                 "SELECT committed_offset FROM leaderboard_checkpoints WHERE scope_key = 'global'"
             )
@@ -480,7 +582,7 @@ class SQLiteLeaderboardStore(LeaderboardStore):
 
             cursor.execute(
                 """
-                SELECT stream_offset FROM leaderboard_applied_events
+                SELECT stream_offset FROM leaderboard_processed_offsets
                 WHERE stream_offset > ?
                 ORDER BY stream_offset ASC
                 """,
@@ -513,22 +615,7 @@ class SQLiteLeaderboardStore(LeaderboardStore):
                     """,
                     (f"cohort:{cohort_id}", current_committed, occurred_at),
                 )
-
-            return True
-
-    def is_event_applied(self, event_id: str, subject_id: str | None = None) -> bool:
-        cursor = self.connection.cursor()
-        if subject_id is not None:
-            cursor.execute(
-                "SELECT 1 FROM leaderboard_applied_events WHERE event_id = ? AND subject_id = ?",
-                (event_id, subject_id),
-            )
-        else:
-            cursor.execute(
-                "SELECT 1 FROM leaderboard_applied_events WHERE event_id = ?",
-                (event_id,),
-            )
-        return cursor.fetchone() is not None
+            return current_committed
 
     def get_committed_offset(self, scope_key: str = "global") -> int:
         cursor = self.connection.cursor()
@@ -911,6 +998,7 @@ class SQLiteLeaderboardStore(LeaderboardStore):
             cursor.execute("DELETE FROM leaderboard_entries")
             cursor.execute("DELETE FROM leaderboard_applied_events")
             cursor.execute("DELETE FROM leaderboard_checkpoints")
+            cursor.execute("DELETE FROM leaderboard_processed_offsets")
             cursor.execute("DELETE FROM leaderboard_reconciliation_audits")
             cursor.execute("DELETE FROM leaderboard_completion_times")
             cursor.execute("DELETE FROM leaderboard_pending_awards")
@@ -1039,6 +1127,7 @@ class InMemoryLeaderboardStore(LeaderboardStore):
         self._entries: dict[tuple[str, str, str, str], LeaderboardEntry] = {}
         self._applied_events: set[Any] = set()
         self._applied_events_list: list[dict[str, Any]] = []
+        self._processed_offsets: set[int] = set()
         self._checkpoints: dict[str, int] = {}
         self._reconciliation_audits: list[ReconciliationAudit] = []
         self._completion_times: dict[tuple[str, str], str] = {}
@@ -1058,6 +1147,7 @@ class InMemoryLeaderboardStore(LeaderboardStore):
                 dict(self._entries),
                 set(self._applied_events),
                 [dict(d) for d in self._applied_events_list],
+                set(self._processed_offsets),
                 dict(self._checkpoints),
                 list(self._reconciliation_audits),
                 dict(self._completion_times),
@@ -1071,6 +1161,7 @@ class InMemoryLeaderboardStore(LeaderboardStore):
                     self._entries,
                     self._applied_events,
                     self._applied_events_list,
+                    self._processed_offsets,
                     self._checkpoints,
                     self._reconciliation_audits,
                     self._completion_times,
@@ -1096,6 +1187,10 @@ class InMemoryLeaderboardStore(LeaderboardStore):
     ) -> bool:
         with self.transaction():
             if (event_id, subject_id) in self._applied_events or event_id in self._applied_events:
+                if watermark_offset > 0:
+                    self.record_processed_offset(
+                        watermark_offset, cohort_id=cohort_id, occurred_at=occurred_at
+                    )
                 return False
             self._applied_events.add((event_id, subject_id))
             self._applied_events.add(event_id)
@@ -1157,26 +1252,36 @@ class InMemoryLeaderboardStore(LeaderboardStore):
                     watermark_offset,
                 )
 
-            # 3. Update Contiguous Committed Checkpoints
-            curr = self._checkpoints.get("global", 0)
-            offsets = sorted(
-                e["stream_offset"] for e in self._applied_events_list if e["stream_offset"] > curr
-            )
-            for off in offsets:
-                if off == curr + 1:
-                    curr = off
-                else:
-                    break
-
-            self._checkpoints["global"] = curr
-            if cohort_id:
-                self._checkpoints[f"cohort:{cohort_id}"] = curr
+            # 3. Update Contiguous Committed Checkpoints via processed_offsets
+            if watermark_offset > 0:
+                self.record_processed_offset(
+                    watermark_offset, cohort_id=cohort_id, occurred_at=occurred_at
+                )
             return True
 
     def is_event_applied(self, event_id: str, subject_id: str | None = None) -> bool:
         if subject_id is not None and (event_id, subject_id) in self._applied_events:
             return True
         return event_id in self._applied_events
+
+    def is_offset_processed(self, offset: int) -> bool:
+        return offset in self._processed_offsets
+
+    def record_processed_offset(
+        self, offset: int, cohort_id: str | None = None, occurred_at: str = ""
+    ) -> int:
+        with self.transaction():
+            if offset > 0:
+                self._processed_offsets.add(offset)
+
+            current = self._checkpoints.get("global", 0)
+            while (current + 1) in self._processed_offsets:
+                current += 1
+
+            self._checkpoints["global"] = current
+            if cohort_id:
+                self._checkpoints[f"cohort:{cohort_id}"] = current
+            return current
 
     def get_committed_offset(self, scope_key: str = "global") -> int:
         return self._checkpoints.get(scope_key, 0)
@@ -1348,6 +1453,7 @@ class InMemoryLeaderboardStore(LeaderboardStore):
             self._entries.clear()
             self._applied_events.clear()
             self._applied_events_list.clear()
+            self._processed_offsets.clear()
             self._checkpoints.clear()
             self._reconciliation_audits.clear()
             self._completion_times.clear()

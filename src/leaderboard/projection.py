@@ -96,47 +96,60 @@ class LeaderboardProjection:
                 ev_key = (ev["subject_id"], ev["epoch"])
                 self._subject_events[ev_key].append((ev["applied_at"], ev["xp_amount"], ev["event_id"]))
 
-        self._watermark = max(self._watermark, self.store.get_committed_offset("global"))
+        self._watermark = self.store.get_committed_offset("global")
 
     def apply(
         self,
         domain_event: Any,
-        watermark_offset: int | None = None,
+        offset: int | None = None,
         raise_on_missing_time: bool = False,
+        *,
+        watermark_offset: int | None = None,
     ) -> str:
         """Applies a domain event to the read model.
 
+        Requires each event's own global notification-log position (`offset`).
         Returns status string ('applied', 'duplicate', 'pending_time', or 'ignored'),
         or raises MissingTimestampError if raise_on_missing_time is True and no timestamp can be found.
         """
-        if watermark_offset is not None:
-            self._watermark = max(self._watermark, watermark_offset)
-        elif hasattr(domain_event, "originator_version"):
-            self._watermark = max(self._watermark, domain_event.originator_version)
+        real_offset = offset if offset is not None else watermark_offset
+        if real_offset is None:
+            raise TypeError(
+                "apply() missing required argument: 'offset' (global notification-log position)"
+            )
+
+        # Duplicate delivery of an already-processed offset is a no-op that does not move checkpoint backwards
+        if self.store.is_offset_processed(real_offset):
+            return "duplicate"
 
         if isinstance(domain_event, Learner.LessonCompleted):
             occ = getattr(domain_event, "occurred_at", None)
             subject_id = str(domain_event.originator_id)
             completion_id = str(domain_event.completion_id)
-            if occ:
-                ts = normalize_to_utc_iso(occ)
-                self._completion_occurred_at[(completion_id, subject_id)] = ts
-                self._completion_occurred_at[completion_id] = ts
-                self.store.record_completion_time(completion_id, subject_id, ts)
+            with self.store.transaction():
+                ts = ""
+                if occ:
+                    ts = normalize_to_utc_iso(occ)
+                    self._completion_occurred_at[(completion_id, subject_id)] = ts
+                    self._completion_occurred_at[completion_id] = ts
+                    self.store.record_completion_time(completion_id, subject_id, ts)
 
-                # Resolve any pending awards waiting for this completion's timestamp
-                for award in self.store.get_pending_awards(subject_id=subject_id):
-                    if award.get("completion_id") == completion_id and award.get("status") == "pending_time":
-                        aw_epoch = get_calendar_week(ts)
-                        self.record_xp(
-                            subject_id=subject_id,
-                            xp_amount=award["xp_amount"],
-                            occurred_at=ts,
-                            epoch=aw_epoch,
-                            watermark_offset=award.get("watermark_offset", self._watermark),
-                            event_id=award["event_id"],
-                        )
-                        self.store.delete_pending_award(award["event_id"], subject_id)
+                    # Resolve any pending awards waiting for this completion's timestamp
+                    for award in self.store.get_pending_awards(subject_id=subject_id):
+                        if award.get("completion_id") == completion_id and award.get("status") == "pending_time":
+                            aw_epoch = get_calendar_week(ts)
+                            self.record_xp(
+                                subject_id=subject_id,
+                                xp_amount=award["xp_amount"],
+                                occurred_at=ts,
+                                epoch=aw_epoch,
+                                watermark_offset=award.get("watermark_offset", real_offset),
+                                event_id=award["event_id"],
+                            )
+                            self.store.delete_pending_award(award["event_id"], subject_id)
+
+                self.store.record_processed_offset(real_offset, occurred_at=ts)
+                self._watermark = self.store.get_committed_offset("global")
             return "applied"
 
         elif isinstance(domain_event, Learner.CohortAssigned):
@@ -144,7 +157,12 @@ class LeaderboardProjection:
             cohort_id = domain_event.cohort_id
             epoch = str(domain_event.membership_epoch)
             assigned_at = normalize_to_utc_iso(domain_event.assigned_at)
-            self.assign_cohort(subject_id, cohort_id, epoch, assigned_at, self._watermark)
+            with self.store.transaction():
+                self.assign_cohort(subject_id, cohort_id, epoch, assigned_at, real_offset)
+                self.store.record_processed_offset(
+                    real_offset, cohort_id=cohort_id, occurred_at=assigned_at
+                )
+                self._watermark = self.store.get_committed_offset("global")
             return "applied"
 
         elif isinstance(domain_event, Learner.XPAwarded):
@@ -167,28 +185,32 @@ class LeaderboardProjection:
                 else:
                     event_id = f"{subject_id}:{reward_id}"
             else:
-                event_id = f"{subject_id}:{domain_event.originator_version}"
+                event_id = f"{subject_id}:{real_offset}"
 
-            # Bug 2 fix: if no timestamp can be found, park as pending_time
+            # If no timestamp can be found, park as pending_time
             if not raw_occ:
-                self.store.record_pending_award(
-                    event_id=event_id,
-                    subject_id=subject_id,
-                    completion_id=completion_id or "",
-                    xp_amount=xp_amount,
-                    status="pending_time",
-                    watermark_offset=self._watermark,
-                )
-                self._pending_awards.append(
-                    {
-                        "event_id": event_id,
-                        "subject_id": subject_id,
-                        "completion_id": completion_id or "",
-                        "xp_amount": xp_amount,
-                        "status": "pending_time",
-                        "watermark_offset": self._watermark,
-                    }
-                )
+                with self.store.transaction():
+                    self.store.record_pending_award(
+                        event_id=event_id,
+                        subject_id=subject_id,
+                        completion_id=completion_id or "",
+                        xp_amount=xp_amount,
+                        status="pending_time",
+                        watermark_offset=real_offset,
+                    )
+                    self._pending_awards.append(
+                        {
+                            "event_id": event_id,
+                            "subject_id": subject_id,
+                            "completion_id": completion_id or "",
+                            "xp_amount": xp_amount,
+                            "status": "pending_time",
+                            "watermark_offset": real_offset,
+                        }
+                    )
+                    self.store.record_processed_offset(real_offset, occurred_at="")
+                    self._watermark = self.store.get_committed_offset("global")
+
                 if raise_on_missing_time:
                     raise MissingTimestampError(
                         f"Missing occurred_at for XPAwarded event '{event_id}' (completion_id='{completion_id}'). "
@@ -203,17 +225,32 @@ class LeaderboardProjection:
             occurred_at = normalize_to_utc_iso(raw_occ)
             epoch = get_calendar_week(occurred_at)
 
-            applied = self.record_xp(
-                subject_id=subject_id,
-                xp_amount=xp_amount,
-                occurred_at=occurred_at,
-                epoch=epoch,
-                watermark_offset=self._watermark,
-                event_id=event_id,
-            )
+            with self.store.transaction():
+                applied = self.record_xp(
+                    subject_id=subject_id,
+                    xp_amount=xp_amount,
+                    occurred_at=occurred_at,
+                    epoch=epoch,
+                    watermark_offset=real_offset,
+                    event_id=event_id,
+                )
+                cohort_id = self._cohort_memberships.get((subject_id, epoch))
+                if not cohort_id:
+                    cohort_id = self.store.get_member_cohort(epoch, subject_id)
+
+                if not applied:
+                    self.store.record_processed_offset(
+                        real_offset, cohort_id=cohort_id, occurred_at=occurred_at
+                    )
+                self._watermark = self.store.get_committed_offset("global")
+
             return "applied" if applied else "duplicate"
 
-        return "ignored"
+        else:
+            with self.store.transaction():
+                self.store.record_processed_offset(real_offset, occurred_at="")
+                self._watermark = self.store.get_committed_offset("global")
+            return "ignored"
 
     def record_xp(
         self,
@@ -269,7 +306,7 @@ class LeaderboardProjection:
         self._subject_events[key] = [
             (ev["applied_at"], ev["xp_amount"], ev["event_id"]) for ev in events
         ]
-        self._watermark = max(self._watermark, watermark_offset)
+        self._watermark = self.store.get_committed_offset("global")
         return True
 
     def assign_cohort(
@@ -316,14 +353,14 @@ class LeaderboardProjection:
                 score=current_score,
                 first_reached_at=first_reached,
                 updated_at=assigned_at,
-                watermark_offset=max(self._watermark, watermark_offset),
+                watermark_offset=watermark_offset,
             )
 
         # Refresh in-memory read cache
         self._cohort_memberships[key] = cohort_id
         self._epoch_scores[key] = current_score
         self._first_reached[key] = first_reached
-        self._watermark = max(self._watermark, watermark_offset)
+        self._watermark = self.store.get_committed_offset("global")
 
     def clear(self) -> None:
         """Clears in-memory projection tracking and storage."""
@@ -337,7 +374,18 @@ class LeaderboardProjection:
         self.store.clear()
 
     def rebuild(self, domain_events: Iterable[Any]) -> None:
-        """Deterministically clears and replays stored domain events."""
+        """Deterministically clears and replays stored domain events with real positions."""
         self.clear()
-        for idx, event in enumerate(domain_events):
-            self.apply(event, watermark_offset=idx + 1)
+        for idx, item in enumerate(domain_events):
+            if isinstance(item, (tuple, list)) and len(item) == 2 and isinstance(item[0], int):
+                pos, event = item
+            elif hasattr(item, "id") and isinstance(item.id, int) and hasattr(item, "topic"):
+                pos = item.id
+                event = item
+            elif hasattr(item, "notification_id") and isinstance(item.notification_id, int):
+                pos = item.notification_id
+                event = item
+            else:
+                pos = idx + 1
+                event = item
+            self.apply(event, offset=pos)

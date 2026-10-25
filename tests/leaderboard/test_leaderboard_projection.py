@@ -39,8 +39,8 @@ def test_leaderboard_projection_from_learner_events_and_rebuild(tmp_path):
 
         # Apply events to projection
         all_events = list(app.events.get(l1.id)) + list(app.events.get(l2.id))
-        for event in all_events:
-            projection.apply(event)
+        for idx, event in enumerate(all_events):
+            projection.apply(event, offset=idx + 1)
 
         # Query cohort leaderboard
         cohort_top = service.get_top_k("cohort", cohort_id, epoch, k=10)
@@ -106,10 +106,13 @@ def test_two_learners_with_same_completion_id_both_score(tmp_path):
         app.save(l2)
 
         # Feed real LessonCompleted and XPAwarded events through apply()
+        offset_counter = 1
         for ev in app.events.get(l1.id):
-            projection.apply(ev)
+            projection.apply(ev, offset=offset_counter)
+            offset_counter += 1
         for ev in app.events.get(l2.id):
-            projection.apply(ev)
+            projection.apply(ev, offset=offset_counter)
+            offset_counter += 1
 
         # Verify BOTH learners scored on cohort leaderboard
         cohort_top = service.get_top_k("cohort", cohort_id, epoch, k=10)
@@ -163,7 +166,7 @@ def test_restart_between_lesson_completed_and_xp_awarded_lands_in_right_epoch(tm
         xp_awarded_event = [e for e in all_events if isinstance(e, Learner.XPAwarded)][0]
 
         # 1. Apply ONLY LessonCompleted in the first projection instance
-        projection1.apply(lesson_completed_event)
+        projection1.apply(lesson_completed_event, offset=1)
 
         # 2. Simulate complete service restart: close store1, clear memory
         store1.close()
@@ -177,7 +180,7 @@ def test_restart_between_lesson_completed_and_xp_awarded_lands_in_right_epoch(tm
         assert len(projection2._completion_occurred_at) == 0
 
         # 4. Now XPAwarded arrives after restart
-        status = projection2.apply(xp_awarded_event)
+        status = projection2.apply(xp_awarded_event, offset=2)
         assert status == "applied"
 
         # 5. Verify the XP award landed in the historical target epoch (2026-W42)
@@ -223,12 +226,12 @@ def test_missing_time_never_lands_in_current_week(tmp_path):
         current_week = f"{now_utc.isocalendar()[0]}-W{now_utc.isocalendar()[1]:02d}"
 
         # 1. Feeding orphan XPAwarded with raise_on_missing_time=False returns "pending_time"
-        status = projection.apply(xp_awarded_event, raise_on_missing_time=False)
+        status = projection.apply(xp_awarded_event, offset=1, raise_on_missing_time=False)
         assert status == "pending_time"
 
         # 2. Feeding orphan XPAwarded with raise_on_missing_time=True raises MissingTimestampError
         with pytest.raises(MissingTimestampError) as exc_info:
-            projection.apply(xp_awarded_event, raise_on_missing_time=True)
+            projection.apply(xp_awarded_event, offset=2, raise_on_missing_time=True)
         assert exc_info.value.status == "pending_time"
         assert "Missing occurred_at" in str(exc_info.value)
 
