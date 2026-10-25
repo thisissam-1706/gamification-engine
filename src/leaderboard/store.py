@@ -73,6 +73,11 @@ class LeaderboardStore(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    def get_reconciliation_audits(self) -> list[ReconciliationAudit]:
+        """Returns all persisted reconciliation audit records."""
+        raise NotImplementedError
+
+    @abstractmethod
     def get_epoch_entries(
         self, scope_type: str, epoch: str
     ) -> list[LeaderboardEntry]:
@@ -82,6 +87,18 @@ class LeaderboardStore(ABC):
     @abstractmethod
     def get_member_cohort(self, epoch: str, subject_id: str) -> str | None:
         """Returns the cohort ID for a subject in a specific epoch, if assigned."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_member_cohorts(self, epoch: str, subject_id: str) -> list[str]:
+        """Returns all cohort IDs for a subject in a specific epoch."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def remove_cohort_memberships(
+        self, epoch: str, subject_id: str, except_cohort_id: str | None = None
+    ) -> int:
+        """Removes any cohort memberships for subject_id in epoch, optionally preserving except_cohort_id."""
         raise NotImplementedError
 
     @abstractmethod
@@ -203,13 +220,23 @@ class LeaderboardStore(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    def clear_derived(self) -> None:
+        """Clears all derived projection read models and offsets, preserving reconciliation audits."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def wipe_all_for_tests(self) -> None:
+        """Full storage wipe including durable audit records; strictly intended for testing."""
+        raise NotImplementedError
+
+    @abstractmethod
     def clear(
         self,
         scope_type: str | None = None,
         scope_id: str | None = None,
         epoch: str | None = None,
     ) -> None:
-        """Clears entries matching the filter, or all entries."""
+        """Clears entries matching the filter, or all derived entries if no filter provided."""
         raise NotImplementedError
 
     @abstractmethod
@@ -671,6 +698,37 @@ class SQLiteLeaderboardStore(LeaderboardStore):
         if self._transaction_depth == 0:
             self.connection.commit()
 
+    def get_reconciliation_audits(self) -> list[ReconciliationAudit]:
+        cursor = self.connection.cursor()
+        cursor.execute(
+            """
+            SELECT audit_id, scope_type, scope_id, epoch, audited_at,
+                   canonical_count, projection_count, divergence_count,
+                   inserted_count, updated_count, deleted_count,
+                   corrected_subjects_json, duration_ms
+            FROM leaderboard_reconciliation_audits
+            ORDER BY audited_at ASC, audit_id ASC
+            """
+        )
+        return [
+            ReconciliationAudit(
+                audit_id=r[0],
+                scope_type=r[1],
+                scope_id=r[2],
+                epoch=r[3],
+                audited_at=r[4],
+                canonical_count=r[5],
+                projection_count=r[6],
+                divergence_count=r[7],
+                inserted_count=r[8],
+                updated_count=r[9],
+                deleted_count=r[10],
+                corrected_subject_ids=tuple(json.loads(r[11])),
+                duration_ms=r[12],
+            )
+            for r in cursor.fetchall()
+        ]
+
     def get_epoch_entries(
         self, scope_type: str, epoch: str
     ) -> list[LeaderboardEntry]:
@@ -708,6 +766,43 @@ class SQLiteLeaderboardStore(LeaderboardStore):
         )
         row = cursor.fetchone()
         return row[0] if row else None
+
+    def get_member_cohorts(self, epoch: str, subject_id: str) -> list[str]:
+        cursor = self.connection.cursor()
+        cursor.execute(
+            """
+            SELECT scope_id FROM leaderboard_entries
+            WHERE scope_type = 'cohort' AND epoch = ? AND subject_id = ?
+            ORDER BY scope_id ASC
+            """,
+            (epoch, subject_id),
+        )
+        return [r[0] for r in cursor.fetchall()]
+
+    def remove_cohort_memberships(
+        self, epoch: str, subject_id: str, except_cohort_id: str | None = None
+    ) -> int:
+        cursor = self.connection.cursor()
+        if except_cohort_id is not None:
+            cursor.execute(
+                """
+                DELETE FROM leaderboard_entries
+                WHERE scope_type = 'cohort' AND epoch = ? AND subject_id = ? AND scope_id != ?
+                """,
+                (epoch, subject_id, except_cohort_id),
+            )
+        else:
+            cursor.execute(
+                """
+                DELETE FROM leaderboard_entries
+                WHERE scope_type = 'cohort' AND epoch = ? AND subject_id = ?
+                """,
+                (epoch, subject_id),
+            )
+        count = cursor.rowcount
+        if self._transaction_depth == 0:
+            self.connection.commit()
+        return count
 
     def get_applied_events(
         self, subject_id: str | None = None, epoch: str | None = None
@@ -972,6 +1067,25 @@ class SQLiteLeaderboardStore(LeaderboardStore):
             return row[0]
         return 0
 
+    def clear_derived(self) -> None:
+        """Clears derived tables while preserving leaderboard_reconciliation_audits."""
+        cursor = self.connection.cursor()
+        cursor.execute("DELETE FROM leaderboard_entries")
+        cursor.execute("DELETE FROM leaderboard_applied_events")
+        cursor.execute("DELETE FROM leaderboard_checkpoints")
+        cursor.execute("DELETE FROM leaderboard_processed_offsets")
+        cursor.execute("DELETE FROM leaderboard_completion_times")
+        cursor.execute("DELETE FROM leaderboard_pending_awards")
+        if self._transaction_depth == 0:
+            self.connection.commit()
+
+    def wipe_all_for_tests(self) -> None:
+        """Full wipe of all tables including reconciliation audits; tests only."""
+        with self.transaction():
+            self.clear_derived()
+            cursor = self.connection.cursor()
+            cursor.execute("DELETE FROM leaderboard_reconciliation_audits")
+
     def clear(
         self,
         scope_type: str | None = None,
@@ -994,16 +1108,10 @@ class SQLiteLeaderboardStore(LeaderboardStore):
         if conditions:
             where = " WHERE " + " AND ".join(conditions)
             cursor.execute("DELETE FROM leaderboard_entries" + where, params)
+            if self._transaction_depth == 0:
+                self.connection.commit()
         else:
-            cursor.execute("DELETE FROM leaderboard_entries")
-            cursor.execute("DELETE FROM leaderboard_applied_events")
-            cursor.execute("DELETE FROM leaderboard_checkpoints")
-            cursor.execute("DELETE FROM leaderboard_processed_offsets")
-            cursor.execute("DELETE FROM leaderboard_reconciliation_audits")
-            cursor.execute("DELETE FROM leaderboard_completion_times")
-            cursor.execute("DELETE FROM leaderboard_pending_awards")
-        if self._transaction_depth == 0:
-            self.connection.commit()
+            self.clear_derived()
 
     def record_completion_time(
         self, completion_id: str, learner_id: str, occurred_at: str
@@ -1294,6 +1402,9 @@ class InMemoryLeaderboardStore(LeaderboardStore):
     def record_reconciliation_audit(self, audit: ReconciliationAudit) -> None:
         self._reconciliation_audits.append(audit)
 
+    def get_reconciliation_audits(self) -> list[ReconciliationAudit]:
+        return list(self._reconciliation_audits)
+
     def get_epoch_entries(
         self, scope_type: str, epoch: str
     ) -> list[LeaderboardEntry]:
@@ -1308,6 +1419,26 @@ class InMemoryLeaderboardStore(LeaderboardStore):
             if st == "cohort" and ep == epoch and sub == subject_id:
                 return si
         return None
+
+    def get_member_cohorts(self, epoch: str, subject_id: str) -> list[str]:
+        res = [
+            si
+            for (st, si, ep, sub) in self._entries
+            if st == "cohort" and ep == epoch and sub == subject_id
+        ]
+        return sorted(res)
+
+    def remove_cohort_memberships(
+        self, epoch: str, subject_id: str, except_cohort_id: str | None = None
+    ) -> int:
+        keys_to_remove = [
+            k for k in self._entries
+            if k[0] == "cohort" and k[2] == epoch and k[3] == subject_id
+            and (except_cohort_id is None or k[1] != except_cohort_id)
+        ]
+        for k in keys_to_remove:
+            self._entries.pop(k, None)
+        return len(keys_to_remove)
 
     def get_applied_events(
         self, subject_id: str | None = None, epoch: str | None = None
@@ -1443,6 +1574,21 @@ class InMemoryLeaderboardStore(LeaderboardStore):
         scope_key = "global" if scope_type == "global" else f"cohort:{scope_id}"
         return self._checkpoints.get(scope_key, 0)
 
+    def clear_derived(self) -> None:
+        """Clears all derived projection read models while preserving reconciliation audits."""
+        self._entries.clear()
+        self._applied_events.clear()
+        self._applied_events_list.clear()
+        self._processed_offsets.clear()
+        self._checkpoints.clear()
+        self._completion_times.clear()
+        self._pending_awards.clear()
+
+    def wipe_all_for_tests(self) -> None:
+        """Full wipe of all storage state including audits; tests only."""
+        self.clear_derived()
+        self._reconciliation_audits.clear()
+
     def clear(
         self,
         scope_type: str | None = None,
@@ -1450,14 +1596,7 @@ class InMemoryLeaderboardStore(LeaderboardStore):
         epoch: str | None = None,
     ) -> None:
         if scope_type is None and scope_id is None and epoch is None:
-            self._entries.clear()
-            self._applied_events.clear()
-            self._applied_events_list.clear()
-            self._processed_offsets.clear()
-            self._checkpoints.clear()
-            self._reconciliation_audits.clear()
-            self._completion_times.clear()
-            self._pending_awards.clear()
+            self.clear_derived()
             return
         keys_to_remove = [
             k for k in self._entries

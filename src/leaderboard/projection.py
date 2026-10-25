@@ -1,7 +1,7 @@
 """Leaderboard projections consuming aggregate domain events."""
 
 from collections import defaultdict
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from datetime import datetime, timezone
 from typing import Any
 
@@ -72,12 +72,25 @@ class LeaderboardProjection:
         self._pending_awards: list[dict[str, Any]] = []
         self._watermark = self.store.get_committed_offset("global")
 
-    def rehydrate(self, epoch: str | None = None) -> None:
-        """Rehydrates projection state from SQLite store into memory."""
+    def rehydrate(self, epoch: str | Sequence[str]) -> None:
+        """Rehydrates projection state from SQLite store into memory.
+
+        Requires epoch or sequence of epochs to be explicitly passed.
+        Defaulting or guessing with get_calendar_week() is prohibited.
+        Calling N times is idempotent: replaces rather than appends per-key history.
+        """
         if epoch is None:
-            epochs_to_load = self.store.get_all_epochs()
-        else:
+            raise ValueError(
+                "epoch or sequence of epochs must be explicitly passed to rehydrate(); "
+                "defaulting to get_calendar_week() is prohibited"
+            )
+        if isinstance(epoch, str):
             epochs_to_load = [epoch]
+        else:
+            epochs_to_load = list(epoch)
+
+        if not epochs_to_load:
+            raise ValueError("epoch sequence cannot be empty")
 
         for ep in epochs_to_load:
             # Rehydrate global entries
@@ -92,11 +105,55 @@ class LeaderboardProjection:
                 self._cohort_memberships[key] = entry.scope_id
 
             # Rehydrate per-subject applied event facts (M3-1)
+            # Replace, do not append, per-key history to guarantee idempotency across N calls
+            for k in list(self._subject_events.keys()):
+                if k[1] == ep:
+                    self._subject_events[k] = []
+
             for ev in self.store.get_applied_events(epoch=ep):
                 ev_key = (ev["subject_id"], ev["epoch"])
-                self._subject_events[ev_key].append((ev["applied_at"], ev["xp_amount"], ev["event_id"]))
+                if ev_key not in self._subject_events:
+                    self._subject_events[ev_key] = []
+                self._subject_events[ev_key].append(
+                    (ev["applied_at"], ev["xp_amount"], ev["event_id"])
+                )
 
         self._watermark = self.store.get_committed_offset("global")
+
+    def get_subject_events(
+        self, subject_id: str, epoch: str
+    ) -> list[tuple[str, int, str]]:
+        """Returns applied events for (subject_id, epoch), lazily loading from store if absent.
+
+        Safe against duplicates: replaces rather than appends.
+        """
+        key = (subject_id, epoch)
+        if key not in self._subject_events or not self._subject_events[key]:
+            events = self.store.get_applied_events(subject_id=subject_id, epoch=epoch)
+            self._subject_events[key] = [
+                (ev["applied_at"], ev["xp_amount"], ev["event_id"]) for ev in events
+            ]
+        return self._subject_events[key]
+
+    def compute_first_reached_at(
+        self, subject_id: str, epoch: str, target_score: int | None = None
+    ) -> str | None:
+        """Computes the timestamp when learner first reached target_score (or current total score)."""
+        key = (subject_id, epoch)
+        events = self.get_subject_events(subject_id, epoch)
+        if not events:
+            return self._first_reached.get(key)
+
+        sorted_events = sorted(events, key=lambda ev: (ev[0], ev[2]))
+        if target_score is None:
+            target_score = self._epoch_scores.get(key, sum(ev[1] for ev in sorted_events))
+
+        running_sum = 0
+        for applied_at, xp_amount, _ in sorted_events:
+            running_sum += xp_amount
+            if running_sum >= target_score:
+                return applied_at
+        return sorted_events[-1][0] if sorted_events else None
 
     def apply(
         self,
@@ -319,8 +376,8 @@ class LeaderboardProjection:
     ) -> None:
         """Assigns a subject to a cohort and projects any accumulated epoch XP into the cohort leaderboard.
 
-        Cleans up obsolete cohort leaderboard rows if reassigned.
-        Runs remove_member and upsert_score in a single atomic transaction.
+        Cleans up obsolete cohort leaderboard rows and orphan duplicates if reassigned.
+        Runs removal and upsert in a single atomic transaction.
         """
         assigned_at = normalize_to_utc_iso(assigned_at)
         key = (subject_id, epoch)
@@ -336,14 +393,12 @@ class LeaderboardProjection:
         )
 
         with self.store.transaction():
-            # If reassigned to a different cohort, clean up obsolete row
-            if old_cohort and old_cohort != cohort_id:
-                self.store.remove_member(
-                    scope_type="cohort",
-                    scope_id=old_cohort,
-                    epoch=epoch,
-                    subject_id=subject_id,
-                )
+            # Atomically purge any previous cohort memberships and orphan duplicates
+            self.store.remove_cohort_memberships(
+                epoch=epoch,
+                subject_id=subject_id,
+                except_cohort_id=cohort_id,
+            )
 
             self.store.upsert_score(
                 scope_type="cohort",
@@ -363,7 +418,7 @@ class LeaderboardProjection:
         self._watermark = self.store.get_committed_offset("global")
 
     def clear(self) -> None:
-        """Clears in-memory projection tracking and storage."""
+        """Clears in-memory projection tracking and derived storage, preserving reconciliation audits."""
         self._epoch_scores.clear()
         self._first_reached.clear()
         self._subject_events.clear()
@@ -371,10 +426,10 @@ class LeaderboardProjection:
         self._completion_occurred_at.clear()
         self._pending_awards.clear()
         self._watermark = 0
-        self.store.clear()
+        self.store.clear_derived()
 
     def rebuild(self, domain_events: Iterable[Any]) -> None:
-        """Deterministically clears and replays stored domain events with real positions."""
+        """Deterministically clears derived projection state and replays stored domain events with real positions."""
         self.clear()
         for idx, item in enumerate(domain_events):
             if isinstance(item, (tuple, list)) and len(item) == 2 and isinstance(item[0], int):
