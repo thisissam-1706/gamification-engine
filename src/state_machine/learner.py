@@ -159,7 +159,7 @@ class Learner(Aggregate):
                     ruleset.badge_id,
                     rule_version,
                     awarded_at,
-                    tuple(sorted(self.completed_lesson_ids)),
+                    sorted(self.completed_lesson_ids),
                 )
             if outcomes[activity_date][0] == 1 and previous_streak > 1:
                 self.streak_before_break = previous_streak
@@ -323,7 +323,7 @@ class Learner(Aggregate):
         badge_id: str,
         criteria_version: str,
         awarded_at: str,
-        qualifying_action_ids: tuple[str, ...],
+        qualifying_action_ids: list[str],
     ) -> None:
         """Applies a decided badge award without evaluating its predicate."""
         self.badges_issued[badge_id] = award_id
