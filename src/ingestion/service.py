@@ -1,6 +1,7 @@
 """Validated lesson-completion ingestion with durable duplicate evidence."""
 
 from dataclasses import dataclass
+import hashlib
 import json
 from pathlib import Path
 from typing import Any, Mapping
@@ -10,8 +11,10 @@ from jsonschema import Draft7Validator, FormatChecker, ValidationError
 from eventsourcing.application import AggregateNotFoundError
 from eventsourcing.persistence import IntegrityError
 
-from src.ingestion.evidence import EvidenceStore
+from src.ingestion.evidence import DeliveryBinding, EvidenceStore
 from src.ingestion.validation import (
+    DEFAULT_INGEST_RULE_VERSION,
+    expected_dedup_key,
     validate_lesson_completed_envelope,
     validate_lesson_completed_payload,
     validate_producer,
@@ -23,6 +26,66 @@ from src.state_machine.learner import Learner, LearnerApplication
 class IngestionResult:
     status: str
     reason: str | None = None
+
+
+DIGEST_FIELDS = (
+    "event_type",
+    "schema_version",
+    "subject_id",
+    "producer",
+    "occurred_at",
+    "payload",
+)
+
+
+def canonical_digest(envelope: Mapping[str, Any]) -> str:
+    """Hashes the producer-owned content of an envelope, not its transport metadata."""
+    content = {field: envelope[field] for field in DIGEST_FIELDS}
+    encoded = json.dumps(content, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _action_for_event_id(learner: Learner, event_id: str) -> str | None:
+    for completion_id, source_event_id in learner.completion_sources.items():
+        if source_event_id == event_id:
+            return completion_id
+    return None
+
+
+def _resolve_bound_event_id(
+    evidence: EvidenceStore,
+    binding: DeliveryBinding,
+    learner_id: str,
+    action_id: str,
+    event_id: str,
+    digest: str,
+) -> IngestionResult:
+    """Answers a delivery whose event_id is already bound to an action."""
+    if (
+        binding.learner_id != learner_id
+        or binding.action_id != action_id
+        or (binding.digest is not None and binding.digest != digest)
+    ):
+        evidence.record(
+            "rejected",
+            learner_id,
+            "conflicting_event_id_reuse",
+            action_id=action_id,
+            event_id=event_id,
+            original_ref=binding.action_id,
+        )
+        return IngestionResult("rejected", "conflicting_event_id_reuse")
+    if binding.digest is None:
+        evidence.fill_delivery_digest(event_id, digest)
+    evidence.record(
+        "duplicate",
+        learner_id,
+        "duplicate_event_id",
+        action_id=action_id,
+        event_id=event_id,
+        original_ref=binding.event_id,
+    )
+    return IngestionResult("duplicate", "duplicate_event_id")
 
 
 def _original_delivery(
@@ -87,12 +150,17 @@ def ingest_lesson_completed(
             raise ValidationError("reward_field_in_source_event")
         validate_lesson_completed_payload(payload)
         learner_uuid = UUID(learner_id)
+        if envelope["dedup_key"] != expected_dedup_key(
+            str(envelope["event_id"]), DEFAULT_INGEST_RULE_VERSION
+        ):
+            raise ValidationError("dedup_key_mismatch")
     except ValidationError as exc:
         reason = str(exc.message) if str(exc.message) in {
             "untrusted_producer",
             "reward_field_in_source_event",
             "unsupported_schema_version",
             "schema_invalid",
+            "dedup_key_mismatch",
         } else "schema_invalid"
         evidence.record(
             "rejected",
@@ -113,10 +181,37 @@ def ingest_lesson_completed(
         )
         return IngestionResult("rejected", reason)
 
+    if event_id is None or action_id is None:
+        raise RuntimeError("validated event_id or completion_id unexpectedly missing")
+    digest = canonical_digest(envelope)
+    binding = evidence.delivery_binding(event_id)
+    if binding is not None:
+        return _resolve_bound_event_id(
+            evidence, binding, learner_id, action_id, event_id, digest
+        )
+
     try:
         learner = application.repository.get(learner_uuid)
     except AggregateNotFoundError as exc:
         raise RuntimeError("learner aggregate must exist before ingestion") from exc
+
+    # Crash gap: the aggregate accepted this event_id but its binding was never written.
+    bound_action = _action_for_event_id(learner, event_id)
+    if bound_action is not None:
+        evidence.bind_delivery(
+            event_id,
+            learner_id,
+            bound_action,
+            digest if bound_action == action_id else None,
+        )
+        return _resolve_bound_event_id(
+            evidence,
+            DeliveryBinding(event_id, learner_id, bound_action, None),
+            learner_id,
+            action_id,
+            event_id,
+            digest,
+        )
 
     original = _original_delivery(evidence, learner_id, action_id)
     if original is None and action_id is not None:
@@ -157,6 +252,18 @@ def ingest_lesson_completed(
         application.save(learner)
     except IntegrityError:
         learner = application.repository.get(learner_uuid)
+        bound_action = _action_for_event_id(learner, event_id)
+        if bound_action is not None and bound_action != action_id:
+            evidence.bind_delivery(event_id, learner_id, bound_action, None)
+            evidence.record(
+                "rejected",
+                learner_id,
+                "conflicting_event_id_reuse",
+                action_id=action_id,
+                event_id=event_id,
+                original_ref=bound_action,
+            )
+            return IngestionResult("rejected", "conflicting_event_id_reuse")
         if action_id in learner.completed_lesson_ids:
             original = learner.completion_sources.get(action_id)
             if original is not None:
@@ -203,9 +310,8 @@ def ingest_lesson_completed(
                 event_id=event_id,
             )
             return IngestionResult("rejected", "concurrency_conflict")
-    if event_id is None:
-        raise RuntimeError("validated event_id unexpectedly missing")
     evidence.remember_delivery(learner_id, action_id, event_id)
+    evidence.bind_delivery(event_id, learner_id, action_id, digest)
     if quest_already_complete:
         quest_completion_id = f"quest_completion:{assignment_id}"
         evidence.record(

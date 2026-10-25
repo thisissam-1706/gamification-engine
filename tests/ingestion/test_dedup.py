@@ -2,7 +2,7 @@
 
 Given learner L1 completes lesson l_492 with completion_id cmp_492_003, when the
 same completion is delivered again during the 7-day ingestion deduplication
-window with a new event_id and dedup_key lesson_completed:cmp_492_003, then duplicates
+window with a new event_id (and so a new dedup_key <event_id>:<rule_version>), then duplicates
 and rejections are recorded as evidence. Reward uniqueness is enforced separately
 through a stable business action identity, which holds indefinitely and survives replay.
 
@@ -15,6 +15,7 @@ from uuid import uuid4
 
 from src.ingestion.evidence import EvidenceStore
 from src.ingestion.service import ingest_lesson_completed
+from src.ingestion.validation import DEFAULT_INGEST_RULE_VERSION, expected_dedup_key
 from src.state_machine.learner import Learner, LearnerApplication
 from tests.ingestion.test_ingestion_service import _envelope
 
@@ -35,6 +36,7 @@ def test_duplicate_lesson_completion_is_dropped_within_ingestion_window(tmp_path
         ).status == "accepted"
         retry = dict(envelope)
         retry["event_id"] = str(uuid4())
+        retry["dedup_key"] = expected_dedup_key(retry["event_id"], DEFAULT_INGEST_RULE_VERSION)
         assert ingest_lesson_completed(
             application, evidence, retry, authenticated_producer="learning-svc"
         ).status == "duplicate"

@@ -10,6 +10,7 @@ from uuid import UUID, uuid4
 
 from src.ingestion.evidence import EvidenceStore
 from src.ingestion.service import ingest_lesson_completed
+from src.ingestion.validation import DEFAULT_INGEST_RULE_VERSION, expected_dedup_key
 from src.state_machine.learner import Learner, LearnerApplication
 from src.state_machine.projection import (
     LearnerQuestProjection,
@@ -177,7 +178,7 @@ def _envelope(learner_id: str, completion_id: str, event_id: str, assignment_id=
         "producer": "learning-svc",
         "correlation_id": str(uuid4()),
         "causation_id": None,
-        "dedup_key": f"lesson_completed:{completion_id}",
+        "dedup_key": expected_dedup_key(event_id, DEFAULT_INGEST_RULE_VERSION),
         "payload": {
             "completion_id": completion_id,
             "lesson_id": "lesson-1",

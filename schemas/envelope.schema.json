@@ -72,7 +72,7 @@
     },
     "dedup_key": {
       "type": "string",
-      "description": "Business key for idempotency (e.g., source event_id + rule_version)"
+      "description": "Source event_id + rule_version, in the exact format \"<event_id>:<rule_version>\". Ingestion rejects any other value with dedup_key_mismatch."
     },
     "payload": {
       "type": "object",

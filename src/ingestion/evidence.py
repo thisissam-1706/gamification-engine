@@ -18,6 +18,14 @@ class EvidenceRecord:
     received_at: str
 
 
+@dataclass(frozen=True)
+class DeliveryBinding:
+    event_id: str
+    learner_id: str
+    action_id: str
+    digest: str | None
+
+
 class EvidenceStore:
     """Stores duplicate and rejected evidence beside the event database."""
 
@@ -52,6 +60,25 @@ class EvidenceStore:
             CREATE UNIQUE INDEX IF NOT EXISTS ingestion_evidence_duplicate_delivery
             ON ingestion_evidence (kind, learner_id, action_id, event_id, reason)
             WHERE kind = 'duplicate'
+            """
+        )
+        # Binds each transport event_id to the one action it first delivered.
+        # digest is NULL only for rows migrated from accepted_deliveries, whose
+        # original envelope bytes were never stored.
+        self.connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS delivery_ids (
+                event_id TEXT PRIMARY KEY,
+                learner_id TEXT NOT NULL,
+                action_id TEXT NOT NULL,
+                digest TEXT
+            )
+            """
+        )
+        self.connection.execute(
+            """
+            INSERT OR IGNORE INTO delivery_ids (event_id, learner_id, action_id, digest)
+            SELECT event_id, learner_id, action_id, NULL FROM accepted_deliveries
             """
         )
         self.connection.commit()
@@ -127,6 +154,32 @@ class EvidenceStore:
             (learner_id, action_id),
         ).fetchone()
         return row[0] if row else None
+
+    def bind_delivery(
+        self, event_id: str, learner_id: str, action_id: str, digest: str | None
+    ) -> None:
+        self.connection.execute(
+            """
+            INSERT OR IGNORE INTO delivery_ids (event_id, learner_id, action_id, digest)
+            VALUES (?, ?, ?, ?)
+            """,
+            (event_id, learner_id, action_id, digest),
+        )
+        self.connection.commit()
+
+    def fill_delivery_digest(self, event_id: str, digest: str) -> None:
+        self.connection.execute(
+            "UPDATE delivery_ids SET digest = ? WHERE event_id = ? AND digest IS NULL",
+            (digest, event_id),
+        )
+        self.connection.commit()
+
+    def delivery_binding(self, event_id: str) -> DeliveryBinding | None:
+        row = self.connection.execute(
+            "SELECT event_id, learner_id, action_id, digest FROM delivery_ids WHERE event_id = ?",
+            (event_id,),
+        ).fetchone()
+        return DeliveryBinding(*row) if row else None
 
     def close(self) -> None:
         self.connection.close()

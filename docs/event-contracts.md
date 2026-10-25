@@ -22,7 +22,7 @@ The machine-readable payload contract is [lesson_completed.schema.json](../schem
 
 The learning service creates `completion_id` once, when the completion succeeds. It must send that same value on every delivery or resend of the same action. A resend uses a new envelope `event_id`; an event UUID identifies a delivery, while `completion_id` identifies the business action.
 
-For this event, construct the envelope `dedup_key` as `lesson_completed:{completion_id}`. The M1 ingestion deduplication window silently drops matching deliveries during its configured seven-day period.
+For this event, construct the envelope `dedup_key` as `<event_id>:<rule_version>`, for example `<event_id>:v1`. Ingestion currently expects rule version `v1` and rejects any other value with `dedup_key_mismatch`. The M1 ingestion deduplication window silently drops matching deliveries during its configured seven-day period.
 
 The aggregate must also retain the completion/reward relationship beyond the ingestion window. A derived XP award uses the identity `xp:{completion_id}`. The applied rule version is normal reward payload data, not part of business identity. Consequently, a resend after eight days or a later rule update cannot increment the lesson count or create a second XP award.
 
@@ -41,7 +41,7 @@ Use the envelope `occurred_at` as the authoritative completion timestamp. Conver
   "producer": "learning-svc",
   "correlation_id": "cmp_492_003",
   "causation_id": null,
-  "dedup_key": "lesson_completed:cmp_492_003",
+  "dedup_key": "019c26c2-7b87-7d0c-89db-8ef5b5110c4a:v1",
   "payload": {
     "completion_id": "cmp_492_003",
     "lesson_id": "l_492",

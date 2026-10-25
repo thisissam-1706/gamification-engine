@@ -9,6 +9,9 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from jsonschema import Draft7Validator, ValidationError
 
+# Rule version bound into dedup_key until ingestion takes it from configuration.
+DEFAULT_INGEST_RULE_VERSION = "v1"
+
 SUPPORTED_SCHEMA_VERSIONS = {
     "learning.lesson_completed": {1},
 }
@@ -25,6 +28,11 @@ ALLOWED_EVENT_TYPES = {
         "gamification.badge_awarded",
     },
 }
+
+
+def expected_dedup_key(event_id: str, rule_version: str) -> str:
+    """Builds the envelope dedup_key: source event_id + rule_version."""
+    return f"{event_id}:{rule_version}"
 
 
 def validate_producer(
