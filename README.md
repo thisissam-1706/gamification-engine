@@ -2,7 +2,7 @@
 
 > **Changelog (2026-10-12):** Documented the current single-process eventsourcing and SQLite architecture; marked Kafka/Redpanda, Redis, and PostgreSQL as deferred options.
 
-An event-sourced gamification engine with deterministic XP, streaks, quests, badges, notifications, experiments, and rule-based abuse detection. The current implementation runs as a single process using the `eventsourcing` library with SQLite as its durable event store.
+An event-sourced gamification engine with deterministic XP, streaks, quests, badges, notifications, and experiments. Rule-based abuse detection is planned (M6) but not implemented. The current implementation runs as a single process using the `eventsourcing` library with SQLite as its durable event store.
 
 ## Architecture
 
@@ -39,12 +39,12 @@ flowchart LR
     EventStore --> LeaderboardProjection
     LeaderboardProjection --> LeaderboardDB
     LeaderboardDB --> LeaderboardAPI
-    Aggregate -. canonical state .-> Reconciler
+    LeaderboardDB -. applied-event log to pinned offset .-> Reconciler
     Reconciler <--> LeaderboardDB
     EventStore --> Experiment
     EventStore -. replay / rebuild .-> Aggregate
 
-    Notifications["Notification engine"]:::deferred
+    Notifications["Notification engine"]
     Abuse["Abuse detection"]:::deferred
     Kafka["Kafka / Redpanda"]:::deferred
     Redis["Redis"]:::deferred
@@ -53,13 +53,13 @@ flowchart LR
     EventStore -. deferred scale-out .-> Kafka
     LeaderboardDB -. deferred cache .-> Redis
     EventStore -. deferred production store .-> Postgres
-    Projections -. future consumers .-> Notifications
+    Projections --> Notifications
     Projections -. future consumers .-> Abuse
 
     classDef deferred stroke-dasharray: 5 5,fill:#f5f5f5,color:#666;
 ```
 
-The implemented path runs in one process: producers submit versioned events, ingestion validates and deduplicates them, and the learner aggregate emits durable domain events to the SQLite-backed eventsourcing store. Rebuildable projections provide learner summaries and leaderboard scores; the leaderboard service reads the SQLite leaderboard model and the reconciliation service repairs divergence against canonical aggregate state. Experiment assignment and metrics consume event history. Notifications, abuse detection, Kafka/Redpanda, Redis, and PostgreSQL are shown as deferred extension points rather than active runtime dependencies.
+The implemented path runs in one process: producers submit versioned events, ingestion validates and deduplicates them, and the learner aggregate emits durable domain events to the SQLite-backed eventsourcing store. Rebuildable projections provide learner summaries and leaderboard scores; the leaderboard service reads the SQLite leaderboard model and the reconciliation service repairs divergence against the projection's own applied-event log up to a pinned offset (see [ranking-consistency.md](docs/ranking-consistency.md) section 6). Experiment assignment and metrics consume event history. In-app and simulated-push notifications are implemented; abuse detection, Kafka/Redpanda, Redis, and PostgreSQL are deferred extension points rather than active runtime dependencies.
 
 ## Documentation
 
@@ -108,23 +108,22 @@ Kafka/Redpanda, Redis, and PostgreSQL setup instructions will be added only if m
 
 | Milestone | Description | Status |
 |-----------|-------------|--------|
-| M1 | Canonical engagement events | ☐ (Updated schemas for all the events) |
+| M1 | Canonical engagement events | ☐ (partial: lesson_completed only; ID binding, late window, rule selection tested) |
 | M2 | Deterministic gamification | ☑ (slice done: XP, streak/freezes, one quest, one badge, replay) |
-| M3 | Cohorts and leaderboards | ☑ (SQLite projections, deterministic ties, differential reconciliation AT-7, latency benchmarks) |
+| M3 | Cohorts and leaderboards | ☐ (leaderboard duplicate, restart, offset and time handling tested; known gaps: cohort merge helper not wired in, capacity check not transactional, member count includes inactive; no production notification-log poller; reconciliation rebuilds from the projection's applied-event log) |
 | M4 | Intervention/quest policy | ☐ |
-| M5 | Multi-channel notifications | ☐ |
+| M5 | Multi-channel notifications | ☐ (in-app and simulated-push slice implemented; email adapter not implemented) |
 | M6 | Abuse detection | ☐ |
-| M7 | Experimentation and metrics | ☐ |
+| M7 | Experimentation and metrics | ☐ (assignment and metric implemented; simulator is a stub; exposure logging not implemented) |
 | M8 | Scale and recovery | ☐ |
 
-M1 means events from the learning app are validated against versioned schemas before acceptance (currently only `lesson_completed` is ingested), while M2 means XP, streaks, freezes, one quest, and one badge are computed deterministically and can be rebuilt exactly from the event history. M3 means synthetic learners are deterministically grouped into bounded cohorts (500–5,000 members, 30-day inactivity pruning) and ranked at cohort and global levels via SQLite projections with exact tie-breaking, measurable latency, and differential reconciliation (AT-7).
+M1 means events from the learning app are validated against versioned schemas before acceptance (currently only `lesson_completed` is ingested), while M2 means XP, streaks, freezes, one quest, and one badge are computed deterministically and can be rebuilt exactly from the event history. M3 means synthetic learners are deterministically grouped into bounded cohorts (500–5,000 members; 30-day inactivity pruning is specified but not yet scheduled or wired in) and ranked at cohort and global levels via SQLite projections with exact tie-breaking, measurable latency, and differential reconciliation (AT-7).
 
 ## Planned Placeholder Tests
 
 | Test | Milestone | Status |
 |------|-----------|--------|
 | `test_point_farming` | M6 | planned placeholder |
-| `test_duplicate_proposals` | M5 | planned placeholder |
 | `test_notification_fatigue` | M5 | planned placeholder |
 | `test_opt_out_enforcement` | M5 | planned placeholder |
 | `test_quiet_hour_delay` | M5 | planned placeholder |

@@ -1,5 +1,7 @@
 """Durable records for deliveries that must not change learner state."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import json

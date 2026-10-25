@@ -6,8 +6,8 @@ This document specifies the ranking consistency model, deterministic tie-breakin
 ## 2. Cohort Bounds and Lifecycle
 Cohorts partition active synthetic learners into bounded competitive communities:
 - **Size Bounds**: Active cohorts must contain between **500 (minimum)** and **5,000 (maximum)** learners.
-- **Inactivity Pruning**: Learners with no recorded activity for $>30$ consecutive days are automatically marked as inactive and removed from active cohort calculations. Their historical XP and streak records remain untouched.
-- **Undersized Merging**: If an educational module or tier has fewer than 500 active learners at epoch transition, it is merged into adjacent difficulty modules to maintain competition density.
+- **Inactivity Pruning**: Specified behaviour, not yet scheduled or wired in (`is_inactive` exists as a helper with no production caller). Learners with no recorded activity for $>30$ consecutive days are to be marked as inactive and removed from active cohort calculations. Their historical XP and streak records remain untouched.
+- **Undersized Merging**: Specified behaviour, not yet scheduled or wired in (`merge_undersized_cohorts` exists as a helper with no production caller). If an educational module or tier has fewer than 500 active learners at epoch transition, it is to be merged into adjacent difficulty modules to maintain competition density.
 - **Fairness & Sensitive Attribute Exclusion**: Cohort formation uses only operational inputs (prior week lesson volume, active course module ID). Demographic, geographic, or protected identity attributes are strictly excluded.
 
 ## 3. Membership Epochs & Calendar Weeks
