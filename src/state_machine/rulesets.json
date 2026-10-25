@@ -1,0 +1,11 @@
+{
+  "v1": {
+    "xp_amount": 100,
+    "quest_targets": {
+      "lesson_starter_v1": 3
+    },
+    "badge_threshold": 7,
+    "badge_id": "week_warrior_v1",
+    "sha256": "ba6d0a3821ebdb1358840ec7a0dd2f67136b4eeb3062d79f3369b53cda6b4430"
+  }
+}

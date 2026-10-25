@@ -1,6 +1,7 @@
 """Validated lesson-completion ingestion with durable duplicate evidence."""
 
 from dataclasses import dataclass
+from datetime import datetime
 import hashlib
 import json
 from pathlib import Path
@@ -11,15 +12,16 @@ from jsonschema import Draft7Validator, FormatChecker, ValidationError
 from eventsourcing.application import AggregateNotFoundError
 from eventsourcing.persistence import IntegrityError
 
+from src.ingestion.config import DEFAULT_CONFIG, IngestConfig
 from src.ingestion.evidence import DeliveryBinding, EvidenceStore
 from src.ingestion.validation import (
-    DEFAULT_INGEST_RULE_VERSION,
     expected_dedup_key,
     validate_lesson_completed_envelope,
     validate_lesson_completed_payload,
     validate_producer,
 )
 from src.state_machine.learner import Learner, LearnerApplication
+from src.state_machine.rules import get_ruleset
 
 
 @dataclass(frozen=True)
@@ -59,6 +61,7 @@ def _resolve_bound_event_id(
     action_id: str,
     event_id: str,
     digest: str,
+    received_at: str,
 ) -> IngestionResult:
     """Answers a delivery whose event_id is already bound to an action."""
     if (
@@ -73,6 +76,7 @@ def _resolve_bound_event_id(
             action_id=action_id,
             event_id=event_id,
             original_ref=binding.action_id,
+            received_at=received_at,
         )
         return IngestionResult("rejected", "conflicting_event_id_reuse")
     if binding.digest is None:
@@ -84,6 +88,7 @@ def _resolve_bound_event_id(
         action_id=action_id,
         event_id=event_id,
         original_ref=binding.event_id,
+        received_at=received_at,
     )
     return IngestionResult("duplicate", "duplicate_event_id")
 
@@ -115,8 +120,14 @@ def ingest_lesson_completed(
     envelope: Mapping[str, Any],
     *,
     authenticated_producer: str,
+    config: IngestConfig = DEFAULT_CONFIG,
 ) -> IngestionResult:
     """Validates and accepts one lesson completion or records its outcome."""
+    # Receive time is the trusted clock, never the envelope's ingested_at.
+    received = config.clock()
+    if received.tzinfo is None or received.utcoffset() is None:
+        raise ValueError("IngestConfig.clock must return a timezone-aware datetime")
+    received_at = received.isoformat()
     learner_id = str(envelope.get("subject_id", ""))
     action_id = (
         str(envelope.get("payload", {}).get("completion_id"))
@@ -150,17 +161,13 @@ def ingest_lesson_completed(
             raise ValidationError("reward_field_in_source_event")
         validate_lesson_completed_payload(payload)
         learner_uuid = UUID(learner_id)
-        if envelope["dedup_key"] != expected_dedup_key(
-            str(envelope["event_id"]), DEFAULT_INGEST_RULE_VERSION
-        ):
-            raise ValidationError("dedup_key_mismatch")
     except ValidationError as exc:
         reason = str(exc.message) if str(exc.message) in {
             "untrusted_producer",
             "reward_field_in_source_event",
             "unsupported_schema_version",
             "schema_invalid",
-            "dedup_key_mismatch",
+            "outside_late_window",
         } else "schema_invalid"
         evidence.record(
             "rejected",
@@ -168,6 +175,7 @@ def ingest_lesson_completed(
             reason,
             action_id=action_id,
             event_id=event_id,
+            received_at=received_at,
         )
         return IngestionResult("rejected", reason)
     except (KeyError, TypeError, ValueError):
@@ -178,17 +186,49 @@ def ingest_lesson_completed(
             reason,
             action_id=action_id,
             event_id=event_id,
+            received_at=received_at,
         )
         return IngestionResult("rejected", reason)
 
     if event_id is None or action_id is None:
         raise RuntimeError("validated event_id or completion_id unexpectedly missing")
-    digest = canonical_digest(envelope)
     binding = evidence.delivery_binding(event_id)
+    # A redelivery is checked against the version it was accepted under, so a
+    # config change does not turn it into a mismatch; new events use the config.
+    key_version = (
+        binding.rule_version
+        if binding is not None and binding.rule_version is not None
+        else config.rule_version
+    )
+    if envelope["dedup_key"] != expected_dedup_key(event_id, key_version):
+        evidence.record(
+            "rejected",
+            learner_id,
+            "dedup_key_mismatch",
+            action_id=action_id,
+            event_id=event_id,
+            received_at=received_at,
+        )
+        return IngestionResult("rejected", "dedup_key_mismatch")
+    digest = canonical_digest(envelope)
     if binding is not None:
         return _resolve_bound_event_id(
-            evidence, binding, learner_id, action_id, event_id, digest
+            evidence, binding, learner_id, action_id, event_id, digest, received_at
         )
+
+    # A redelivery of an accepted event was answered above, so it is never "late".
+    if config.late_window is not None:
+        occurred = datetime.fromisoformat(str(envelope["occurred_at"]))
+        if received - occurred > config.late_window:
+            evidence.record(
+                "rejected",
+                learner_id,
+                "outside_late_window",
+                action_id=action_id,
+                event_id=event_id,
+                received_at=received_at,
+            )
+            return IngestionResult("rejected", "outside_late_window")
 
     try:
         learner = application.repository.get(learner_uuid)
@@ -211,6 +251,7 @@ def ingest_lesson_completed(
             action_id,
             event_id,
             digest,
+            received_at,
         )
 
     original = _original_delivery(evidence, learner_id, action_id)
@@ -226,6 +267,7 @@ def ingest_lesson_completed(
             action_id=action_id,
             event_id=event_id,
             original_ref=original,
+            received_at=received_at,
         )
         return IngestionResult("duplicate", "duplicate_completion_id")
 
@@ -236,6 +278,9 @@ def ingest_lesson_completed(
         source_event_id=event_id,
         occurred_at=str(envelope["occurred_at"]),
         timezone=str(envelope["payload"]["timezone"]),
+        correlation_id=envelope["correlation_id"],
+        causation_id=envelope["causation_id"],
+        rule_version=config.rule_version,
     )
     if not accepted:
         original = learner.completion_sources.get(action_id)
@@ -246,6 +291,7 @@ def ingest_lesson_completed(
             action_id=action_id,
             event_id=event_id,
             original_ref=original,
+            received_at=received_at,
         )
         return IngestionResult("duplicate", "duplicate_completion_id")
     try:
@@ -262,6 +308,7 @@ def ingest_lesson_completed(
                 action_id=action_id,
                 event_id=event_id,
                 original_ref=bound_action,
+                received_at=received_at,
             )
             return IngestionResult("rejected", "conflicting_event_id_reuse")
         if action_id in learner.completed_lesson_ids:
@@ -275,6 +322,7 @@ def ingest_lesson_completed(
                 action_id=action_id,
                 event_id=event_id,
                 original_ref=original,
+                received_at=received_at,
             )
             return IngestionResult("duplicate", "duplicate_completion_id")
 
@@ -285,6 +333,9 @@ def ingest_lesson_completed(
             source_event_id=event_id,
             occurred_at=str(envelope["occurred_at"]),
             timezone=str(envelope["payload"]["timezone"]),
+            correlation_id=envelope["correlation_id"],
+            causation_id=envelope["causation_id"],
+            rule_version=config.rule_version,
         )
         if not accepted:
             original = learner.completion_sources.get(action_id)
@@ -297,6 +348,7 @@ def ingest_lesson_completed(
                 action_id=action_id,
                 event_id=event_id,
                 original_ref=original,
+                received_at=received_at,
             )
             return IngestionResult("duplicate", "duplicate_completion_id")
         try:
@@ -308,10 +360,28 @@ def ingest_lesson_completed(
                 "concurrency_conflict",
                 action_id=action_id,
                 event_id=event_id,
+                received_at=received_at,
             )
             return IngestionResult("rejected", "concurrency_conflict")
     evidence.remember_delivery(learner_id, action_id, event_id)
-    evidence.bind_delivery(event_id, learner_id, action_id, digest)
+    evidence.bind_delivery(
+        event_id,
+        learner_id,
+        action_id,
+        digest,
+        producer=str(envelope["producer"]),
+        event_type=str(envelope["event_type"]),
+        schema_version=envelope["schema_version"],
+        occurred_at=str(envelope["occurred_at"]),
+        ingested_at=str(envelope["ingested_at"]),
+        correlation_id=envelope["correlation_id"],
+        causation_id=envelope["causation_id"],
+        dedup_key=str(envelope["dedup_key"]),
+        provenance=envelope.get("provenance"),
+        rule_version=config.rule_version,
+        rule_digest=get_ruleset(config.rule_version).digest,
+        received_at=received_at,
+    )
     if quest_already_complete:
         quest_completion_id = f"quest_completion:{assignment_id}"
         evidence.record(
@@ -321,6 +391,7 @@ def ingest_lesson_completed(
             action_id=quest_completion_id,
             event_id=event_id,
             original_ref=quest_completion_id,
+            received_at=received_at,
         )
         return IngestionResult("accepted", "quest_already_completed")
     return IngestionResult("accepted")

@@ -11,7 +11,8 @@ from uuid import UUID, uuid4
 import pytest
 
 from src.ingestion.evidence import EvidenceStore
-from src.ingestion.service import canonical_digest, ingest_lesson_completed
+from src.ingestion.service import canonical_digest
+from tests.ingestion.support import ingest_lesson_completed  # late_window=None
 from src.state_machine.learner import Learner, LearnerApplication
 from tests.ingestion.test_ingestion_service import _envelope
 
@@ -195,7 +196,7 @@ def test_crash_before_binding_is_backfilled_from_the_aggregate(tmp_path, monkeyp
         learner_id = _new_learner(application)
         first = _envelope(learner_id, "cmp-A", EVENT_ID)
 
-        def crash(*args):
+        def crash(*args, **kwargs):
             raise RuntimeError("simulated crash")
 
         # The completion is saved; the process dies before the binding row is written.

@@ -28,6 +28,27 @@ The aggregate must also retain the completion/reward relationship beyond the ing
 
 Use the envelope `occurred_at` as the authoritative completion timestamp. Convert it using `payload.timezone` when deriving the learner's local activity date and streak state.
 
+### Effective rule version
+
+- The rule version that applies to an event is the trusted ingress configuration (`IngestConfig.rule_version`) in force when the event is **accepted**. It is never taken from the envelope and never derived from `occurred_at`. A late arrival whose `occurred_at` is before a version change is still judged under the version in force when it arrives.
+- The applied version is persisted in two places: on the delivery's provenance row (`delivery_ids.rule_version`) and on the stored `XPAwarded` fact (`rule_version`).
+- Historical facts keep their version on replay. Replay reads the stored `XPAwarded` amounts and versions, and never re-evaluates them under the current rule set.
+- A redelivery of an already-accepted event (same `event_id`) is judged against the version it was accepted under. Its `dedup_key` must end in that version, even if the configuration has changed since. A new `event_id` must use the version currently configured.
+
+### Rule sets
+
+- Rule sets live in `src/state_machine/rulesets.json`, one entry per version. Each entry holds `xp_amount`, `quest_targets`, `badge_threshold`, `badge_id` and `sha256`. The `sha256` is the SHA-256 of the compact, key-sorted JSON of the four content fields, and it is verified when the rule sets are loaded.
+- Published versions are immutable. A content change needs a new version with a new digest, never an edit to an existing one. Stored facts name a version, and that name must keep meaning the same content.
+- At acceptance, the digest of the rule set that decided the event is recorded on the provenance row (`delivery_ids.rule_digest`), next to `rule_version`. Rows accepted before this was recorded have `NULL`.
+
+### Late-event window
+
+- Lateness is measured from the envelope `occurred_at` to the server receive time, which comes from the trusted ingress clock (`IngestConfig.clock`). The envelope `ingested_at` is provenance only and never affects this decision.
+- An event received **more than 72 hours** after its `occurred_at` is rejected as `outside_late_window`. It is recorded as rejected evidence with the receive time, and causes no state change: no completion, no reward, no streak update, no delivery binding.
+- An event received **exactly 72 hours** after its `occurred_at` is accepted.
+- A redelivery of an already-accepted event (same `event_id`) is a duplicate (`duplicate_event_id`) regardless of its age.
+- Under this policy, a legitimate learner who was offline for more than 72 hours loses that completion's reward. This is a product decision and can be revisited.
+
 ### Example
 
 ```json

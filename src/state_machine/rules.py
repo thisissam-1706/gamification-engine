@@ -1,33 +1,133 @@
 """Small deterministic reward and streak rules used at the decision boundary."""
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime
+import hashlib
+import json
+from pathlib import Path
+from types import MappingProxyType
+from typing import Any
 from zoneinfo import ZoneInfo
+
+RULESETS_FILE = Path(__file__).with_name("rulesets.json")
+_CONTENT_FIELDS = ("xp_amount", "quest_targets", "badge_threshold", "badge_id")
+
+
+class RuleConfigError(ValueError):
+    """A rule set is missing a field, has an invalid value, or fails its digest."""
+
+
+def _is_positive_int(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value > 0
+
+
+def _validate_content(
+    xp_amount: Any, quest_targets: Any, badge_threshold: Any, badge_id: Any
+) -> None:
+    if not _is_positive_int(xp_amount):
+        raise RuleConfigError(f"xp_amount must be a positive int, got {xp_amount!r}")
+    if not _is_positive_int(badge_threshold):
+        raise RuleConfigError(
+            f"badge_threshold must be a positive int, got {badge_threshold!r}"
+        )
+    if not isinstance(badge_id, str) or not badge_id.strip():
+        raise RuleConfigError(f"badge_id must be a non-empty string, got {badge_id!r}")
+    if not isinstance(quest_targets, Mapping):
+        raise RuleConfigError(
+            f"quest_targets must be a mapping, got {type(quest_targets).__name__}"
+        )
+    for quest_id, target in quest_targets.items():
+        if not isinstance(quest_id, str) or not quest_id:
+            raise RuleConfigError(f"quest id must be a non-empty string, got {quest_id!r}")
+        if not _is_positive_int(target):
+            raise RuleConfigError(
+                f"quest target for {quest_id} must be a positive int, got {target!r}"
+            )
+
+
+def _content_digest(
+    xp_amount: int, quest_targets: Mapping[str, int], badge_threshold: int, badge_id: str
+) -> str:
+    content = {
+        "xp_amount": xp_amount,
+        "quest_targets": dict(quest_targets),
+        "badge_threshold": badge_threshold,
+        "badge_id": badge_id,
+    }
+    encoded = json.dumps(content, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
 @dataclass(frozen=True)
 class RuleSet:
     xp_amount: int
-    quest_targets: dict[str, int]
+    quest_targets: Mapping[str, int]
     badge_threshold: int
     badge_id: str
 
+    def __post_init__(self) -> None:
+        _validate_content(
+            self.xp_amount, self.quest_targets, self.badge_threshold, self.badge_id
+        )
+        # Copy, then expose read-only: the caller's dict can no longer reach in.
+        object.__setattr__(
+            self, "quest_targets", MappingProxyType(dict(self.quest_targets))
+        )
 
-RULESETS = {
-    "v1": RuleSet(
-        xp_amount=100,
-        quest_targets={"lesson_starter_v1": 3},
-        badge_threshold=7,
-        badge_id="week_warrior_v1",
-    )
-}
+    @property
+    def digest(self) -> str:
+        """SHA-256 of the compact, key-sorted JSON of the four content fields."""
+        return _content_digest(
+            self.xp_amount, self.quest_targets, self.badge_threshold, self.badge_id
+        )
+
+
+def load_rulesets(path: str | Path | None = None) -> dict[str, RuleSet]:
+    """Loads and verifies the versioned rule sets; any defect raises RuleConfigError."""
+    source = Path(path) if path is not None else RULESETS_FILE
+    try:
+        document = json.loads(source.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise RuleConfigError(f"cannot read rule sets from {source}: {exc}") from exc
+    if not isinstance(document, dict) or not document:
+        raise RuleConfigError("rule sets file must be a non-empty JSON object")
+
+    required = {*_CONTENT_FIELDS, "sha256"}
+    rulesets: dict[str, RuleSet] = {}
+    for version, entry in document.items():
+        if not isinstance(entry, dict):
+            raise RuleConfigError(f"rule set {version} must be a JSON object")
+        missing = required - entry.keys()
+        if missing:
+            raise RuleConfigError(f"rule set {version} is missing {sorted(missing)}")
+        unknown = entry.keys() - required
+        if unknown:
+            raise RuleConfigError(f"rule set {version} has unknown keys {sorted(unknown)}")
+        ruleset = RuleSet(**{field: entry[field] for field in _CONTENT_FIELDS})
+        if entry["sha256"] != ruleset.digest:
+            raise RuleConfigError(
+                f"rule set {version} content does not match its sha256; "
+                "changed rule content needs a new version, not an edit"
+            )
+        rulesets[version] = ruleset
+    return rulesets
+
+
+# Test-only seam: tests register extra versions with monkeypatch.setitem on
+# _REGISTRY. Production code reads RULESETS, a read-only live view of it.
+_REGISTRY: dict[str, RuleSet] = load_rulesets()
+RULESETS: Mapping[str, RuleSet] = MappingProxyType(_REGISTRY)
 
 # Compatibility views for callers that inspect the former configuration names.
-XP_AMOUNTS = {"v1": RULESETS["v1"].xp_amount}
-QUEST_DEFINITIONS = {
-    "lesson_starter_v1": {"target": RULESETS["v1"].quest_targets["lesson_starter_v1"]}
-}
+XP_AMOUNTS: Mapping[str, int] = MappingProxyType({"v1": RULESETS["v1"].xp_amount})
+QUEST_DEFINITIONS: Mapping[str, Mapping[str, int]] = MappingProxyType(
+    {
+        "lesson_starter_v1": MappingProxyType(
+            {"target": RULESETS["v1"].quest_targets["lesson_starter_v1"]}
+        )
+    }
+)
 
 
 def get_ruleset(version: str | RuleSet = "v1") -> RuleSet:

@@ -2,33 +2,70 @@
 
 from datetime import datetime, timedelta, timezone
 import multiprocessing
+import queue
 import time
 from uuid import uuid4
 
 import pytest
 
 from src.ingestion.evidence import EvidenceStore
-from src.ingestion.service import ingest_lesson_completed
+from tests.ingestion.support import ingest_lesson_completed  # late_window=None
 from src.ingestion.validation import DEFAULT_INGEST_RULE_VERSION, expected_dedup_key
 from src.state_machine.learner import Learner, LearnerApplication
 from src.state_machine.projection import LearnerCompletionProjection
 
 
+WORKER_TIMEOUT_SECONDS = 60
+
+
 def _ingest_in_worker(db: str, learner_id: str, envelope: dict, results) -> None:
-    application = LearnerApplication(
-        env={"PERSISTENCE_MODULE": "eventsourcing.sqlite", "SQLITE_DBNAME": db}
-    )
-    evidence = EvidenceStore(db)
+    """Top-level so a spawn child can import it; opens its stores inside the try."""
+    application = None
+    evidence = None
     try:
+        application = LearnerApplication(
+            env={"PERSISTENCE_MODULE": "eventsourcing.sqlite", "SQLITE_DBNAME": db}
+        )
+        evidence = EvidenceStore(db)
         result = ingest_lesson_completed(
             application, evidence, envelope, authenticated_producer="learning-svc"
         )
         results.put((result.status, result.reason))
-    except Exception as exc:  # pragma: no cover - proves the worker never leaks errors
-        results.put(("error", type(exc).__name__))
+    except Exception as exc:  # pragma: no cover - reports startup and ingest errors
+        results.put(("error", f"{type(exc).__name__}: {exc}"))
     finally:
-        evidence.close()
-        application.close()
+        if evidence is not None:
+            evidence.close()
+        if application is not None:
+            application.close()
+
+
+def _collect_worker_results(workers, results) -> list[tuple]:
+    """Gets one result per worker and joins them, failing fast instead of hanging."""
+    collected = []
+    try:
+        for _ in workers:
+            try:
+                collected.append(results.get(timeout=WORKER_TIMEOUT_SECONDS))
+            except queue.Empty:
+                pytest.fail(
+                    f"got {len(collected)} of {len(workers)} worker results within "
+                    f"{WORKER_TIMEOUT_SECONDS}s; results so far {collected}, exit codes "
+                    f"{[worker.exitcode for worker in workers]}"
+                )
+        for worker in workers:
+            worker.join(WORKER_TIMEOUT_SECONDS)
+            if worker.is_alive():
+                pytest.fail(
+                    f"worker pid {worker.pid} still running after "
+                    f"{WORKER_TIMEOUT_SECONDS}s; results {collected}"
+                )
+    finally:
+        for worker in workers:
+            if worker.is_alive():
+                worker.terminate()
+                worker.join(5)
+    return collected
 
 
 def _envelope(learner_id: str, completion_id: str, event_id: str | None = None):
@@ -260,7 +297,7 @@ def test_concurrent_duplicate_completion_is_acknowledged_as_one_duplicate(tmp_pa
 
     first = _envelope(learner_id, "concurrent-1", "00000000-0000-4000-8000-000000000101")
     second = _envelope(learner_id, "concurrent-1", "00000000-0000-4000-8000-000000000102")
-    context = multiprocessing.get_context("fork")
+    context = multiprocessing.get_context("spawn")
     results = context.Queue()
     workers = [
         context.Process(target=_ingest_in_worker, args=(db, learner_id, envelope, results))
@@ -268,10 +305,8 @@ def test_concurrent_duplicate_completion_is_acknowledged_as_one_duplicate(tmp_pa
     ]
     for worker in workers:
         worker.start()
-    for worker in workers:
-        worker.join()
 
-    assert sorted(results.get() for _ in workers) == [
+    assert sorted(_collect_worker_results(workers, results)) == [
         ("accepted", None),
         ("duplicate", "duplicate_completion_id"),
     ]
@@ -300,7 +335,7 @@ def test_concurrent_different_completions_retry_without_lost_update(tmp_path):
     learner_id = str(learner.id)
     application.close()
 
-    context = multiprocessing.get_context("fork")
+    context = multiprocessing.get_context("spawn")
     results = context.Queue()
     workers = [
         context.Process(
@@ -319,10 +354,8 @@ def test_concurrent_different_completions_retry_without_lost_update(tmp_path):
     ]
     for worker in workers:
         worker.start()
-    for worker in workers:
-        worker.join()
 
-    assert sorted(results.get() for _ in workers) == [
+    assert sorted(_collect_worker_results(workers, results)) == [
         ("accepted", None),
         ("accepted", None),
     ]

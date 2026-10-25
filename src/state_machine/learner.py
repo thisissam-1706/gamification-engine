@@ -83,6 +83,8 @@ class Learner(Aggregate):
         occurred_at: str | datetime | None = None,
         timezone: str | None = None,
         source_event_id: str | None = None,
+        correlation_id: str | None = None,
+        causation_id: str | None = None,
     ) -> bool:
         """Accepts one completion and emits its one durable XP reward.
 
@@ -109,6 +111,8 @@ class Learner(Aggregate):
             timezone,
             occurred_at,
             source_event_id,
+            correlation_id,
+            causation_id,
         )
         self._award_xp(reward_id, completion_id, xp_amount, rule_version)
         if activity_date is not None:
@@ -207,6 +211,10 @@ class Learner(Aggregate):
         timezone_name: str | None = None,
         occurred_at: str | datetime | None = None,
         source_event_id: str | None = None,
+        # Source provenance only; not folded into state. Absent on events
+        # stored before Week 4 Fix 7a, which replay with these defaults.
+        correlation_id: str | None = None,
+        causation_id: str | None = None,
     ) -> None:
         """Applies the accepted source lesson completion."""
         self.completed_lesson_ids.add(completion_id)

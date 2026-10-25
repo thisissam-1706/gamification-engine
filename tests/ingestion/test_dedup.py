@@ -14,7 +14,7 @@ from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 from src.ingestion.evidence import EvidenceStore
-from src.ingestion.service import ingest_lesson_completed
+from tests.ingestion.support import ingest_lesson_completed  # late_window=None
 from src.ingestion.validation import DEFAULT_INGEST_RULE_VERSION, expected_dedup_key
 from src.state_machine.learner import Learner, LearnerApplication
 from tests.ingestion.test_ingestion_service import _envelope

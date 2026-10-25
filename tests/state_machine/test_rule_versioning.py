@@ -4,34 +4,63 @@ Given xp_awarded was stamped with rule_version = v1 when E = 100, when the globa
 """
 from src.state_machine.learner import Learner, LearnerApplication
 from src.state_machine.projection import rebuild_learner_state
-from src.state_machine.rules import RULESETS, RuleSet, XP_AMOUNTS
+from src.state_machine.rules import _REGISTRY, RuleSet, xp_amount_for
 
 
-def test_historical_reward_replay_uses_persisted_amount_after_rule_update(tmp_path):
-    """Replay folds the old reward fact; it does not consult a new rule."""
-    app = LearnerApplication(env={"PERSISTENCE_MODULE": "eventsourcing.sqlite", "SQLITE_DBNAME": str(tmp_path / "events.db")})
+def test_historical_reward_replay_uses_persisted_amount_after_rule_update(
+    tmp_path, monkeypatch
+):
+    """An award made under v1 = 100 XP stays 100 after v1's rule changes to 999.
+
+    Accept under v1, restart on the same SQLite file, replace the registered
+    v1 rule set with one worth 999 XP, then rebuild. Replay folds the stored
+    XPAwarded fact; it never re-evaluates the rule.
+    """
+    environment = {
+        "PERSISTENCE_MODULE": "eventsourcing.sqlite",
+        "SQLITE_DBNAME": str(tmp_path / "events.db"),
+    }
+    app = LearnerApplication(env=environment)
     try:
         learner = Learner()
-        learner.complete_lesson("c-v1", "l1", rule_version="v1")
+        assert learner.complete_lesson("c-v1", "l1", rule_version="v1")
+        assert learner.xp_total == 100
         app.save(learner)
-        events = list(app.events.get(learner.id))
+        learner_id = learner.id
+    finally:
+        app.close()
 
-        XP_AMOUNTS["v1"] = 150  # Current configuration changes after award.
+    original_v1 = _REGISTRY["v1"]
+    monkeypatch.setitem(
+        _REGISTRY,
+        "v1",
+        RuleSet(
+            xp_amount=999,  # Current configuration changes after the award.
+            quest_targets=dict(original_v1.quest_targets),
+            badge_threshold=original_v1.badge_threshold,
+            badge_id=original_v1.badge_id,
+        ),
+    )
+    assert xp_amount_for("v1") == 999
+
+    restarted = LearnerApplication(env=environment)
+    try:
+        events = list(restarted.events.get(learner_id))
         replayed = rebuild_learner_state(events)
         awards = [event for event in events if isinstance(event, Learner.XPAwarded)]
         assert replayed.xp_total == 100
+        assert restarted.repository.get(learner_id).xp_total == 100
         assert len(awards) == 1
         assert awards[0].xp_amount == 100
         assert awards[0].reward_id == "xp:c-v1"
         assert awards[0].rule_version == "v1"
     finally:
-        XP_AMOUNTS["v1"] = 100
-        app.close()
+        restarted.close()
 
 
 def test_v2_ruleset_changes_xp_only_when_selected():
-    original = RULESETS.get("v2")
-    RULESETS["v2"] = RuleSet(
+    original = _REGISTRY.get("v2")
+    _REGISTRY["v2"] = RuleSet(
         xp_amount=150,
         quest_targets={"lesson_starter_v1": 3},
         badge_threshold=5,
@@ -48,14 +77,14 @@ def test_v2_ruleset_changes_xp_only_when_selected():
         assert v2.xp_total == 150
     finally:
         if original is None:
-            del RULESETS["v2"]
+            del _REGISTRY["v2"]
         else:
-            RULESETS["v2"] = original
+            _REGISTRY["v2"] = original
 
 
 def test_v2_ruleset_changes_badge_threshold_only_when_selected():
-    original = RULESETS.get("v2")
-    RULESETS["v2"] = RuleSet(
+    original = _REGISTRY.get("v2")
+    _REGISTRY["v2"] = RuleSet(
         xp_amount=150,
         quest_targets={"lesson_starter_v1": 3},
         badge_threshold=5,
@@ -74,14 +103,14 @@ def test_v2_ruleset_changes_badge_threshold_only_when_selected():
         assert "week_warrior_v2" in v2.badges_issued
     finally:
         if original is None:
-            del RULESETS["v2"]
+            del _REGISTRY["v2"]
         else:
-            RULESETS["v2"] = original
+            _REGISTRY["v2"] = original
 
 
 def test_v2_ruleset_changes_quest_target_only_when_selected():
-    original = RULESETS.get("v2")
-    RULESETS["v2"] = RuleSet(
+    original = _REGISTRY.get("v2")
+    _REGISTRY["v2"] = RuleSet(
         xp_amount=150,
         quest_targets={"lesson_starter_v1": 2},
         badge_threshold=5,
@@ -110,14 +139,14 @@ def test_v2_ruleset_changes_quest_target_only_when_selected():
         assert v2.quest_instances["quest:lesson_starter_v1"]["status"] == "completed"
     finally:
         if original is None:
-            del RULESETS["v2"]
+            del _REGISTRY["v2"]
         else:
-            RULESETS["v2"] = original
+            _REGISTRY["v2"] = original
 
 
 def test_v1_events_replay_with_v1_facts_after_v2_registration():
-    original = RULESETS.get("v2")
-    RULESETS["v2"] = RuleSet(
+    original = _REGISTRY.get("v2")
+    _REGISTRY["v2"] = RuleSet(
         xp_amount=150,
         quest_targets={"lesson_starter_v1": 3},
         badge_threshold=5,
@@ -137,6 +166,6 @@ def test_v1_events_replay_with_v1_facts_after_v2_registration():
         assert replayed.badges_issued == learner.badges_issued
     finally:
         if original is None:
-            del RULESETS["v2"]
+            del _REGISTRY["v2"]
         else:
-            RULESETS["v2"] = original
+            _REGISTRY["v2"] = original
