@@ -6,7 +6,7 @@ This framework dictates how the experimentation engine evaluates cohort interven
 
 ## 5.1 Primary Learning Outcome
 
-* **First-Attempt Mastery Accuracy:** The core objective is educational progression, not click volume. This metric calculates the average accuracy score across all Checkpoint Attempt events exclusively where the attempt sequence is exactly 1.
+* **First eligible checkpoint mastery:** The core objective is educational progression, not click volume. This metric is the share of assigned eligible learners who pass their first eligible checkpoint within 14 days of assignment; the missing-outcome rate is reported separately.
 
 ## 5.2 Long-Term Retention & Spaced Repetition
 
@@ -34,8 +34,8 @@ where:
   `V = {v0, v1, ..., vk}`
   where v0 is strictly designated as the control policy (baseline/no-intervention).
 * **Deterministic Assignment Function (A):** A pure function mapping a learner identifier (subject_id) and exp_id to a variant using uniform hash bucketing:
-  `A(subject_id, exp_id) = H(subject_id || exp_id) mod 100`
-  where H is a versioned hash algorithm (e.g., MurmurHash3 / Hash Algorithm v2).
+  `A(subject_id, exp_id) = int.from_bytes(sha256(json.dumps([subject_id, exp_id], separators=(',', ':')).encode('utf-8')).digest()[:8], 'big') mod 100`
+  i.e. the first 8 bytes of the SHA-256 of the compact UTF-8 JSON array [subject_id, exp_id], read as a big-endian unsigned integer, mod 100 (versioned as hash_v2). The JSON array deliberately avoids plain concatenation, which collides: ('ab', 'c') and ('a', 'bc') would both hash 'abc'.
 * **Primary Metric (Mprimary):** The core educational or behavioral outcome measure used to evaluate policy efficacy.
 * **Guardrails (G):** A set of systemic constraints (e.g., daily notification caps, fatigue thresholds, decayed-XP caps) that, if violated by any treatment variant, automatically invalidate the experiment and halt policy execution.
 * **Contamination & SRM Checks (C):** Automated statistical controls, including a chi-square (χ2) goodness-of-fit test on assignment distribution, to catch Sample-Ratio Mismatch (SRM).
@@ -45,8 +45,8 @@ where:
 * **Variants (V):**
   * variant_a (Treatment): Fires an automated, exponential-interval push reminder during the 4 hours preceding localized midnight when a learner’s streak is at risk.
   * variant_b (Control): Suppresses streak-risk interventions; observes baseline learner behavior.
-* **Assignment & Exclusions:** 50/50 split via `H(subject_id || "exp_007") mod 100`. Excludes learners with platform tenure < 3 days or those who opted out of the push × streak_risk consent pair.
-* **Primary Metric (Mprimary):** First-Attempt Mastery Accuracy over a 14-day window (with Remediation Conversion Rate as the short-horizon operational signal).
+* **Assignment & Exclusions:** 50/50 split via `bucket = int.from_bytes(sha256(json.dumps([subject_id, exp_id], separators=(',', ':')).encode('utf-8')).digest()[:8], 'big') mod 100`, i.e. the first 8 bytes of the SHA-256 of the compact UTF-8 JSON array [subject_id, exp_id], read as a big-endian unsigned integer, mod 100; bucket < 50 → variant_a (propensity 0.5), otherwise variant_b. The JSON array deliberately avoids plain concatenation, which collides: ('ab', 'c') and ('a', 'bc') would both hash 'abc'. Excludes learners with platform tenure < 3 days or those who opted out of the push × streak_risk consent pair.
+* **Primary Metric (Mprimary):** First eligible checkpoint mastery over a 14-day window (with Remediation Conversion Rate as the short-horizon operational signal). The 14-day window is measured from assignment; learners whose window has not closed are reported as immature and left out of the denominator, and the missing-outcome rate is reported separately.
 * **Guardrails (G):** The experiment is automatically marked as invalidated if variant_a breaches the [daily notification cap](problem-boundaries.md#notification-channels-and-constraints) (§5.3) or drives cohort decayed-XP share above 15% (§5.3).
 * **SRM Safeguard (C):** A daily pipeline job runs a χ2 test comparing actual assignment ratios against the expected 50/50 split (p < 0.001 triggers an SRM alert).
 

@@ -9,7 +9,7 @@ variants:
     description: "Suppresses streak-risk interventions; observes baseline learner behavior"
 assignment:
   algorithm: "hash_v2"
-  function: "H(subject_id || 'exp_007') mod 100"
+  function: "bucket = int.from_bytes(sha256(json.dumps([subject_id, exp_id], separators=(',', ':')).encode('utf-8')).digest()[:8], 'big') mod 100, i.e. the first 8 bytes of the SHA-256 of the compact UTF-8 JSON array [subject_id, exp_id], read as a big-endian unsigned integer, mod 100; bucket < 50 -> variant_a (propensity 0.5), otherwise variant_b. The JSON array deliberately avoids plain concatenation, which collides: ('ab', 'c') and ('a', 'bc') would both hash 'abc'."
   split: "50/50"
 exclusions:
   - "platform_tenure < 3 days"
