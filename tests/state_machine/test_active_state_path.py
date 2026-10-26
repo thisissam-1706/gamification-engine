@@ -1,8 +1,7 @@
-"""Week 3 review P0: every active reader must agree with the aggregate and the pure fold.
+"""Week 3 review P0: ingestion of a fresh lesson tagged to an already-completed quest.
 
-Covers: LearnerStreakProjection (arrival order / freezes), LearnerQuestProjection
-(per-assignment identity, expiry) and ingestion of a fresh lesson tagged to an
-already-completed quest.
+The streak and quest projection tests live in test_streak_reader.py and
+test_quest_reader.py.
 """
 
 from datetime import datetime, timedelta, timezone
@@ -12,155 +11,9 @@ from src.ingestion.evidence import EvidenceStore
 from tests.ingestion.support import ingest_lesson_completed  # late_window=None
 from src.ingestion.validation import DEFAULT_INGEST_RULE_VERSION, expected_dedup_key
 from src.state_machine.learner import Learner, LearnerApplication
-from src.state_machine.projection import (
-    LearnerQuestProjection,
-    LearnerStreakProjection,
-    rebuild_learner_state,
-)
 
 QUEST = "lesson_starter_v1"
 
-
-def _events(learner: Learner) -> list:
-    return list(learner.collect_events())
-
-
-def _complete(learner: Learner, cid: str, day: str) -> None:
-    learner.complete_lesson(cid, "lesson-1", activity_date=day)
-
-
-def _lesson_at(learner: Learner, cid: str, occurred_at: str) -> None:
-    learner.complete_lesson(cid, "lesson-1", occurred_at=occurred_at, timezone="UTC")
-
-
-# ---------------------------------------------------------------------------
-# Streak reader == aggregate == pure fold
-# ---------------------------------------------------------------------------
-def test_streak_projection_matches_aggregate_for_late_oct1():
-    learner = Learner()
-    _complete(learner, "c1", "2026-10-01")
-    _complete(learner, "c2", "2026-10-02")
-    _complete(learner, "c3", "2026-10-01")  # new completion on an earlier day
-    events = _events(learner)
-
-    replayed = rebuild_learner_state(events)
-    projection = LearnerStreakProjection()
-    for event in events:
-        projection.apply(event)
-    summary = projection.streak_summaries[learner.id]
-
-    assert replayed.new_streak == 2
-    assert learner.new_streak == 2
-    assert summary.new_streak == 2
-    assert summary.freezes_remaining == learner.freezes_remaining
-
-
-def test_streak_projection_counts_freeze_acquired_after_latest_activity():
-    learner = Learner()
-    _complete(learner, "c1", "2026-10-01")
-    _complete(learner, "c2", "2026-10-02")
-    learner.acquire_freeze("f1", activity_date="2026-10-03")
-    events = _events(learner)
-
-    replayed = rebuild_learner_state(events)
-    projection = LearnerStreakProjection()
-    for event in events:
-        projection.apply(event)
-    summary = projection.streak_summaries[learner.id]
-
-    assert learner.freezes_remaining == 1
-    assert replayed.freezes_remaining == 1
-    assert summary.freezes_remaining == 1
-    assert summary.new_streak == replayed.new_streak == 2
-
-
-def test_streak_projection_is_idempotent_when_events_are_delivered_twice():
-    learner = Learner()
-    _complete(learner, "c1", "2026-10-01")
-    learner.acquire_freeze("f1", activity_date="2026-10-01")
-    events = _events(learner)
-    projection = LearnerStreakProjection()
-    for event in events + events:
-        projection.apply(event)
-    summary = projection.streak_summaries[learner.id]
-    assert (summary.new_streak, summary.freezes_remaining) == (1, 1)
-
-
-# ---------------------------------------------------------------------------
-# Quest reader keeps assignment identity, status and deadline
-# ---------------------------------------------------------------------------
-def _two_assignments() -> Learner:
-    learner = Learner()
-    learner.assign_quest(
-        QUEST, assignment_id="a1", assigned_at="2026-10-01T00:00:00Z",
-        deadline_at="2026-10-08T00:00:00Z",
-    )
-    for index in range(3):
-        _lesson_at(learner, f"first-{index}", f"2026-10-0{index + 2}T10:00:00Z")
-    learner.assign_quest(
-        QUEST, assignment_id="a2", assigned_at="2026-10-05T00:00:00Z",
-        deadline_at="2026-10-12T00:00:00Z",
-    )
-    _lesson_at(learner, "second-0", "2026-10-06T10:00:00Z")
-    return learner
-
-
-def test_quest_projection_keeps_repeated_assignments_separate():
-    learner = _two_assignments()
-    assert learner.quest_instances["a1"]["status"] == "completed"
-    assert learner.quest_instances["a2"]["status"] == "assigned"
-
-    projection = LearnerQuestProjection()
-    for event in _events(learner):
-        projection.apply(event)
-    summary = projection.get_summary(learner.id)
-
-    assert set(summary.assignments) == {"a1", "a2"}
-    assert summary.assignments["a1"].status == "completed"
-    assert summary.assignments["a2"].status == "assigned"
-    assert summary.assignments["a1"].progress == 3
-    assert summary.assignments["a2"].progress == 1
-    assert summary.assignments["a2"].deadline_at == datetime(
-        2026, 10, 12, tzinfo=timezone.utc
-    )
-    assert summary.quest_progress == {"a1": 3, "a2": 1}
-    # The same quest id assigned twice is not collapsed.
-    assert summary.assigned_quests == (QUEST, QUEST)
-    assert summary.completed_quests == (QUEST,)
-
-
-def test_quest_projection_marks_overdue_assignment_expired_without_new_lesson():
-    learner = _two_assignments()
-    projection = LearnerQuestProjection()
-    for event in _events(learner):
-        projection.apply(event)
-
-    before_deadline = projection.get_summary(
-        learner.id, as_of=datetime(2026, 10, 11, tzinfo=timezone.utc)
-    )
-    after_deadline = projection.get_summary(
-        learner.id, as_of=datetime(2026, 10, 13, tzinfo=timezone.utc)
-    )
-    assert before_deadline.assignments["a2"].status == "assigned"
-    assert after_deadline.assignments["a2"].status == "expired"
-    # A completed assignment never becomes expired.
-    assert after_deadline.assignments["a1"].status == "completed"
-
-
-def test_quest_projection_applies_expiry_events():
-    learner = Learner()
-    learner.assign_quest(
-        QUEST, assignment_id="a1", assigned_at="2026-10-01T00:00:00Z",
-        deadline_at="2026-10-03T00:00:00Z",
-    )
-    _lesson_at(learner, "late", "2026-10-09T10:00:00Z")  # past deadline -> expiry event
-    projection = LearnerQuestProjection()
-    for event in _events(learner):
-        projection.apply(event)
-    summary = projection.get_summary(learner.id)
-    assert learner.quest_instances["a1"]["status"] == "expired"
-    assert summary.assignments["a1"].status == "expired"
-    assert summary.completed_quests == ()
 
 
 # ---------------------------------------------------------------------------
