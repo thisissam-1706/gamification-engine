@@ -281,6 +281,7 @@ def ingest_lesson_completed(
         correlation_id=envelope["correlation_id"],
         causation_id=envelope["causation_id"],
         rule_version=config.rule_version,
+        completion_kind=envelope["payload"].get("completion_kind"),
     )
     if not accepted:
         original = learner.completion_sources.get(action_id)
@@ -336,6 +337,7 @@ def ingest_lesson_completed(
             correlation_id=envelope["correlation_id"],
             causation_id=envelope["causation_id"],
             rule_version=config.rule_version,
+            completion_kind=envelope["payload"].get("completion_kind"),
         )
         if not accepted:
             original = learner.completion_sources.get(action_id)

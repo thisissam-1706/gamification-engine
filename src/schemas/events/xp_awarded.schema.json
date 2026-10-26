@@ -12,7 +12,17 @@
     },
     "completion_id": {"type": "string", "minLength": 1},
     "xp_amount": {"type": "integer", "minimum": 0},
-    "rule_version": {"type": "string", "minLength": 1}
+    "rule_version": {"type": "string", "minLength": 1},
+    "repeat_index": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Optional. Prior eligible completions of the same lesson when the amount was decided (N). Absent on awards stored before M6."
+    },
+    "completion_kind": {
+      "type": "string",
+      "enum": ["lesson", "review", "remediation"],
+      "description": "Optional. Kind of the rewarded completion; absent means lesson. review and remediation never decay."
+    }
   },
   "additionalProperties": false
 }

@@ -1,0 +1,93 @@
+{
+  "v1": {
+    "replay": {
+      "window_minutes": 60,
+      "min_distinct_replayed_events": 5,
+      "flag_conflicting_event_id_reuse": true
+    },
+    "duplicate_exploit": {
+      "window_minutes": 60,
+      "min_distinct_resubmitted_completions": 3,
+      "flag_reward_field_in_source_event": true
+    },
+    "impossible_timing": {
+      "default_min_gap_seconds": 20,
+      "min_gap_seconds": {
+        "lesson": 20,
+        "review": 10,
+        "remediation": 20
+      },
+      "short_gaps_required": 3,
+      "short_gap_window_minutes": 10,
+      "burst": {
+        "max_completions": 20,
+        "window_minutes": 10
+      }
+    },
+    "scripted_farming": {
+      "repeat": {
+        "window_hours": 24,
+        "min_repeat_completions": 10
+      },
+      "metronome": {
+        "min_events": 12,
+        "max_cv": 0.05,
+        "min_mean_gap_seconds": 1
+      }
+    },
+    "cohort_gaming_threshold": 0.15,
+    "sha256": "d9b25324f8e5578b644c579055e8414ddf658d5208cf7d2ee6b2ef10bd5adbff"
+  },
+  "v2": {
+    "replay": {
+      "window_minutes": 60,
+      "min_distinct_replayed_events": 5,
+      "flag_conflicting_event_id_reuse": true
+    },
+    "duplicate_exploit": {
+      "window_minutes": 60,
+      "min_distinct_resubmitted_completions": 3,
+      "flag_reward_field_in_source_event": true
+    },
+    "impossible_timing": {
+      "default_min_gap_seconds": 20,
+      "min_gap_seconds": {
+        "lesson": 20,
+        "review": 10,
+        "remediation": 20
+      },
+      "short_gaps_required": 3,
+      "short_gap_window_minutes": 10,
+      "burst": {
+        "max_completions": 20,
+        "window_minutes": 10
+      }
+    },
+    "scripted_farming": {
+      "repeat": {
+        "window_hours": 24,
+        "min_repeat_completions": 10
+      },
+      "metronome": {
+        "min_events": 12,
+        "max_cv": 0.05,
+        "min_mean_gap_seconds": 1
+      }
+    },
+    "cohort_gaming_threshold": 0.15,
+    "review_misuse": {
+      "max_reviews_per_lesson": 3,
+      "window_hours": 24,
+      "orphan_min_lessons": 3
+    },
+    "receive_burst": {
+      "max_completions": 40,
+      "window_minutes": 10
+    },
+    "future_dated": {
+      "tolerance_minutes": 5,
+      "min_completions": 3
+    },
+    "sha256": "24ff24b10dcdfda34287df182e8ae540b726ddcd57ee7dda8c97d2e8a4dbf0ad"
+  }
+}

@@ -14,7 +14,7 @@ This is a source learning event. It records that a learner completed a specific 
 | `lesson_id` | Yes | Stable identifier of the completed lesson. |
 | `lesson_version` | No | Immutable version of the lesson definition completed. |
 | `timezone` | Yes | Learner IANA timezone at completion, such as `Asia/Kolkata`. |
-| `completion_kind` | No | One of `lesson`, `review`, or `remediation`. |
+| `completion_kind` | No | One of `lesson`, `review`, or `remediation`. Ingestion passes it to the aggregate (M6). Absent means `lesson`. `review` and `remediation` never decay and do not count toward the repeat count `N`. |
 
 The machine-readable payload contract is [lesson_completed.schema.json](../src/schemas/events/lesson_completed.schema.json).
 
@@ -37,9 +37,21 @@ Use the envelope `occurred_at` as the authoritative completion timestamp. Conver
 
 ### Rule sets
 
-- Rule sets live in `src/state_machine/rulesets.json`, one entry per version. Each entry holds `xp_amount`, `quest_targets`, `badge_threshold`, `badge_id` and `sha256`. The `sha256` is the SHA-256 of the compact, key-sorted JSON of the four content fields, and it is verified when the rule sets are loaded.
+- Rule sets live in `src/state_machine/rulesets.json`, one entry per version. Each entry holds `xp_amount`, `quest_targets`, `badge_threshold`, `badge_id` and `sha256`. The `sha256` is the SHA-256 of the compact, key-sorted JSON of the four content fields, and it is verified when the rule sets are loaded. A rule set may also carry an optional `decay` object (`first_repeat_percent`, `step_xp`); `decay` joins the digested content only when present, so `v1`'s digest is unchanged.
 - Published versions are immutable. A content change needs a new version with a new digest, never an edit to an existing one. Stored facts name a version, and that name must keep meaning the same content.
+- Rule sets with a decay schedule (`v2`) live in `src/state_machine/rulesets_decay.json` and are **opt-in**: they are not in the default registry until `register_decay_rulesets()` is called, and an `IngestConfig` for `v2` is only valid after that. (They are kept apart because existing tests pin the default registry to exactly `v1`.)
 - At acceptance, the digest of the rule set that decided the event is recorded on the provenance row (`delivery_ids.rule_digest`), next to `rule_version`. Rows accepted before this was recorded have `NULL`.
+
+### XP award (`gamification.xp_awarded`), M6 additions
+
+Two optional fields are stored on the `XPAwarded` fact (see [xp_awarded.schema.json](../src/schemas/events/xp_awarded.schema.json)). Both are absent on awards stored before M6, and such streams replay unchanged.
+
+| Field | Meaning |
+|---|---|
+| `repeat_index` | `N` at decision time: prior accepted `lesson`/absent-kind completions of the same `lesson_id` by the same learner. Recorded as `0` for `review` and `remediation` completions, which have no repeat position. |
+| `completion_kind` | The kind of the rewarded completion (`lesson`, `review`, `remediation`), or absent. |
+
+The amount is decided once, in `Learner.complete_lesson`. Under a decay rule set it is `E` for `N = 0` and `max(0, E * first_repeat_percent // 100 - step_xp * (N - 1))` for `N >= 1` (v2: 100, 50, 30, 10, 0). Replay and the leaderboard read the stored `xp_amount`; neither recomputes it.
 
 ### Late-event window
 

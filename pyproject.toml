@@ -27,7 +27,8 @@ include = ["src*"]
 
 [tool.setuptools.package-data]
 "src" = ["schemas/*.json", "schemas/events/*.json"]
-"src.state_machine" = ["rulesets.json"]
+"src.state_machine" = ["rulesets.json", "rulesets_decay.json"]
+"src.abuse" = ["abuse_rules.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

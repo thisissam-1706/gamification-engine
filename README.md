@@ -2,7 +2,7 @@
 
 > **Changelog (2026-10-12):** Documented the current single-process eventsourcing and SQLite architecture; marked Kafka/Redpanda, Redis, and PostgreSQL as deferred options.
 
-An event-sourced gamification engine with deterministic XP, streaks, quests, badges, notifications, and experiments. Rule-based abuse detection is planned (M6) but not implemented. The current implementation runs as a single process using the `eventsourcing` library with SQLite as its durable event store.
+An event-sourced gamification engine with deterministic XP, streaks, quests, badges, notifications, and experiments. Rule-based abuse detection (M6) is implemented for synthetic fixtures as a retroactive, flag-only pass, and XP decay exists as an opt-in rule set (`v2`); neither is validated on real data. The current implementation runs as a single process using the `eventsourcing` library with SQLite as its durable event store.
 
 ## Architecture
 
@@ -45,7 +45,7 @@ flowchart LR
     EventStore -. replay / rebuild .-> Aggregate
 
     Notifications["Notification engine"]
-    Abuse["Abuse detection"]:::deferred
+    Abuse["Abuse detection (flag-only)"]
     Kafka["Kafka / Redpanda"]:::deferred
     Redis["Redis"]:::deferred
     Postgres["PostgreSQL"]:::deferred
@@ -54,16 +54,18 @@ flowchart LR
     LeaderboardDB -. deferred cache .-> Redis
     EventStore -. deferred production store .-> Postgres
     Projections --> Notifications
-    Projections -. future consumers .-> Abuse
+    EventStore -. retroactive pass, flag-only .-> Abuse
+    IngestionEvidence["Ingestion evidence"] -. read by .-> Abuse
 
     classDef deferred stroke-dasharray: 5 5,fill:#f5f5f5,color:#666;
 ```
 
-The implemented path runs in one process: producers submit versioned events, ingestion validates and deduplicates them, and the learner aggregate emits durable domain events to the SQLite-backed eventsourcing store. Rebuildable projections provide learner summaries and leaderboard scores; the leaderboard service reads the SQLite leaderboard model and the reconciliation service repairs divergence against the projection's own applied-event log up to a pinned offset (see [ranking-consistency.md](docs/ranking-consistency.md) section 6). Experiment assignment and metrics consume event history. In-app and simulated-push notifications are implemented; abuse detection, Kafka/Redpanda, Redis, and PostgreSQL are deferred extension points rather than active runtime dependencies.
+The implemented path runs in one process: producers submit versioned events, ingestion validates and deduplicates them, and the learner aggregate emits durable domain events to the SQLite-backed eventsourcing store. Rebuildable projections provide learner summaries and leaderboard scores; the leaderboard service reads the SQLite leaderboard model and the reconciliation service repairs divergence against the projection's own applied-event log up to a pinned offset (see [ranking-consistency.md](docs/ranking-consistency.md) section 6). Experiment assignment and metrics consume event history. In-app and simulated-push notifications are implemented; a retroactive, flag-only abuse detection pass (`src/abuse`, see [abuse-detection.md](docs/abuse-detection.md)) reads stored facts and ingestion evidence outside ingestion and never changes learner state; Kafka/Redpanda, Redis, and PostgreSQL are deferred extension points rather than active runtime dependencies.
 
 ## Documentation
 
 - [Problem Boundaries](docs/problem-boundaries.md)
+- [Abuse Detection (M6)](docs/abuse-detection.md)
 - [Literature and Landscape Analysis](docs/literature-landscape.md)
 - [Metrics Framework](docs/metrics-framework.md)
 - [Traceability Matrix and Acceptance Tests](docs/traceability-matrix.md)
@@ -78,6 +80,7 @@ The architecture diagram above is the repository's single high-level architectur
 - [ADR-0003: Rule-Based Abuse Detection](docs/adr/0003-rule-based-abuse-detection.md)
 - [ADR-0004: Fixed A/B with Optional Bandit](docs/adr/0004-bandit-vs-fixed-ab.md)
 - [ADR-0005: Eventsourcing and SQLite First](docs/adr/0005-eventsourcing-sqlite-first.md)
+- [ADR-0006: Decay in the Reward Path, Detection Stays Flag-Only](docs/adr/0006-decay-in-reward-path.md)
 
 ## How to Run Locally
 
@@ -113,7 +116,7 @@ Kafka/Redpanda, Redis, and PostgreSQL setup instructions will be added only if m
 | M3 | Cohorts and leaderboards | ☐ (leaderboard duplicate, restart, offset and time handling tested; known gaps: cohort merge helper not wired in, capacity check not transactional, member count includes inactive; no production notification-log poller; reconciliation rebuilds from the projection's applied-event log) |
 | M4 | Intervention/quest policy | ☐ |
 | M5 | Multi-channel notifications | ☐ (in-app and simulated-push slice implemented; email adapter not implemented) |
-| M6 | Abuse detection | ☐ |
+| M6 | Abuse detection | ☐ (implemented for synthetic fixtures; flag-only; thresholds unvalidated on real data; XP decay is opt-in ruleset `v2`) |
 | M7 | Experimentation and metrics | ☐ (assignment and metric implemented; simulator is a stub; exposure logging not implemented) |
 | M8 | Scale and recovery | ☐ |
 
@@ -123,7 +126,7 @@ M1 means events from the learning app are validated against versioned schemas be
 
 | Test | Milestone | Status |
 |------|-----------|--------|
-| `test_point_farming` | M6 | planned placeholder |
+| `test_point_farming` | M6 | passing (AT-6; synthetic fixtures, flag-only) |
 | `test_notification_fatigue` | M5 | planned placeholder |
 | `test_opt_out_enforcement` | M5 | planned placeholder |
 | `test_quiet_hour_delay` | M5 | planned placeholder |

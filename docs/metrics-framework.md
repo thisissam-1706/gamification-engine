@@ -21,6 +21,7 @@ Instead of measuring simple application logins, retention is evaluated through t
 Experiments that improve engagement at the cost of learner well-being or system integrity are automatically marked as failed.
 * **The Notification Fatigue & Escalation Limit:** Enforces the [daily notification cap and quiet hours](problem-boundaries.md#notification-channels-and-constraints). To support habit formation, “streak at risk” notification intervals decrease exponentially (firing more rapidly) leading up to localized midnight, provided the shared notification constraints are respected (quiet hours take absolute precedence, truncating any escalating schedule upon entry).
 * **The Gaming Threshold:** If > 15% of a cohort’s total weekly XP generation originates from decayed (repeated) lessons, the specific intervention policy is flagged for reward abuse and disqualified.
+  * *Implementation note (M6):* `cohort_gaming_report` in `src/abuse/guardrail.py` computes the weekly repeat-XP share per cohort ("decayed XP" is read as XP awarded on completions with `repeat_index` >= 1) and `breached = share > 0.15` (threshold in `abuse_rules.json`). It only reports; automatic disqualification and wiring into the exp_007 runner are not implemented.
 * During the [defined quiet-hours window](problem-boundaries.md#notification-channels-and-constraints), all push notification deliveries are blocked regardless of priority or experiment policy.
 
 ## 5.4 Controlled Experiment Specification

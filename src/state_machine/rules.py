@@ -12,7 +12,11 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 RULESETS_FILE = Path(__file__).with_name("rulesets.json")
+# Opt-in rule sets with a decay schedule; kept out of rulesets.json so the
+# default registry stays exactly {"v1"} (see docs/audit/week5-m6-abuse-detection.md).
+DECAY_RULESETS_FILE = Path(__file__).with_name("rulesets_decay.json")
 _CONTENT_FIELDS = ("xp_amount", "quest_targets", "badge_threshold", "badge_id")
+_DECAY_KEYS = frozenset({"first_repeat_percent", "step_xp"})
 
 
 class RuleConfigError(ValueError):
@@ -47,15 +51,38 @@ def _validate_content(
             )
 
 
+def _validate_decay(decay: Any) -> None:
+    if not isinstance(decay, Mapping):
+        raise RuleConfigError(f"decay must be a mapping, got {type(decay).__name__}")
+    if set(decay) != _DECAY_KEYS:
+        raise RuleConfigError(
+            f"decay must have exactly the keys {sorted(_DECAY_KEYS)}, got {sorted(map(str, decay))}"
+        )
+    percent, step = decay["first_repeat_percent"], decay["step_xp"]
+    if not _is_positive_int(percent) or percent > 100:
+        raise RuleConfigError(
+            f"decay first_repeat_percent must be an int in 1..100, got {percent!r}"
+        )
+    if not _is_positive_int(step):
+        raise RuleConfigError(f"decay step_xp must be a positive int, got {step!r}")
+
+
 def _content_digest(
-    xp_amount: int, quest_targets: Mapping[str, int], badge_threshold: int, badge_id: str
+    xp_amount: int,
+    quest_targets: Mapping[str, int],
+    badge_threshold: int,
+    badge_id: str,
+    decay: Mapping[str, int] | None = None,
 ) -> str:
-    content = {
+    content: dict[str, Any] = {
         "xp_amount": xp_amount,
         "quest_targets": dict(quest_targets),
         "badge_threshold": badge_threshold,
         "badge_id": badge_id,
     }
+    # Only present when set, so a rule set without decay keeps its original digest.
+    if decay is not None:
+        content["decay"] = dict(decay)
     encoded = json.dumps(content, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
@@ -66,11 +93,15 @@ class RuleSet:
     quest_targets: Mapping[str, int]
     badge_threshold: int
     badge_id: str
+    decay: Mapping[str, int] | None = None
 
     def __post_init__(self) -> None:
         _validate_content(
             self.xp_amount, self.quest_targets, self.badge_threshold, self.badge_id
         )
+        if self.decay is not None:
+            _validate_decay(self.decay)
+            object.__setattr__(self, "decay", MappingProxyType(dict(self.decay)))
         # Copy, then expose read-only: the caller's dict can no longer reach in.
         object.__setattr__(
             self, "quest_targets", MappingProxyType(dict(self.quest_targets))
@@ -78,10 +109,49 @@ class RuleSet:
 
     @property
     def digest(self) -> str:
-        """SHA-256 of the compact, key-sorted JSON of the four content fields."""
+        """SHA-256 of the compact, key-sorted JSON of the content fields.
+
+        ``decay`` is part of the content only when present.
+        """
         return _content_digest(
-            self.xp_amount, self.quest_targets, self.badge_threshold, self.badge_id
+            self.xp_amount,
+            self.quest_targets,
+            self.badge_threshold,
+            self.badge_id,
+            self.decay,
         )
+
+
+def _parse_rulesets(text: str, source: object) -> dict[str, RuleSet]:
+    try:
+        document = json.loads(text)
+    except ValueError as exc:
+        raise RuleConfigError(f"cannot read rule sets from {source}: {exc}") from exc
+    if not isinstance(document, dict) or not document:
+        raise RuleConfigError("rule sets file must be a non-empty JSON object")
+
+    required = {*_CONTENT_FIELDS, "sha256"}
+    allowed = {*required, "decay"}
+    rulesets: dict[str, RuleSet] = {}
+    for version, entry in document.items():
+        if not isinstance(entry, dict):
+            raise RuleConfigError(f"rule set {version} must be a JSON object")
+        missing = required - entry.keys()
+        if missing:
+            raise RuleConfigError(f"rule set {version} is missing {sorted(missing)}")
+        unknown = entry.keys() - allowed
+        if unknown:
+            raise RuleConfigError(f"rule set {version} has unknown keys {sorted(unknown)}")
+        ruleset = RuleSet(
+            **{field: entry[field] for field in (*_CONTENT_FIELDS, "decay") if field in entry}
+        )
+        if entry["sha256"] != ruleset.digest:
+            raise RuleConfigError(
+                f"rule set {version} content does not match its sha256; "
+                "changed rule content needs a new version, not an edit"
+            )
+        rulesets[version] = ruleset
+    return rulesets
 
 
 def load_rulesets(path: str | Path | None = None) -> dict[str, RuleSet]:
@@ -92,31 +162,18 @@ def load_rulesets(path: str | Path | None = None) -> dict[str, RuleSet]:
             text = (files("src.state_machine") / "rulesets.json").read_text(encoding="utf-8")
         else:
             text = source.read_text(encoding="utf-8")
-        document = json.loads(text)
-    except (OSError, ValueError) as exc:
+    except OSError as exc:
         raise RuleConfigError(f"cannot read rule sets from {source}: {exc}") from exc
-    if not isinstance(document, dict) or not document:
-        raise RuleConfigError("rule sets file must be a non-empty JSON object")
+    return _parse_rulesets(text, source)
 
-    required = {*_CONTENT_FIELDS, "sha256"}
-    rulesets: dict[str, RuleSet] = {}
-    for version, entry in document.items():
-        if not isinstance(entry, dict):
-            raise RuleConfigError(f"rule set {version} must be a JSON object")
-        missing = required - entry.keys()
-        if missing:
-            raise RuleConfigError(f"rule set {version} is missing {sorted(missing)}")
-        unknown = entry.keys() - required
-        if unknown:
-            raise RuleConfigError(f"rule set {version} has unknown keys {sorted(unknown)}")
-        ruleset = RuleSet(**{field: entry[field] for field in _CONTENT_FIELDS})
-        if entry["sha256"] != ruleset.digest:
-            raise RuleConfigError(
-                f"rule set {version} content does not match its sha256; "
-                "changed rule content needs a new version, not an edit"
-            )
-        rulesets[version] = ruleset
-    return rulesets
+
+def load_decay_rulesets() -> dict[str, RuleSet]:
+    """Loads and verifies the packaged opt-in rule sets that carry a decay schedule."""
+    try:
+        text = (files("src.state_machine") / "rulesets_decay.json").read_text(encoding="utf-8")
+    except OSError as exc:
+        raise RuleConfigError(f"cannot read decay rule sets: {exc}") from exc
+    return _parse_rulesets(text, DECAY_RULESETS_FILE)
 
 
 # Test-only seam: tests register extra versions with monkeypatch.setitem on
@@ -133,6 +190,21 @@ QUEST_DEFINITIONS: Mapping[str, Mapping[str, int]] = MappingProxyType(
         )
     }
 )
+
+
+def register_decay_rulesets() -> list[str]:
+    """Opts in to the packaged decay rule sets (v2); idempotent. Returns their versions.
+
+    Without this call RULESETS is exactly the contents of rulesets.json, so the
+    default behaviour of every existing caller is unchanged.
+    """
+    loaded = load_decay_rulesets()
+    for version, ruleset in loaded.items():
+        existing = _REGISTRY.get(version)
+        if existing is not None and existing.digest != ruleset.digest:
+            raise RuleConfigError(f"rule version {version} is already registered with other content")
+        _REGISTRY[version] = ruleset
+    return sorted(loaded)
 
 
 def get_ruleset(version: str | RuleSet = "v1") -> RuleSet:
@@ -169,6 +241,31 @@ def local_activity_date(occurred_at: str | datetime, timezone_name: str) -> str:
 def xp_amount_for(rule_version: str | RuleSet = "v1") -> int:
     """Returns the currently configured amount for a rule version."""
     return get_ruleset(rule_version).xp_amount
+
+
+def xp_for_completion(
+    rule_version: str | RuleSet = "v1", prior_eligible_repeats: int = 0
+) -> int:
+    """XP for a completion with N prior eligible completions of the same lesson.
+
+    N == 0 earns the base amount E. Without a decay schedule every completion
+    earns E. With one, N >= 1 earns
+    ``max(0, E * first_repeat_percent // 100 - step_xp * (N - 1))``.
+    """
+    if (
+        not isinstance(prior_eligible_repeats, int)
+        or isinstance(prior_eligible_repeats, bool)
+        or prior_eligible_repeats < 0
+    ):
+        raise ValueError(
+            f"prior_eligible_repeats must be a non-negative int, got {prior_eligible_repeats!r}"
+        )
+    ruleset = get_ruleset(rule_version)
+    base = ruleset.xp_amount
+    if ruleset.decay is None or prior_eligible_repeats == 0:
+        return base
+    first = base * ruleset.decay["first_repeat_percent"] // 100
+    return max(0, first - ruleset.decay["step_xp"] * (prior_eligible_repeats - 1))
 
 
 def badge_qualifies(

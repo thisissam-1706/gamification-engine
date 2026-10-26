@@ -9,7 +9,7 @@ from .rules import (
     local_activity_date,
     badge_qualifies,
     quest_target_for,
-    xp_amount_for,
+    xp_for_completion,
 )
 
 
@@ -19,6 +19,11 @@ def _as_datetime(value: str | datetime | None) -> datetime | None:
     if isinstance(value, datetime):
         return value if value.tzinfo else value.replace(tzinfo=dt_timezone.utc)
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+COMPLETION_KINDS = frozenset({"lesson", "review", "remediation"})
+# Only these kinds decay and advance the repeat count; an absent kind is a lesson.
+DECAYING_KINDS = frozenset({"lesson"})
 
 
 class Learner(Aggregate):
@@ -49,6 +54,9 @@ class Learner(Aggregate):
         self.completion_sources: dict[str, str] = {}
         self.completed_lesson_count = 0
         self.lesson_completion_counts: dict[str, int] = {}
+        # Per lesson_id: accepted completions that count toward XP decay (N).
+        self.eligible_lesson_counts: dict[str, int] = {}
+        self.completion_lessons: dict[str, str] = {}
         self.xp_total = 0
         self.awarded_reward_ids: set[str] = set()
         self.applied_rule_versions: dict[str, str] = {}
@@ -85,6 +93,7 @@ class Learner(Aggregate):
         source_event_id: str | None = None,
         correlation_id: str | None = None,
         causation_id: str | None = None,
+        completion_kind: str | None = None,
     ) -> bool:
         """Accepts one completion and emits its one durable XP reward.
 
@@ -92,6 +101,8 @@ class Learner(Aggregate):
         not from the transport event ID or rule version. Therefore retries and
         later rule changes cannot create a second award.
         """
+        if completion_kind is not None and completion_kind not in COMPLETION_KINDS:
+            raise ValueError(f"unknown completion_kind: {completion_kind!r}")
         if completion_id in self.completed_lesson_ids:
             return False
 
@@ -102,8 +113,12 @@ class Learner(Aggregate):
         if activity_date is None and occurred_at is not None and timezone is not None:
             activity_date = local_activity_date(occurred_at, timezone)
 
+        # N is decided here, once, from folded state; replay only reads the stored result.
+        # review/remediation have no repeat position, so they record 0 and earn the base amount.
+        eligible = completion_kind is None or completion_kind in DECAYING_KINDS
+        repeat_index = self.eligible_lesson_counts.get(lesson_id, 0) if eligible else 0
         if xp_amount is None:
-            xp_amount = xp_amount_for(rule_version)
+            xp_amount = xp_for_completion(rule_version, repeat_index)
         self._record_lesson_completion(
             completion_id,
             lesson_id,
@@ -114,7 +129,9 @@ class Learner(Aggregate):
             correlation_id,
             causation_id,
         )
-        self._award_xp(reward_id, completion_id, xp_amount, rule_version)
+        self._award_xp(
+            reward_id, completion_id, xp_amount, rule_version, repeat_index, completion_kind
+        )
         if activity_date is not None:
             ruleset = get_ruleset(rule_version)
             outcomes = calculate_streak(
@@ -224,6 +241,7 @@ class Learner(Aggregate):
         self.lesson_completion_counts[lesson_id] = (
             self.lesson_completion_counts.get(lesson_id, 0) + 1
         )
+        self.completion_lessons[completion_id] = lesson_id
         if activity_date is not None:
             self.activity_dates.add(activity_date)
         if timezone_name and (
@@ -318,8 +336,20 @@ class Learner(Aggregate):
         completion_id: str,
         xp_amount: int,
         rule_version: str,
+        # N at decision time. Absent (None) on events stored before M6.
+        repeat_index: int | None = None,
+        # Kind of the rewarded completion. Absent (None) on events stored before
+        # M6 and on completions delivered without one; both count as a lesson.
+        completion_kind: str | None = None,
     ) -> None:
         """Applies an already-decided XP award; it never evaluates a rule."""
+        lesson_id = self.completion_lessons.get(completion_id)
+        if lesson_id is not None and (
+            completion_kind is None or completion_kind in DECAYING_KINDS
+        ):
+            self.eligible_lesson_counts[lesson_id] = (
+                self.eligible_lesson_counts.get(lesson_id, 0) + 1
+            )
         self.awarded_reward_ids.add(reward_id)
         self.xp_total += xp_amount
         self.applied_rule_versions[reward_id] = rule_version
