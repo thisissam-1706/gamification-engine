@@ -118,7 +118,7 @@ Kafka/Redpanda, Redis, and PostgreSQL setup instructions will be added only if m
 | M5 | Multi-channel notifications | ☐ (in-app and simulated-push slice implemented; email adapter not implemented) |
 | M6 | Abuse detection | ☐ (implemented for synthetic fixtures; flag-only; thresholds unvalidated on real data; XP decay is opt-in ruleset `v2`) |
 | M7 | Experimentation and metrics | ☐ (assignment and metric implemented; simulator is a stub; exposure logging not implemented) |
-| M8 | Scale and recovery | ☐ |
+| M8 | Scale and recovery | ☑ (pinned synthetic workload, multi-learner full-state rebuild AT-15, leaderboard p50/p95/p99 latency bounds, DLQ outage recovery drain, raw-log experiment reproduction) |
 
 M1 means events from the learning app are validated against versioned schemas before acceptance (currently only `lesson_completed` is ingested), while M2 means XP, streaks, freezes, one quest, and one badge are computed deterministically and can be rebuilt exactly from the event history. M3 means synthetic learners are deterministically grouped into bounded cohorts (500–5,000 members; 30-day inactivity pruning is specified but not yet scheduled or wired in) and ranked at cohort and global levels via SQLite projections with exact tie-breaking, measurable latency, and differential reconciliation (AT-7).
 
@@ -132,6 +132,6 @@ M1 means events from the learning app are validated against versioned schemas be
 | `test_quiet_hour_delay` | M5 | planned placeholder |
 | `test_retry_dlq` | M5 | planned placeholder |
 | `test_leaderboard_reconciliation` | M3 | passing (AT-7) |
-| `test_full_state_rebuild` | M2, M7, M8 | planned placeholder |
+| `test_full_state_rebuild` | M2, M7, M8 | passing (AT-15; multi-learner full-state disaster recovery) |
 | `test_assignment_vs_exposure` | M7 | planned placeholder |
 | `test_exposure_is_logged_only_after_treatment_surface_view` | M7 | planned placeholder |

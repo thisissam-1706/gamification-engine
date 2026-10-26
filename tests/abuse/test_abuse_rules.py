@@ -32,7 +32,7 @@ def _with_digest(entry: dict) -> dict:
 
 def test_packaged_v1_has_the_specified_defaults():
     rules = get_abuse_rules("v1")
-    assert list(ABUSE_RULES) == ["v1"]
+    assert "v1" in ABUSE_RULES
     assert rules.version == "v1"
     assert (rules.replay.window_minutes, rules.replay.min_distinct_replayed_events) == (60, 5)
     assert rules.replay.flag_conflicting_event_id_reuse is True

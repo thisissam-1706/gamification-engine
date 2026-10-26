@@ -34,7 +34,7 @@
 | M5 Multi-channel notifications | AT-8, AT-9, AT-10, AT-11, AT-14 | Multi-channel notification engine | Madhava Asrith | Sampadram | in-app and simulated-push slice implemented; email adapter not implemented | W4 |
 | M6 Abuse detection | AT-6 | Abuse rule engine | Sampadram | Madhava Asrith | implemented for synthetic fixtures; flag-only (opt-in decay ruleset v2, retroactive detectors, cohort guardrail); thresholds unvalidated on real data; no `confirmed` status or XP correction | W4-5 |
 | M7 Experimentation and metrics | AT-12, AT-13, AT-15 (partial), AT-18 (to be written) | Experimentation and metrics pipeline; simulator: stub, not implemented, planned for milestone M7 | Sampadram | Madhava Asrith | assignment and metric implemented; simulator is a stub; exposure logging not implemented | protocol W2 / run W5 |
-| M8 Scale and recovery | AT-2, AT-15 | Full rebuild and recovery orchestration | Madhava Asrith | Sampadram | per-learner rebuild and leaderboard replay tested; full-population orchestration not implemented | W5-6 |
+| M8 Scale and recovery | AT-2, AT-15 | Full rebuild and recovery orchestration | Madhava Asrith | Sampadram | implemented & passing (AT-15 multi-learner full-state rebuild, leaderboard p50/p95/p99 latency bounds, DLQ outage recovery drain, raw-log experiment reproduction) | W5-6 |
 
 ## Reused, configured, new
 
