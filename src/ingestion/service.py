@@ -1,5 +1,6 @@
 """Validated lesson-completion ingestion with durable duplicate evidence."""
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 import hashlib
@@ -16,6 +17,7 @@ from src.ingestion.config import DEFAULT_CONFIG, IngestConfig
 from src.ingestion.evidence import DeliveryBinding, EvidenceStore
 from src.ingestion.validation import (
     expected_dedup_key,
+    validate_checkpoint_attempted_payload,
     validate_lesson_completed_envelope,
     validate_lesson_completed_payload,
     validate_producer,
@@ -47,10 +49,82 @@ def canonical_digest(envelope: Mapping[str, Any]) -> str:
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
-def _action_for_event_id(learner: Learner, event_id: str) -> str | None:
-    for completion_id, source_event_id in learner.completion_sources.items():
+@dataclass(frozen=True)
+class _EventSpec:
+    """What differs between ingested source event types; the pipeline is shared."""
+
+    event_type: str
+    id_field: str  # payload field holding the business action identity
+    # Evidence and delivery tables share one action_id namespace per learner, so
+    # types other than lesson_completed prefix it to avoid cross-type collisions.
+    action_prefix: str
+    duplicate_reason: str
+    validate_payload: Callable[[Mapping[str, Any]], None]
+    sources: Callable[[Learner], Mapping[str, str]]  # action id -> source event_id
+    is_accepted: Callable[[Learner, str], bool]
+    accept: Callable[[Learner, str, Mapping[str, Any], IngestConfig], bool]
+
+
+def _accept_lesson(
+    learner: Learner, action_id: str, envelope: Mapping[str, Any], config: IngestConfig
+) -> bool:
+    return learner.complete_lesson(
+        action_id,
+        str(envelope["payload"]["lesson_id"]),
+        source_event_id=str(envelope["event_id"]),
+        occurred_at=str(envelope["occurred_at"]),
+        timezone=str(envelope["payload"]["timezone"]),
+        correlation_id=envelope["correlation_id"],
+        causation_id=envelope["causation_id"],
+        rule_version=config.rule_version,
+        completion_kind=envelope["payload"].get("completion_kind"),
+    )
+
+
+def _accept_checkpoint_attempt(
+    learner: Learner, action_id: str, envelope: Mapping[str, Any], config: IngestConfig
+) -> bool:
+    payload = envelope["payload"]
+    return learner.record_checkpoint_attempt(
+        action_id,
+        str(payload["assessment_id"]),
+        payload["assessment_version"],
+        payload["passed"],
+        timezone=str(payload["timezone"]),
+        occurred_at=str(envelope["occurred_at"]),
+        source_event_id=str(envelope["event_id"]),
+        correlation_id=envelope["correlation_id"],
+        causation_id=envelope["causation_id"],
+    )
+
+
+LESSON_COMPLETED = _EventSpec(
+    event_type="learning.lesson_completed",
+    id_field="completion_id",
+    action_prefix="",
+    duplicate_reason="duplicate_completion_id",
+    validate_payload=validate_lesson_completed_payload,
+    sources=lambda learner: learner.completion_sources,
+    is_accepted=lambda learner, action_id: action_id in learner.completed_lesson_ids,
+    accept=_accept_lesson,
+)
+CHECKPOINT_ATTEMPTED = _EventSpec(
+    event_type="learning.checkpoint_attempted",
+    id_field="attempt_id",
+    action_prefix="checkpoint_attempt:",
+    duplicate_reason="duplicate_attempt_id",
+    validate_payload=validate_checkpoint_attempted_payload,
+    sources=lambda learner: learner.checkpoint_sources,
+    is_accepted=lambda learner, action_id: action_id in learner.checkpoint_attempts,
+    accept=_accept_checkpoint_attempt,
+)
+
+
+def _action_for_event_id(spec: _EventSpec, learner: Learner, event_id: str) -> str | None:
+    """The delivery-table action id the aggregate bound to this event_id, if any."""
+    for action_id, source_event_id in spec.sources(learner).items():
         if source_event_id == event_id:
-            return completion_id
+            return spec.action_prefix + action_id
     return None
 
 
@@ -123,18 +197,51 @@ def ingest_lesson_completed(
     config: IngestConfig = DEFAULT_CONFIG,
 ) -> IngestionResult:
     """Validates and accepts one lesson completion or records its outcome."""
+    return _ingest(
+        LESSON_COMPLETED, application, evidence, envelope, authenticated_producer, config
+    )
+
+
+def ingest_checkpoint_attempted(
+    application: LearnerApplication,
+    evidence: EvidenceStore,
+    envelope: Mapping[str, Any],
+    *,
+    authenticated_producer: str,
+    config: IngestConfig = DEFAULT_CONFIG,
+) -> IngestionResult:
+    """Validates and accepts one checkpoint attempt or records its outcome."""
+    return _ingest(
+        CHECKPOINT_ATTEMPTED,
+        application,
+        evidence,
+        envelope,
+        authenticated_producer,
+        config,
+    )
+
+
+def _ingest(
+    spec: _EventSpec,
+    application: LearnerApplication,
+    evidence: EvidenceStore,
+    envelope: Mapping[str, Any],
+    authenticated_producer: str,
+    config: IngestConfig,
+) -> IngestionResult:
     # Receive time is the trusted clock, never the envelope's ingested_at.
     received = config.clock()
     if received.tzinfo is None or received.utcoffset() is None:
         raise ValueError("IngestConfig.clock must return a timezone-aware datetime")
     received_at = received.isoformat()
     learner_id = str(envelope.get("subject_id", ""))
-    action_id = (
-        str(envelope.get("payload", {}).get("completion_id"))
+    raw_id = (
+        str(envelope.get("payload", {}).get(spec.id_field))
         if isinstance(envelope.get("payload"), Mapping)
-        and envelope["payload"].get("completion_id") is not None
+        and envelope["payload"].get(spec.id_field) is not None
         else None
     )
+    action_id = spec.action_prefix + raw_id if raw_id is not None else None
     assignment_id = (
         str(envelope.get("payload", {}).get("assignment_id"))
         if isinstance(envelope.get("payload"), Mapping)
@@ -154,12 +261,12 @@ def ingest_lesson_completed(
             str(envelope["event_type"]),
             envelope.get("provenance"),
         )
-        if envelope["event_type"] != "learning.lesson_completed":
+        if envelope["event_type"] != spec.event_type:
             raise ValidationError("untrusted_producer")
         payload = envelope["payload"]
         if any(key in payload for key in ("xp_amount", "reward_id", "new_streak")):
             raise ValidationError("reward_field_in_source_event")
-        validate_lesson_completed_payload(payload)
+        spec.validate_payload(payload)
         learner_uuid = UUID(learner_id)
     except ValidationError as exc:
         reason = str(exc.message) if str(exc.message) in {
@@ -190,8 +297,8 @@ def ingest_lesson_completed(
         )
         return IngestionResult("rejected", reason)
 
-    if event_id is None or action_id is None:
-        raise RuntimeError("validated event_id or completion_id unexpectedly missing")
+    if event_id is None or raw_id is None or action_id is None:
+        raise RuntimeError("validated event_id or action identity unexpectedly missing")
     binding = evidence.delivery_binding(event_id)
     # A redelivery is checked against the version it was accepted under, so a
     # config change does not turn it into a mismatch; new events use the config.
@@ -236,7 +343,7 @@ def ingest_lesson_completed(
         raise RuntimeError("learner aggregate must exist before ingestion") from exc
 
     # Crash gap: the aggregate accepted this event_id but its binding was never written.
-    bound_action = _action_for_event_id(learner, event_id)
+    bound_action = _action_for_event_id(spec, learner, event_id)
     if bound_action is not None:
         evidence.bind_delivery(
             event_id,
@@ -256,50 +363,40 @@ def ingest_lesson_completed(
 
     original = _original_delivery(evidence, learner_id, action_id)
     if original is None and action_id is not None:
-        original = learner.completion_sources.get(action_id)
+        original = spec.sources(learner).get(raw_id)
         if original is not None:
             evidence.remember_delivery(learner_id, action_id, original)
     if original is not None:
         evidence.record(
             "duplicate",
             learner_id,
-            "duplicate_completion_id",
+            spec.duplicate_reason,
             action_id=action_id,
             event_id=event_id,
             original_ref=original,
             received_at=received_at,
         )
-        return IngestionResult("duplicate", "duplicate_completion_id")
+        return IngestionResult("duplicate", spec.duplicate_reason)
 
     quest_already_complete = _quest_already_complete(learner, assignment_id)
-    accepted = learner.complete_lesson(
-        action_id,
-        str(envelope["payload"]["lesson_id"]),
-        source_event_id=event_id,
-        occurred_at=str(envelope["occurred_at"]),
-        timezone=str(envelope["payload"]["timezone"]),
-        correlation_id=envelope["correlation_id"],
-        causation_id=envelope["causation_id"],
-        rule_version=config.rule_version,
-        completion_kind=envelope["payload"].get("completion_kind"),
-    )
+    accepted = spec.accept(learner, raw_id, envelope, config)
     if not accepted:
-        original = learner.completion_sources.get(action_id)
+        original = spec.sources(learner).get(raw_id)
         evidence.record(
             "duplicate",
             learner_id,
-            "duplicate_completion_id",
+            spec.duplicate_reason,
             action_id=action_id,
             event_id=event_id,
             original_ref=original,
             received_at=received_at,
         )
-        return IngestionResult("duplicate", "duplicate_completion_id")
+        return IngestionResult("duplicate", spec.duplicate_reason)
     try:
         application.save(learner)
     except IntegrityError:
         learner = application.repository.get(learner_uuid)
-        bound_action = _action_for_event_id(learner, event_id)
+        bound_action = _action_for_event_id(spec, learner, event_id)
         if bound_action is not None and bound_action != action_id:
             evidence.bind_delivery(event_id, learner_id, bound_action, None)
             evidence.record(
@@ -312,47 +409,37 @@ def ingest_lesson_completed(
                 received_at=received_at,
             )
             return IngestionResult("rejected", "conflicting_event_id_reuse")
-        if action_id in learner.completed_lesson_ids:
-            original = learner.completion_sources.get(action_id)
+        if spec.is_accepted(learner, raw_id):
+            original = spec.sources(learner).get(raw_id)
             if original is not None:
                 evidence.remember_delivery(learner_id, action_id, original)
             evidence.record(
                 "duplicate",
                 learner_id,
-                "duplicate_completion_id",
+                spec.duplicate_reason,
                 action_id=action_id,
                 event_id=event_id,
                 original_ref=original,
                 received_at=received_at,
             )
-            return IngestionResult("duplicate", "duplicate_completion_id")
+            return IngestionResult("duplicate", spec.duplicate_reason)
 
         quest_already_complete = _quest_already_complete(learner, assignment_id)
-        accepted = learner.complete_lesson(
-            action_id,
-            str(envelope["payload"]["lesson_id"]),
-            source_event_id=event_id,
-            occurred_at=str(envelope["occurred_at"]),
-            timezone=str(envelope["payload"]["timezone"]),
-            correlation_id=envelope["correlation_id"],
-            causation_id=envelope["causation_id"],
-            rule_version=config.rule_version,
-            completion_kind=envelope["payload"].get("completion_kind"),
-        )
+        accepted = spec.accept(learner, raw_id, envelope, config)
         if not accepted:
-            original = learner.completion_sources.get(action_id)
+            original = spec.sources(learner).get(raw_id)
             if original is not None:
                 evidence.remember_delivery(learner_id, action_id, original)
             evidence.record(
                 "duplicate",
                 learner_id,
-                "duplicate_completion_id",
+                spec.duplicate_reason,
                 action_id=action_id,
                 event_id=event_id,
                 original_ref=original,
                 received_at=received_at,
             )
-            return IngestionResult("duplicate", "duplicate_completion_id")
+            return IngestionResult("duplicate", spec.duplicate_reason)
         try:
             application.save(learner)
         except IntegrityError:

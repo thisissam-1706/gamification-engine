@@ -14,10 +14,11 @@ DEFAULT_INGEST_RULE_VERSION = "v1"
 
 SUPPORTED_SCHEMA_VERSIONS = {
     "learning.lesson_completed": {1},
+    "learning.checkpoint_attempted": {1},
 }
 
 ALLOWED_EVENT_TYPES = {
-    "learning-svc": {"learning.lesson_completed"},
+    "learning-svc": {"learning.lesson_completed", "learning.checkpoint_attempted"},
     "gamification-engine": {
         "gamification.xp_awarded",
         "gamification.streak_updated",
@@ -58,6 +59,21 @@ def lesson_completed_validator() -> Draft7Validator:
 def validate_lesson_completed_payload(payload: Mapping[str, Any]) -> None:
     """Raises ``ValidationError`` when a v1 source payload violates its contract."""
     lesson_completed_validator().validate(dict(payload))
+
+
+@lru_cache(maxsize=1)
+def checkpoint_attempted_validator() -> Draft7Validator:
+    """Loads the checked-in v1 checkpoint-attempted payload contract."""
+    text = (files("src") / "schemas" / "events" / "checkpoint_attempted.schema.json").read_text(
+        encoding="utf-8"
+    )
+    schema: dict[str, Any] = json.loads(text)
+    return Draft7Validator(schema)
+
+
+def validate_checkpoint_attempted_payload(payload: Mapping[str, Any]) -> None:
+    """Raises ``ValidationError`` when a v1 checkpoint payload violates its contract."""
+    checkpoint_attempted_validator().validate(dict(payload))
 
 
 def validate_lesson_completed_envelope(envelope: Mapping[str, Any]) -> None:

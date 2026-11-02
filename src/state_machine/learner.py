@@ -1,14 +1,18 @@
 from datetime import datetime, timedelta, timezone as dt_timezone
+from typing import TYPE_CHECKING
 
 from eventsourcing.application import Application
 from eventsourcing.domain import Aggregate, event
 
+if TYPE_CHECKING:
+    from src.interventions.policy import RemediationDecision
+
+from .quest_definitions import quest_definition_for
 from .rules import (
     calculate_streak,
     get_ruleset,
     local_activity_date,
     badge_qualifies,
-    quest_target_for,
     xp_for_completion,
 )
 
@@ -57,6 +61,13 @@ class Learner(Aggregate):
         # Per lesson_id: accepted completions that count toward XP decay (N).
         self.eligible_lesson_counts: dict[str, int] = {}
         self.completion_lessons: dict[str, str] = {}
+        # Checkpoint attempts: attempt_id -> stored fields, and attempt_id -> source event_id.
+        self.checkpoint_attempts: dict[str, dict[str, object]] = {}
+        self.checkpoint_sources: dict[str, str] = {}
+        # assessment_id -> attempt_id of the earliest attempt by (occurred_at, attempt_id).
+        self.first_checkpoint_attempt_ids: dict[str, str] = {}
+        # Remediation decisions: decision_id -> stored fields (datetimes as ISO strings).
+        self.remediation_decisions: dict[str, dict[str, object]] = {}
         self.xp_total = 0
         self.awarded_reward_ids: set[str] = set()
         self.applied_rule_versions: dict[str, str] = {}
@@ -196,16 +207,22 @@ class Learner(Aggregate):
             if occurred is not None and occurred < assigned_at:
                 continue
             if occurred is not None and deadline is not None and occurred > deadline:
-                self._expire_quest(assignment_id, q_id, occurred.isoformat())
+                self._expire_quest(assignment_id, q_id, deadline.isoformat())
                 continue
             quest_completion_id = f"quest_completion:{assignment_id}"
             if quest_completion_id not in self.completed_quest_ids:
                 try:
-                    target = quest_target_for(
+                    definition = quest_definition_for(
                         q_id, str(instance["definition_version"])
                     )
                 except KeyError:
                     continue
+                accepted_kinds = definition.accepted_completion_kinds
+                if accepted_kinds is not None and (
+                    completion_kind or "lesson"
+                ) not in accepted_kinds:
+                    continue
+                target = definition.target
                 new_step = int(instance["progress"]) + 1
                 self._progress_quest(
                     completion_id, assignment_id, q_id, new_step, target
@@ -265,6 +282,120 @@ class Learner(Aggregate):
                         "action_id": completion_id,
                     }
                 )
+
+    def record_checkpoint_attempt(
+        self,
+        attempt_id: str,
+        assessment_id: str,
+        assessment_version: int,
+        passed: bool,
+        *,
+        timezone: str,
+        occurred_at: str | datetime,
+        source_event_id: str | None = None,
+        correlation_id: str | None = None,
+        causation_id: str | None = None,
+    ) -> bool:
+        """Accepts one checkpoint attempt; it earns no XP and touches no streak or quest.
+
+        Idempotent on ``attempt_id`` alone, as ``complete_lesson`` is on
+        ``completion_id``: a second call returns False and emits nothing, even if
+        its other fields differ. The first accepted content stays.
+        """
+        if attempt_id in self.checkpoint_attempts:
+            return False
+        self._record_checkpoint_attempt(
+            attempt_id,
+            assessment_id,
+            assessment_version,
+            passed,
+            timezone,
+            occurred_at,
+            source_event_id,
+            correlation_id,
+            causation_id,
+        )
+        return True
+
+    @event("CheckpointAttempted")
+    def _record_checkpoint_attempt(
+        self,
+        attempt_id: str,
+        assessment_id: str,
+        assessment_version: int,
+        passed: bool,
+        timezone_name: str,
+        occurred_at: str | datetime,
+        source_event_id: str | None = None,
+        correlation_id: str | None = None,
+        causation_id: str | None = None,
+    ) -> None:
+        """Applies an accepted checkpoint attempt; a pure state fold."""
+        self.checkpoint_attempts[attempt_id] = {
+            "attempt_id": attempt_id,
+            "assessment_id": assessment_id,
+            "assessment_version": assessment_version,
+            "passed": passed,
+            "timezone": timezone_name,
+            "occurred_at": occurred_at,
+        }
+        if source_event_id is not None:
+            self.checkpoint_sources[attempt_id] = source_event_id
+        first_id = self.first_checkpoint_attempt_ids.get(assessment_id)
+        if first_id is None or self._attempt_order(attempt_id) < self._attempt_order(first_id):
+            self.first_checkpoint_attempt_ids[assessment_id] = attempt_id
+
+    def _attempt_order(self, attempt_id: str) -> tuple[datetime, str]:
+        occurred = _as_datetime(self.checkpoint_attempts[attempt_id]["occurred_at"])
+        assert occurred is not None
+        return occurred, attempt_id
+
+    def record_remediation_decision(self, decision: "RemediationDecision") -> bool:
+        """Records one remediation decision; it earns no XP and touches no streak or quest.
+
+        Idempotent on ``decision_id``: a second call returns False and emits nothing,
+        even if the decision differs. The first recorded decision stays.
+        """
+        if decision.decision_id in self.remediation_decisions:
+            return False
+        self._record_remediation_decision(
+            decision.decision_id,
+            decision.attempt_id,
+            decision.assessment_id,
+            decision.action,
+            decision.reason,
+            decision.decided_at.isoformat(),
+            None if decision.deadline_at is None else decision.deadline_at.isoformat(),
+            decision.quest_id,
+            decision.policy_version,
+        )
+        return True
+
+    @event("RemediationDecided")
+    def _record_remediation_decision(
+        self,
+        decision_id: str,
+        attempt_id: str,
+        assessment_id: str,
+        action: str,
+        reason: str | None,
+        decided_at: str,
+        deadline_at: str | None,
+        quest_id: str | None,
+        policy_version: str,
+    ) -> None:
+        """Applies a recorded remediation decision; a pure state fold."""
+        self.remediation_decisions[decision_id] = {
+            "decision_id": decision_id,
+            "attempt_id": attempt_id,
+            "assessment_id": assessment_id,
+            "action": action,
+            "reason": reason,
+            "decided_at": decided_at,
+            "deadline_at": deadline_at,
+            "quest_id": quest_id,
+            "policy_version": policy_version,
+        }
 
     def acquire_freeze(
         self, freeze_id: str, *, activity_date: str | None = None
@@ -384,7 +515,7 @@ class Learner(Aggregate):
             return False
         if assigned_at is None:
             raise ValueError("assigned_at is required when assigning a quest")
-        quest_target_for(quest_id, definition_version)
+        quest_definition_for(quest_id, definition_version)
         assigned = _as_datetime(assigned_at)
         assert assigned is not None
         deadline = _as_datetime(deadline_at) or assigned + timedelta(days=7)
@@ -448,6 +579,25 @@ class Learner(Aggregate):
         self.completed_quest_ids.add(f"quest-completed:{quest_id}")
         self.quest_instances[assignment_id]["status"] = "completed"
         self.quest_instances[assignment_id]["completed_at"] = _as_datetime(completed_at)
+
+    def expire_due_quests(self, as_of: datetime) -> list[str]:
+        """Expires every assigned quest whose deadline is strictly before ``as_of``.
+
+        Returns the expired assignment ids in sorted order. Each expiry is stamped
+        with the quest's own deadline, not ``as_of``, so the fact does not depend on
+        when the sweep ran. Completed and already-expired quests are never touched.
+        """
+        if as_of.tzinfo is None or as_of.utcoffset() is None:
+            raise ValueError("as_of must be timezone-aware")
+        expired: list[str] = []
+        for assignment_id in sorted(self.assigned_quest_ids):
+            instance = self.quest_instances[assignment_id]
+            deadline = instance["deadline_at"]
+            if instance["status"] != "assigned" or deadline is None or not deadline < as_of:
+                continue
+            self._expire_quest(assignment_id, str(instance["quest_id"]), deadline.isoformat())
+            expired.append(assignment_id)
+        return expired
 
     @event("QuestExpired")
     def _expire_quest(self, assignment_id: str, quest_id: str, expired_at: str) -> None:

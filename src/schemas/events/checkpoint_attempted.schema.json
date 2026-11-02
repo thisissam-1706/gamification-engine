@@ -6,6 +6,7 @@
     "attempt_id",
     "assessment_id",
     "assessment_version",
+    "passed",
     "timezone"
   ],
   "properties": {
@@ -23,6 +24,10 @@
       "type": "integer",
       "minimum": 1,
       "description": "Immutable version of the assessment."
+    },
+    "passed": {
+      "type": "boolean",
+      "description": "Whether the learner passed the checkpoint attempt."
     },
     "timezone": {
       "type": "string",

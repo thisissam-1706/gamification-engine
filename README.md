@@ -1,5 +1,7 @@
 # Gamification, Social Cohort, Notification and Retention Experimentation Engine
 
+> **Changelog (2026-11-02):** Added ADR-0007 (rule-based remediation policy) to the ADR list; the M1 description now names both ingested event types.
+
 > **Changelog (2026-10-12):** Documented the current single-process eventsourcing and SQLite architecture; marked Kafka/Redpanda, Redis, and PostgreSQL as deferred options.
 
 An event-sourced gamification engine with deterministic XP, streaks, quests, badges, notifications, and experiments. Rule-based abuse detection (M6) is implemented for synthetic fixtures as a retroactive, flag-only pass, and XP decay exists as an opt-in rule set (`v2`); neither is validated on real data. The current implementation runs as a single process using the `eventsourcing` library with SQLite as its durable event store.
@@ -45,6 +47,8 @@ flowchart LR
     EventStore -. replay / rebuild .-> Aggregate
 
     Notifications["Notification engine"]
+    Intervention["Intervention policy (remediation)<br/>stored decisions + remediation quest"]
+    Sweep["Quest expiry sweep"]
     Abuse["Abuse detection (flag-only)"]
     Kafka["Kafka / Redpanda"]:::deferred
     Redis["Redis"]:::deferred
@@ -56,6 +60,10 @@ flowchart LR
     Projections --> Notifications
     EventStore -. retroactive pass, flag-only .-> Abuse
     IngestionEvidence["Ingestion evidence"] -. read by .-> Abuse
+    Aggregate -. invoked, reads attempts and prior decisions .-> Intervention
+    Intervention -. decision + quest, one save .-> Aggregate
+    Aggregate -. invoked, reads overdue quests .-> Sweep
+    Sweep -. QuestExpired at deadline .-> Aggregate
 
     classDef deferred stroke-dasharray: 5 5,fill:#f5f5f5,color:#666;
 ```
@@ -81,6 +89,7 @@ The architecture diagram above is the repository's single high-level architectur
 - [ADR-0004: Fixed A/B with Optional Bandit](docs/adr/0004-bandit-vs-fixed-ab.md)
 - [ADR-0005: Eventsourcing and SQLite First](docs/adr/0005-eventsourcing-sqlite-first.md)
 - [ADR-0006: Decay in the Reward Path, Detection Stays Flag-Only](docs/adr/0006-decay-in-reward-path.md)
+- [ADR-0007: Rule-Based Remediation Policy with Stored Decisions](docs/adr/0007-rule-based-remediation-policy.md)
 
 ## How to Run Locally
 
@@ -111,22 +120,23 @@ Kafka/Redpanda, Redis, and PostgreSQL setup instructions will be added only if m
 
 | Milestone | Description | Status |
 |-----------|-------------|--------|
-| M1 | Canonical engagement events | ☐ (partial: lesson_completed only; ID binding, late window, rule selection tested) |
+| M1 | Canonical engagement events | ☐ (partial: lesson_completed and checkpoint_attempted ingested; ID binding, late window, rule selection tested) |
 | M2 | Deterministic gamification | ☑ (slice done: XP, streak/freezes, one quest, one badge, replay) |
 | M3 | Cohorts and leaderboards | ☐ (leaderboard duplicate, restart, offset and time handling tested; known gaps: cohort merge helper not wired in, capacity check not transactional, member count includes inactive; no production notification-log poller; reconciliation rebuilds from the projection's applied-event log) |
-| M4 | Intervention/quest policy | ☐ |
+| M4 | Intervention/quest policy | ☐ (implemented for synthetic fixtures: checkpoint_attempted ingestion, rule-based remediation policy with stored decisions, remediation_v1 quest (remediation completions only), deadline expiry sweep; policy and sweep invoked, not scheduled; no notification hook) |
 | M5 | Multi-channel notifications | ☐ (in-app and simulated-push slice implemented; email adapter not implemented) |
 | M6 | Abuse detection | ☐ (implemented for synthetic fixtures; flag-only; thresholds unvalidated on real data; XP decay is opt-in ruleset `v2`) |
 | M7 | Experimentation and metrics | ☐ (assignment and metric implemented; simulator is a stub; exposure logging not implemented) |
 | M8 | Scale and recovery | ☑ (pinned synthetic workload, multi-learner full-state rebuild AT-15, leaderboard p50/p95/p99 latency bounds, DLQ outage recovery drain, raw-log experiment reproduction) |
 
-M1 means events from the learning app are validated against versioned schemas before acceptance (currently only `lesson_completed` is ingested), while M2 means XP, streaks, freezes, one quest, and one badge are computed deterministically and can be rebuilt exactly from the event history. M3 means synthetic learners are deterministically grouped into bounded cohorts (500–5,000 members; 30-day inactivity pruning is specified but not yet scheduled or wired in) and ranked at cohort and global levels via SQLite projections with exact tie-breaking, measurable latency, and differential reconciliation (AT-7).
+M1 means events from the learning app are validated against versioned schemas before acceptance (currently `lesson_completed` and `checkpoint_attempted` are ingested), while M2 means XP, streaks, freezes, one quest, and one badge are computed deterministically and can be rebuilt exactly from the event history. M3 means synthetic learners are deterministically grouped into bounded cohorts (500–5,000 members; 30-day inactivity pruning is specified but not yet scheduled or wired in) and ranked at cohort and global levels via SQLite projections with exact tie-breaking, measurable latency, and differential reconciliation (AT-7).
 
 ## Planned Placeholder Tests
 
 | Test | Milestone | Status |
 |------|-----------|--------|
 | `test_point_farming` | M6 | passing (AT-6; synthetic fixtures, flag-only) |
+| `test_learning_remediation` | M4 | passing (AT-17; synthetic fixtures; policy and sweep invoked, not scheduled) |
 | `test_notification_fatigue` | M5 | planned placeholder |
 | `test_opt_out_enforcement` | M5 | planned placeholder |
 | `test_quiet_hour_delay` | M5 | planned placeholder |

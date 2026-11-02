@@ -1,6 +1,18 @@
 # Event Contracts
 
-This document defines the versioned payload contracts used inside the canonical event envelope. The envelope schema remains the common contract for routing, timestamps, subject identity, provenance, and short-window ingestion deduplication.
+_Changelog: 2026-11-02 — the checkpoint-attempt overview now says the first attempt is read by the M4 remediation policy (final M4 consistency pass)._
+
+_Changelog: 2026-11-02 — corrected the `learning.lesson_completed` example (UUID `subject_id`, `provenance.source` `client`, both checked by running it through ingestion) and two statements that did not match the code (no seven-day deduplication window; the expected rule version is the configured one, `v1` by default); noted that `checkpoint_completed.schema.json` is not ingested._
+
+_Changelog: 2026-11-02 — added `learning.checkpoint_attempted` v1 (second ingested source event type)._
+
+_Changelog: 2026-11-02 — added the `RemediationDecided` domain event (M4 remediation decision)._
+
+_Changelog: 2026-11-02 — documented the `remediation_v1` quest and its link to an `assign` decision (M4)._
+
+_Changelog: 2026-11-02 — documented quest expiry (sweep and on-completion paths, `expired_at = deadline_at`) (M4)._
+
+This document defines the versioned payload contracts used inside the canonical event envelope. The envelope schema remains the common contract for routing, timestamps, subject identity, provenance, and ingestion deduplication.
 
 ## Lesson Completion (`learning.lesson_completed`), v1
 
@@ -22,9 +34,9 @@ The machine-readable payload contract is [lesson_completed.schema.json](../src/s
 
 The learning service creates `completion_id` once, when the completion succeeds. It must send that same value on every delivery or resend of the same action. A resend uses a new envelope `event_id`; an event UUID identifies a delivery, while `completion_id` identifies the business action.
 
-For this event, construct the envelope `dedup_key` as `<event_id>:<rule_version>`, for example `<event_id>:v1`. Ingestion currently expects rule version `v1` and rejects any other value with `dedup_key_mismatch`. The M1 ingestion deduplication window silently drops matching deliveries during its configured seven-day period.
+For this event, construct the envelope `dedup_key` as `<event_id>:<rule_version>`, for example `<event_id>:v1`. Ingestion expects the configured rule version (`IngestConfig.rule_version`, `v1` by default) and rejects any other value with `dedup_key_mismatch`; a redelivery of an already-accepted `event_id` is checked against the version it was accepted under (see "Effective rule version"). There is no time-limited deduplication window: an `event_id` stays bound to its first delivery, and a repeat delivery is recorded as a duplicate (an evidence row, not silently dropped) however old it is.
 
-The aggregate must also retain the completion/reward relationship beyond the ingestion window. A derived XP award uses the identity `xp:{completion_id}`. The applied rule version is normal reward payload data, not part of business identity. Consequently, a resend after eight days or a later rule update cannot increment the lesson count or create a second XP award.
+The aggregate must also retain the completion/reward relationship, independently of delivery-level deduplication. A derived XP award uses the identity `xp:{completion_id}`. The applied rule version is normal reward payload data, not part of business identity. Consequently, a resend after eight days or a later rule update cannot increment the lesson count or create a second XP award.
 
 Use the envelope `occurred_at` as the authoritative completion timestamp. Convert it using `payload.timezone` when deriving the learner's local activity date and streak state.
 
@@ -70,7 +82,7 @@ The amount is decided once, in `Learner.complete_lesson`. Under a decay rule set
   "schema_version": 1,
   "occurred_at": "2026-10-03T09:15:00Z",
   "ingested_at": "2026-10-03T09:15:02Z",
-  "subject_id": "L1",
+  "subject_id": "5b0d6c6e-2f4a-4a53-9a57-3c1f7e2d9b10",
   "producer": "learning-svc",
   "correlation_id": "cmp_492_003",
   "causation_id": null,
@@ -83,7 +95,160 @@ The amount is decided once, in `Learner.complete_lesson`. Under a decay rule set
     "completion_kind": "lesson"
   },
   "provenance": {
-    "source": "server_authoritative"
+    "source": "client"
   }
 }
 ```
+
+`subject_id` must be the UUID of an existing learner, and `provenance.source` must not be `server_authoritative` (rejected as `untrusted_producer`).
+
+## Checkpoint Attempt (`learning.checkpoint_attempted`), v1
+
+This is a source learning event. It records that a learner made one attempt at an assessment checkpoint. It does not carry a score or a reward. It is stored on the learner and awards **no XP**, makes **no streak change** and does **not progress any quest** or badge. The first attempt per assessment is read by the M4 remediation policy (see below).
+
+### Payload
+
+All fields are required; no other fields are allowed.
+
+| Field | Required | Meaning |
+|---|---:|---|
+| `attempt_id` | Yes | Non-empty string. The immutable identifier of one checkpoint attempt, created by the producer. This is the stable business action identity. |
+| `assessment_id` | Yes | Non-empty string. Stable identifier of the assessment. |
+| `assessment_version` | Yes | Integer, 1 or greater. Immutable version of the assessment attempted. |
+| `passed` | Yes | Boolean. Whether the learner passed. Strict: `1`, `0` and `"true"` are rejected. |
+| `timezone` | Yes | Learner IANA timezone at the time of the attempt, such as `Asia/Kolkata`. Validated the same way as for lesson completion. |
+
+The machine-readable payload contract is [checkpoint_attempted.schema.json](../src/schemas/events/checkpoint_attempted.schema.json).
+
+`src/schemas/events/checkpoint_completed.schema.json` (a payload with `passed` and `score`) is not ingested: no producer may send that event type and no code reads the file. `passed` is carried on `learning.checkpoint_attempted` instead. The file is kept for now.
+
+### Producer and idempotency rules
+
+The envelope is the same canonical envelope as for lesson completion, with `event_type` `learning.checkpoint_attempted` and `schema_version` 1. The producer is `learning-svc`. The `dedup_key`, the trusted ingress clock, the 72 hour late-event window and the effective rule version behave exactly as described for `learning.lesson_completed` above; a checkpoint attempt applies no rule set, but its `dedup_key` is still `<event_id>:<rule_version>` for the configured version.
+
+`attempt_id` is the business identity of the attempt and must be sent unchanged on every delivery or resend of the same attempt. The envelope `event_id` identifies one delivery, so a resend uses a new `event_id`.
+
+- The same `event_id` delivered again is answered `duplicate` / `duplicate_event_id`, whatever its age.
+- A new `event_id` with an `attempt_id` that was already accepted is answered `duplicate` / `duplicate_attempt_id`. No second `CheckpointAttempted` event is stored.
+- Reusing an `event_id` with different content, or for a different attempt, is rejected as `conflicting_event_id_reuse`.
+
+Ingestion records `attempt_id` in the same evidence tables as lesson completions, stored as `checkpoint_attempt:<attempt_id>` so that an attempt id can never collide with a lesson `completion_id`.
+
+### Conflicting content for the same `attempt_id`
+
+When a repeat of an accepted `attempt_id` arrives under a new `event_id` with **different** content (for example `passed` changed), the content is not compared. The delivery is a plain `duplicate_attempt_id`, the first accepted content stays, and only a duplicate evidence row is written. This mirrors how a repeated lesson `completion_id` is handled. It means a producer that corrects an attempt must send a new `attempt_id`; a correction under the old one is silently ignored.
+
+### First attempt per assessment
+
+The learner exposes the first attempt for each `assessment_id`, ordered by `(occurred_at, attempt_id)`. The order does not depend on arrival order, so a later attempt that arrives first is replaced by an earlier one that arrives after it, and equal `occurred_at` values are broken by `attempt_id`. The value is rebuilt from the stored events on replay.
+
+The learner id (`subject_id`) must be a UUID and `provenance.source` must not be `server_authoritative`; ingestion rejects that value as `untrusted_producer`.
+
+### Example
+
+```json
+{
+  "event_id": "019c26c2-7b87-7d0c-89db-8ef5b5110c4b",
+  "event_type": "learning.checkpoint_attempted",
+  "schema_version": 1,
+  "occurred_at": "2026-10-03T09:30:00Z",
+  "ingested_at": "2026-10-03T09:30:02Z",
+  "subject_id": "5b0d6c6e-2f4a-4a53-9a57-3c1f7e2d9b10",
+  "producer": "learning-svc",
+  "correlation_id": "att_492_001",
+  "causation_id": null,
+  "dedup_key": "019c26c2-7b87-7d0c-89db-8ef5b5110c4b:v1",
+  "payload": {
+    "attempt_id": "att_492_001",
+    "assessment_id": "checkpoint_math_v1",
+    "assessment_version": 1,
+    "passed": false,
+    "timezone": "Asia/Kolkata"
+  },
+  "provenance": {
+    "source": "client"
+  }
+}
+```
+
+## Remediation decision (`RemediationDecided`), M4
+
+A domain event emitted by the `Learner` aggregate (not an ingested source event) when the remediation policy
+(`src/interventions/policy.py`) decides what to do about a checkpoint attempt. It earns no XP and touches no streak,
+quest or checkpoint-attempt state.
+
+### Fields
+
+| Field | Type | Notes |
+|---|---|---|
+| `decision_id` | string | `remediation:<attempt_id>`; the identity of the decision |
+| `attempt_id` | string | the checkpoint attempt decided on |
+| `assessment_id` | string | taken from the attempt |
+| `action` | `assign` \| `no_action` | |
+| `reason` | string \| null | null when `action` is `assign` |
+| `decided_at` | ISO-8601 string | the clock time of the decision |
+| `deadline_at` | ISO-8601 string \| null | `decided_at` + 7 days for `assign`; null for `no_action` |
+| `quest_id` | string \| null | `remediation_v1` for `assign`; null for `no_action` |
+| `policy_version` | string | `remediation_policy_v1` |
+
+### Identity and replay
+
+- `decision_id = remediation:<attempt_id>` is the identity. Recording is idempotent on it: a second decision for the same
+  attempt returns without emitting and the first stays.
+- Decisions are stored facts and are never recomputed on replay. Re-running the policy for an already-decided attempt
+  returns the stored decision, even if the clock has moved on.
+- An explicit `no_action` is a recorded fact and is stored like an `assign`.
+
+### Outcomes
+
+Rules are checked in this order; the first that applies wins.
+
+1. `not_first_attempt` (`no_action`): the attempt is not the first attempt for its `assessment_id`.
+2. `passed` (`no_action`): the attempt passed.
+3. `remediated_within_window` (`no_action`): an earlier `assign` decision has `decided_at` later than `now` minus 14 days.
+4. `assign`: otherwise; `deadline_at` is `now` + 7 days and `quest_id` is `remediation_v1`.
+
+### Frequency window and deadline
+
+- The window is 14 days, measured from the `decided_at` of the learner's prior `assign` decisions (not from when the
+  attempt occurred). It spans all assessments of the learner. An `assign` decided exactly 14 days earlier is outside
+  the window and does not block; one decided 14 days minus 1 second earlier blocks. Prior `no_action` decisions never block.
+- The quest deadline is 7 days after `decided_at`.
+
+### Remediation quest (`remediation_v1`), M4
+
+An `assign` decision creates a real quest for the learner.
+
+- **Definition:** quest `remediation_v1`, definition version `remediation_quests_v1`, target 1. Only a completion with
+  `completion_kind = "remediation"` counts; a completion of kind `lesson`, `review` or absent (absent counts as `lesson`)
+  does not progress it.
+- **Where it lives:** `src/state_machine/quest_definitions.py`, not in the rule sets. Published rule sets
+  (`rulesets.json`, `rulesets_decay.json`) are immutable, so their content and digests are unchanged.
+- **Assignment:** `assignment_id = remediation_quest:<attempt_id>`; `assigned_at` is the decision's `decided_at` and
+  `deadline_at` is its `deadline_at` (7 days). The `assign` decision and its `QuestAssigned` event are written in the same
+  save; if the quest cannot be assigned, nothing is saved. A `no_action` decision assigns no quest, and re-running for an
+  already-decided attempt assigns nothing new.
+- **Other quests:** quests defined by a rule set (e.g. `lesson_starter_v1`) accept any completion kind and keep progressing
+  on every completion kind, as before.
+- **Completion rules:** a completion that occurred before `assigned_at` does not progress the quest; one after
+  `deadline_at` does not complete it. A remediation completion earns its normal XP (no decay, `repeat_index` 0) whether
+  or not a remediation quest is active.
+
+### Quest expiry, M4
+
+Every quest (remediation and rule-set quests alike) expires through the existing `QuestExpired` event, by two paths that
+record the same value:
+
+- **Sweep:** `run_quest_expiry(app, learner_id, clock=...)` calls `Learner.expire_due_quests(as_of)`. It expires each quest
+  with status `assigned` and `deadline_at < as_of` (strictly: a quest at exactly its deadline is not expired), in sorted
+  `assignment_id` order, and returns the expired ids. A naive `as_of` raises `ValueError` and emits nothing. The learner is
+  saved only if something expired.
+- **On completion:** a completion processed after a quest's `deadline_at` expires that quest, as before.
+- **`expired_at = deadline_at`** on both paths, never the completion time or the sweep time, so the fact does not depend on
+  when it was noticed. Events stored before this change keep the completion time they were written with; nothing reads
+  `expired_at` back (the aggregate and the quest read model take only the status).
+- **Idempotent:** completed and already-expired quests are never touched, so a second sweep returns `[]`, emits nothing and
+  saves nothing.
+- **Window:** an expired quest does not reset the 14-day remediation window; that is measured from the `assign` decision's
+  `decided_at`.
+- **Scheduling:** nothing schedules the sweep yet. It is invoked explicitly, like reconciliation (`src/leaderboard/reconciliation.py`).
