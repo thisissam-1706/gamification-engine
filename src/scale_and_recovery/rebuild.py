@@ -6,7 +6,7 @@ import hashlib
 import json
 import os
 import time
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from eventsourcing.application import Notification
@@ -41,10 +41,15 @@ class LearnerSnapshot:
 
 @dataclass
 class RebuildResult:
-    """Result of full-state disaster recovery and deterministic verification."""
+    """Result of full-state disaster recovery and deterministic verification.
+
+    ``total_events`` is the number of notification-log entries replayed.
+    ``domain_event_count`` is the sum of stored events across all learner aggregates.
+    """
 
     total_learners: int
     total_events: int
+    domain_event_count: int
     rebuild_duration_sec: float
     throughput_events_per_sec: float
     bit_identical: bool
@@ -56,6 +61,7 @@ class RebuildResult:
         return {
             "total_learners": self.total_learners,
             "total_events": self.total_events,
+            "domain_event_count": self.domain_event_count,
             "rebuild_duration_sec": self.rebuild_duration_sec,
             "throughput_events_per_sec": self.throughput_events_per_sec,
             "bit_identical": self.bit_identical,
@@ -96,9 +102,15 @@ class FullStateRebuildHarness:
 
     def initialize_live_system(self) -> None:
         """Initializes authoritative SQLite event store and leaderboard read model."""
+        self._open_application()
+        self._open_read_model()
+
+    def _open_application(self) -> None:
         self.app = LearnerApplication(
             env={"PERSISTENCE_MODULE": "eventsourcing.sqlite", "SQLITE_DBNAME": self.events_db_path}
         )
+
+    def _open_read_model(self) -> None:
         self.store = SQLiteLeaderboardStore(self.leaderboard_db_path)
         self.proj = LeaderboardProjection(self.store)
         self.service = LeaderboardService(self.store)
@@ -148,9 +160,18 @@ class FullStateRebuildHarness:
         return learner_uuids
 
     def capture_snapshot(
-        self, workload: SyntheticWorkload, learner_uuids: dict[str, UUID]
+        self,
+        workload: SyntheticWorkload,
+        learner_uuids: dict[str, UUID],
+        source: Literal["aggregate", "replay"] = "replay",
     ) -> dict[str, LearnerSnapshot]:
-        """Captures complete aggregate and projection state vectors across the population."""
+        """Captures complete aggregate and projection state vectors across the population.
+
+        ``source="aggregate"`` reads XP/streak/freezes from the live aggregate fields;
+        ``source="replay"`` derives them with the pure ``rebuild_learner_state`` fold.
+        """
+        if source not in ("aggregate", "replay"):
+            raise ValueError(f"Unknown snapshot source: {source!r}")
         if self.app is None or self.service is None:
             raise RuntimeError("Harness must be open to capture snapshot.")
 
@@ -159,20 +180,30 @@ class FullStateRebuildHarness:
             uid = learner_uuids[lid]
             cohort_id = workload.cohort_assignments[lid]
 
-            # Aggregate state via pure fold
-            events = list(self.app.events.get(uid))
-            fold_state = rebuild_learner_state(events)
+            if source == "aggregate":
+                learner = self.app.repository.get(uid)
+                xp_total = learner.xp_total
+                streak = learner.new_streak
+                freezes = learner.freezes_remaining
+                activity_dates = tuple(sorted(learner.activity_dates))
+            else:
+                fold_state = rebuild_learner_state(list(self.app.events.get(uid)))
+                xp_total = fold_state.xp_total
+                streak = fold_state.new_streak
+                freezes = fold_state.freezes_remaining
+                activity_dates = fold_state.activity_dates
 
-            # Leaderboard state
-            cohort_standing = self.service.get_learner_rank("cohort", cohort_id, self.epoch, lid)
-            global_standing = self.service.get_learner_rank("global", "global", self.epoch, lid)
+            # Leaderboard entries are keyed by the aggregate UUID, not the workload id
+            subject_id = str(uid)
+            cohort_standing = self.service.get_learner_rank("cohort", cohort_id, self.epoch, subject_id)
+            global_standing = self.service.get_learner_rank("global", "global", self.epoch, subject_id)
 
             snapshot[lid] = LearnerSnapshot(
                 learner_id=lid,
-                xp_total=fold_state.xp_total,
-                streak=fold_state.new_streak,
-                freezes=fold_state.freezes_remaining,
-                activity_dates=fold_state.activity_dates,
+                xp_total=xp_total,
+                streak=streak,
+                freezes=freezes,
+                activity_dates=activity_dates,
                 cohort_id=cohort_id,
                 cohort_score=cohort_standing.score if cohort_standing else 0,
                 cohort_rank=cohort_standing.rank if cohort_standing else None,
@@ -184,20 +215,26 @@ class FullStateRebuildHarness:
         return snapshot
 
     def simulate_projection_wipe(self) -> None:
-        """Simulates total read-model failure by closing and wiping the leaderboard database."""
+        """Simulates total loss of derived state and a process restart.
+
+        Closes the application and leaderboard store, deletes the leaderboard database
+        (and its WAL/SHM sidecars), then reopens a NEW application on the same
+        authoritative events database and a new empty read model. The events database
+        is never deleted.
+        """
         if self.store is not None:
             self.store.close()
-            self.store = None
-            self.proj = None
-            self.service = None
+        if self.app is not None:
+            self.app.close()
+        self.store = self.proj = self.service = self.app = None
 
-        if os.path.exists(self.leaderboard_db_path):
-            os.remove(self.leaderboard_db_path)
+        for suffix in ("", "-wal", "-shm"):
+            path = self.leaderboard_db_path + suffix
+            if os.path.exists(path):
+                os.remove(path)
 
-        # Reopen clean empty leaderboard store
-        self.store = SQLiteLeaderboardStore(self.leaderboard_db_path)
-        self.proj = LeaderboardProjection(self.store)
-        self.service = LeaderboardService(self.store)
+        self._open_application()
+        self._open_read_model()
 
     def execute_full_rebuild(
         self, workload: SyntheticWorkload, learner_uuids: dict[str, UUID]
@@ -214,7 +251,7 @@ class FullStateRebuildHarness:
             self.proj.apply(n, offset=n.id)
 
         # 2. Re-capture full snapshot post-rebuild
-        post_snapshot = self.capture_snapshot(workload, learner_uuids)
+        post_snapshot = self.capture_snapshot(workload, learner_uuids, source="replay")
 
         t1 = time.perf_counter()
         rebuild_duration = max(t1 - t0, 1e-6)
@@ -225,7 +262,7 @@ class FullStateRebuildHarness:
         self.initialize_live_system()
         try:
             learner_uuids = self.ingest_workload(workload)
-            pre_snapshot = self.capture_snapshot(workload, learner_uuids)
+            pre_snapshot = self.capture_snapshot(workload, learner_uuids, source="aggregate")
 
             # Checksum pre-wipe state
             pre_json = json.dumps({k: v.to_dict() for k, v in sorted(pre_snapshot.items())}, sort_keys=True)
@@ -236,6 +273,10 @@ class FullStateRebuildHarness:
 
             # Rebuild from event log
             post_snapshot, rebuild_duration, total_notifications = self.execute_full_rebuild(workload, learner_uuids)
+
+            domain_event_count = sum(
+                len(list(self.app.events.get(uid))) for uid in learner_uuids.values()
+            )
 
             # Checksum post-rebuild state
             post_json = json.dumps({k: v.to_dict() for k, v in sorted(post_snapshot.items())}, sort_keys=True)
@@ -256,6 +297,7 @@ class FullStateRebuildHarness:
             return RebuildResult(
                 total_learners=len(workload.learner_ids),
                 total_events=total_notifications,
+                domain_event_count=domain_event_count,
                 rebuild_duration_sec=rebuild_duration,
                 throughput_events_per_sec=throughput,
                 bit_identical=bit_identical,

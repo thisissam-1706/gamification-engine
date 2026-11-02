@@ -39,6 +39,6 @@ def test_full_state_rebuild(tmp_path):
 
     # 2. Replay must process all domain events and meet throughput SLA
     assert rebuild_result.total_learners == 15
-    assert rebuild_result.total_events > 500  # Total notifications generated
+    assert rebuild_result.total_events > 500  # Notification-log entries replayed
     assert rebuild_result.rebuild_duration_sec < 10.0  # Well within recovery bound
     assert rebuild_result.throughput_events_per_sec > 100.0  # >100 events/sec throughput SLA
