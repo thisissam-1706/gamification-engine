@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Streakwise - Home</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&amp;display=swap">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="topbar">
+    <a class="brand" href="#main" aria-label="Streakwise home">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="#fff"><path d="M13.2 2 4.5 13.4c-.4.5 0 1.1.6 1.1H10l-1.2 7.1c-.1.7.8 1 1.2.5l8.7-11.4c.4-.5 0-1.1-.6-1.1H14l1.200-7.100c.1-.7-.8-1-1.2-.5z"/></svg>
+      </span>
+      <span class="brand-name">Streakwise</span>
+    </a>
+    <nav class="nav" aria-label="Primary">
+      <a class="pill is-active" href="#main" data-target="main" aria-current="page">Home</a>
+      <a class="pill" href="#quests" data-target="quests">Quests</a>
+      <a class="pill" href="#leaderboard" data-target="leaderboard">Leaderboard</a>
+      <a class="pill" href="#badges" data-target="badges">Badges</a>
+    </nav>
+    <div class="topbar-right">
+      <button class="bell" id="bell" type="button" aria-label="Notifications">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.300 21a1.940 1.940 0 0 0 3.400 0"/></svg>
+        <span class="bell-count" id="bell-count" hidden></span>
+      </button>
+      <div class="user">
+        <span class="avatar" id="avatar" aria-hidden="true"></span>
+        <span class="user-text">
+          <span class="user-name" id="user-name">Loading...</span>
+          <span class="user-level" id="user-level"></span>
+        </span>
+      </div>
+      <button class="refresh" id="refresh" type="button">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-3-6.700"/><path d="M21 3v6h-6"/></svg>
+        <span id="refresh-label">Refresh</span>
+      </button>
+      <select id="learner-select" class="learner-select" aria-label="Switch learner"></select>
+    </div>
+  </header>
+
+  <div id="error" class="error" role="alert" hidden>
+    <span id="error-text"></span>
+    <button type="button" id="retry" class="btn-small">Try again</button>
+  </div>
+
+  <main id="main" class="layout" aria-busy="true">
+    <div class="col-left">
+      <div class="row-top">
+        <section class="card streak-card" aria-labelledby="streak-title">
+          <h2 class="sr-only" id="streak-title">Streak</h2>
+          <div class="streak-head">
+            <span class="flame-box" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="36" height="36" fill="#FFB020" stroke="#8A4A05" stroke-width="1.500" stroke-linejoin="round"><path d="M12 2c.5 3.500-1.500 5-3 7-1.300 1.700-2 3.200-2 5.200A5 5 0 0 0 12 19.500a5 5 0 0 0 5-5.300c0-2-1-3.500-2-4.700-.3 1.200-.9 2-1.700 2.300C13.800 8.700 13.500 5 12 2z"/></svg>
+            </span>
+            <div>
+              <div class="streak-days" id="streak-days">-</div>
+              <div class="muted">day streak</div>
+            </div>
+          </div>
+          <div class="week" id="week" role="list" aria-label="This week"></div>
+          <p class="muted caption" id="streak-caption"></p>
+          <span class="chip chip-blue" id="freeze-chip"></span>
+        </section>
+
+        <section class="card xp-card" aria-labelledby="xp-title">
+          <h2 class="sr-only" id="xp-title">Experience points</h2>
+          <svg class="ring" viewBox="0 0 120 120" width="120" height="120" role="img" id="ring" aria-label="Level progress">
+            <circle cx="60" cy="60" r="46" fill="none" stroke="#EEEAFF" stroke-width="12"/>
+            <circle id="ring-progress" cx="60" cy="60" r="46" fill="none" stroke="#5B3DF5" stroke-width="12" stroke-linecap="round" transform="rotate(-90 60 60)"/>
+            <text id="ring-text" x="60" y="68" text-anchor="middle" font-size="24" font-weight="700" fill="#14172B"></text>
+          </svg>
+          <div class="xp-body">
+            <div><span class="xp-number" id="xp-number">-</span> <span class="xp-unit">XP</span></div>
+            <p class="muted" id="xp-next"></p>
+            <span class="chip chip-violet" id="ruleset-chip"></span>
+          </div>
+        </section>
+      </div>
+
+      <section class="card" id="quests" tabindex="-1" aria-labelledby="quests-title">
+        <h2 class="card-title" id="quests-title">Your quests</h2>
+        <div class="quests" id="quest-list"></div>
+      </section>
+
+      <section class="card" id="badges" tabindex="-1" aria-labelledby="badges-title">
+        <h2 class="card-title" id="badges-title">Badges</h2>
+        <div class="badges" id="badge-list" role="list"></div>
+      </section>
+    </div>
+
+    <aside class="col-right">
+      <section class="card" id="leaderboard" tabindex="-1" aria-labelledby="lb-title">
+        <div class="lb-head">
+          <h2 class="card-title" id="lb-title">Leaderboard</h2>
+          <div class="segmented" role="group" aria-label="Leaderboard scope">
+            <button type="button" class="seg is-active" id="seg-cohort" data-scope="cohort" aria-pressed="true">Cohort</button>
+            <button type="button" class="seg" id="seg-global" data-scope="global" aria-pressed="false">Global</button>
+          </div>
+        </div>
+        <p class="muted subtitle" id="lb-subtitle"></p>
+        <ol class="lb-rows" id="lb-rows"></ol>
+        <p class="muted footnote" id="lb-footnote"></p>
+      </section>
+
+      <section class="card" id="inbox" aria-labelledby="inbox-title" tabindex="-1">
+        <h2 class="card-title" id="inbox-title">Inbox</h2>
+        <ul class="inbox-list" id="inbox-list"></ul>
+        <p class="muted footnote" id="inbox-footer"></p>
+      </section>
+    </aside>
+  </main>
+
+  <footer class="page-foot">
+    <p id="as-of" class="muted"></p>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

@@ -16,6 +16,10 @@ dev = [
     "pytest-asyncio",
     "pyyaml",
 ]
+web = [
+    "fastapi",
+    "uvicorn",
+]
 
 [build-system]
 requires = ["setuptools>=68.0"]

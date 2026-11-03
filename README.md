@@ -112,6 +112,24 @@ The architecture diagram above is the repository's single high-level architectur
 
 Kafka/Redpanda, Redis, and PostgreSQL setup instructions will be added only if measured scale or reliability needs require those components.
 
+## Running the web UI
+
+A read-only learner home page runs on seeded demo data (UI layer in `webapp/`, not engine state). From the repository root, in an activated virtual environment:
+
+```bash
+python -m pip install -e ".[web]"
+```
+
+```bash
+python -m webapp.seed
+```
+
+```bash
+python -m uvicorn webapp.app:app --port 8000
+```
+
+Then open <http://localhost:8000/>.
+
 ## Reproducing the evidence
 
 - `requirements-lock.txt` pins the exact dependency versions used for the recorded test runs.

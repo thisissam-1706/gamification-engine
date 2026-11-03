@@ -1,0 +1,74 @@
+{
+  "as_of": "2026-10-16T18:00:00Z",
+  "cohort_names": {
+    "cohort_a": "Cohort A",
+    "cohort_b": "Cohort B"
+  },
+  "epoch": "2026-W42",
+  "learners": {
+    "062566b7-92cc-58c1-baa3-02fe4ffd8f5d": {
+      "display_name": "Ananya Das",
+      "key": "learner_0005",
+      "push_enabled": false
+    },
+    "1d6b3c14-06bc-5524-9b40-7007ff5ed83e": {
+      "display_name": "Kabir Singh",
+      "key": "learner_0006",
+      "push_enabled": true
+    },
+    "4871b5d7-1673-5416-8a37-48353d80e6a4": {
+      "display_name": "Priya Nair",
+      "key": "learner_0001",
+      "push_enabled": true
+    },
+    "5e45c482-1318-52ec-8b1c-f116f08db37f": {
+      "display_name": "Arjun Reddy",
+      "key": "learner_0010",
+      "push_enabled": true
+    },
+    "8da11022-e214-5ce4-ba9d-57d72dcb0448": {
+      "display_name": "Vikram Rao",
+      "key": "learner_0004",
+      "push_enabled": true
+    },
+    "a4b67f76-95be-50c1-8157-55022bf4e70d": {
+      "display_name": "Tara Bose",
+      "key": "learner_0011",
+      "push_enabled": true
+    },
+    "a9ec8603-758d-5d9e-bfce-e60a1d311ff6": {
+      "display_name": "Rohan Iyer",
+      "key": "learner_0002",
+      "push_enabled": false
+    },
+    "afabc3f3-e17b-568b-b824-8123953874f8": {
+      "display_name": "Diya Menon",
+      "key": "learner_0009",
+      "push_enabled": false
+    },
+    "b1102b23-33f4-570e-b81d-e3b9ac243cfc": {
+      "display_name": "Ishaan Gupta",
+      "key": "learner_0008",
+      "push_enabled": true
+    },
+    "bc056f39-1fae-5982-80d8-82e8650f7f40": {
+      "display_name": "Sneha Kulkarni",
+      "key": "learner_0003",
+      "push_enabled": true
+    },
+    "bca1da5f-f106-526d-9bf3-35d91e61b374": {
+      "display_name": "Meera Pillai",
+      "key": "learner_0007",
+      "push_enabled": true
+    },
+    "c6bb39cc-7ede-5881-83ca-1f84ebd502c1": {
+      "display_name": "Aarav Mehta",
+      "key": "learner_0000",
+      "push_enabled": true
+    }
+  },
+  "quiet_hours": {
+    "end_hour": 7,
+    "start_hour": 22
+  }
+}
