@@ -7,6 +7,9 @@ from eventsourcing.domain import Aggregate, event
 if TYPE_CHECKING:
     from src.interventions.policy import RemediationDecision
 
+from src.experiments.assignment import HASH_VERSION, assign
+from src.experiments.exposure import EXPOSURE_SURFACES, ExposureRefused
+
 from .quest_definitions import quest_definition_for
 from .rules import (
     calculate_streak,
@@ -90,6 +93,13 @@ class Learner(Aggregate):
         self.quest_instances: dict[str, dict[str, object]] = {}
         self.badges_issued: dict[str, str] = {}
         self.cohort_memberships: dict[str, dict[str, object]] = {}
+        # exp_id -> exp_id, variant, hash_version, propensity, assigned_at (ISO string).
+        self.experiment_assignments: dict[str, dict] = {}
+        # view_id -> exposure fields; exp_id -> view_id of the earliest by (exposed_at, view_id);
+        # view_id -> source event_id.
+        self.experiment_exposures: dict[str, dict] = {}
+        self.first_exposure_view_ids: dict[str, str] = {}
+        self.exposure_sources: dict[str, str] = {}
 
     def complete_lesson(
         self,
@@ -349,6 +359,143 @@ class Learner(Aggregate):
         occurred = _as_datetime(self.checkpoint_attempts[attempt_id]["occurred_at"])
         assert occurred is not None
         return occurred, attempt_id
+
+    def assign_experiment(
+        self,
+        exp_id: str,
+        *,
+        assigned_at: datetime,
+        source_event_id: str | None = None,
+        correlation_id: str | None = None,
+        causation_id: str | None = None,
+    ) -> bool:
+        """Durably assigns the learner to an experiment variant; it is not an exposure.
+
+        The variant is decided here, once, by ``assign(str(self.id), exp_id)``.
+        Idempotent on ``exp_id``: a second call returns False and emits nothing,
+        even if ``assigned_at`` differs. The first assignment stays.
+        """
+        if assigned_at.tzinfo is None or assigned_at.utcoffset() is None:
+            raise ValueError("assigned_at must be timezone-aware")
+        if exp_id in self.experiment_assignments:
+            return False
+        variant, propensity = assign(str(self.id), exp_id)
+        self._record_experiment_assignment(
+            exp_id,
+            variant,
+            HASH_VERSION,
+            propensity,
+            assigned_at.isoformat(),
+            source_event_id,
+            correlation_id,
+            causation_id,
+        )
+        return True
+
+    @event("ExperimentAssigned")
+    def _record_experiment_assignment(
+        self,
+        exp_id: str,
+        variant: str,
+        hash_version: str,
+        propensity: float,
+        assigned_at: str,
+        source_event_id: str | None = None,
+        correlation_id: str | None = None,
+        causation_id: str | None = None,
+    ) -> None:
+        """Applies a decided experiment assignment; a pure state fold."""
+        self.experiment_assignments[exp_id] = {
+            "exp_id": exp_id,
+            "variant": variant,
+            "hash_version": hash_version,
+            "propensity": propensity,
+            "assigned_at": assigned_at,
+        }
+
+    def record_experiment_exposure(
+        self,
+        exp_id: str,
+        exposure_surface: str,
+        *,
+        view_id: str,
+        exposed_at: datetime,
+        source_event_id: str | None = None,
+        correlation_id: str | None = None,
+        causation_id: str | None = None,
+    ) -> bool:
+        """Records one exposure of an assigned learner to its treatment surface.
+
+        Idempotent on ``view_id``: a repeat returns False and emits nothing. Every
+        distinct view is recorded; the first is derived by (exposed_at, view_id), so
+        arrival order does not matter. Raises ``ExposureRefused`` when the rules
+        do not allow the exposure, and ValueError for a naive ``exposed_at``.
+        """
+        if exposed_at.tzinfo is None or exposed_at.utcoffset() is None:
+            raise ValueError("exposed_at must be timezone-aware")
+        if view_id in self.experiment_exposures:
+            return False
+        assignment = self.experiment_assignments.get(exp_id)
+        if assignment is None:
+            raise ExposureRefused("no_assignment")
+        variant = assignment["variant"]
+        surfaces = EXPOSURE_SURFACES.get(exp_id, {}).get(variant)
+        if not surfaces:
+            raise ExposureRefused("no_treatment_surface_for_variant")
+        if exposure_surface not in surfaces:
+            raise ExposureRefused("not_treatment_surface")
+        if exposed_at < _as_datetime(assignment["assigned_at"]):
+            raise ExposureRefused("exposure_before_assignment")
+        self._record_experiment_exposure(
+            exp_id,
+            variant,
+            exposure_surface,
+            f"experiment_assignment:{exp_id}",
+            view_id,
+            exposed_at.isoformat(),
+            source_event_id,
+            correlation_id,
+            causation_id,
+        )
+        return True
+
+    @event("ExperimentExposed")
+    def _record_experiment_exposure(
+        self,
+        exp_id: str,
+        variant: str,
+        exposure_surface: str,
+        assignment_ref: str,
+        view_id: str,
+        exposed_at: str,
+        source_event_id: str | None = None,
+        correlation_id: str | None = None,
+        causation_id: str | None = None,
+    ) -> None:
+        """Applies a decided exposure; a pure state fold."""
+        self.experiment_exposures[view_id] = {
+            "view_id": view_id,
+            "exp_id": exp_id,
+            "variant": variant,
+            "exposure_surface": exposure_surface,
+            "assignment_ref": assignment_ref,
+            "exposed_at": exposed_at,
+        }
+        if source_event_id is not None:
+            self.exposure_sources[view_id] = source_event_id
+        first_id = self.first_exposure_view_ids.get(exp_id)
+        if first_id is None or self._exposure_order(view_id) < self._exposure_order(first_id):
+            self.first_exposure_view_ids[exp_id] = view_id
+
+    def _exposure_order(self, view_id: str) -> tuple[datetime, str]:
+        exposed = _as_datetime(self.experiment_exposures[view_id]["exposed_at"])
+        assert exposed is not None
+        return exposed, view_id
+
+    def first_experiment_exposure(self, exp_id: str) -> dict | None:
+        """The earliest recorded exposure for ``exp_id``, or None."""
+        view_id = self.first_exposure_view_ids.get(exp_id)
+        return None if view_id is None else dict(self.experiment_exposures[view_id])
 
     def record_remediation_decision(self, decision: "RemediationDecision") -> bool:
         """Records one remediation decision; it earns no XP and touches no streak or quest.

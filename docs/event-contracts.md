@@ -1,5 +1,7 @@
 # Event Contracts
 
+_Changelog: 2026-11-06 — added `learning.surface_viewed` v1 (third ingested source event type) and the `ExperimentAssigned` and `ExperimentExposed` domain events (M7)._
+
 _Changelog: 2026-11-02 — the checkpoint-attempt overview now says the first attempt is read by the M4 remediation policy (final M4 consistency pass)._
 
 _Changelog: 2026-11-02 — corrected the `learning.lesson_completed` example (UUID `subject_id`, `provenance.source` `client`, both checked by running it through ingestion) and two statements that did not match the code (no seven-day deduplication window; the expected rule version is the configured one, `v1` by default); noted that `checkpoint_completed.schema.json` is not ingested._
@@ -252,3 +254,104 @@ record the same value:
 - **Window:** an expired quest does not reset the 14-day remediation window; that is measured from the `assign` decision's
   `decided_at`.
 - **Scheduling:** nothing schedules the sweep yet. It is invoked explicitly, like reconciliation (`src/leaderboard/reconciliation.py`).
+
+## Surface view (`learning.surface_viewed`), v1
+
+This is a source learning event. It records that a learner viewed a learning surface that belongs to an experiment. It is the only way an experiment exposure is created. It awards **no XP**, makes **no streak change** and does **not progress any quest**.
+
+### Payload
+
+All fields are required; no other fields are allowed. There is deliberately no `variant` and no `assignment_ref`: the engine derives both from the learner's stored assignment, and a payload that carries either is rejected as `schema_invalid`.
+
+| Field | Required | Meaning |
+|---|---:|---|
+| `view_id` | Yes | Non-empty string. The immutable identifier of one view, created by the producer. This is the stable business action identity. |
+| `exp_id` | Yes | Non-empty string. The experiment the surface belongs to, for example `exp_007`. |
+| `exposure_surface` | Yes | Non-empty string. The surface viewed. For `exp_007` the only treatment surface is `streak_risk_reminder`. |
+| `timezone` | Yes | Learner IANA timezone at the time of the view. Validated the same way as for lesson completion; the exposure does not use it. |
+
+The machine-readable payload contract is [surface_viewed.schema.json](../src/schemas/events/surface_viewed.schema.json).
+
+### Producer and idempotency rules
+
+The envelope is the same canonical envelope as for lesson completion, with `event_type` `learning.surface_viewed` and `schema_version` 1. The producer is `learning-svc`. The `dedup_key`, the trusted ingress clock, the 72 hour late-event window and the effective rule version behave exactly as for `learning.lesson_completed`.
+
+`view_id` is the business identity of the view and must be sent unchanged on every resend. It is unique per learner across experiments.
+
+- The same `event_id` delivered again is answered `duplicate` / `duplicate_event_id`.
+- A new `event_id` with a `view_id` that was already accepted is answered `duplicate` / `duplicate_view_id`. No second `ExperimentExposed` event is stored.
+- Reusing an `event_id` with different content, or for a different view, is rejected as `conflicting_event_id_reuse`.
+
+Ingestion records `view_id` in the same evidence tables as other actions, stored as `surface_view:<view_id>`.
+
+### Refusals
+
+The aggregate refuses an exposure that its rules do not allow. The delivery is answered `rejected` with the refusal as the reason, one rejected evidence row is written, and nothing is stored. The `event_id` is not bound, so a redelivery is evaluated again.
+
+| Reason | When |
+|---|---|
+| `no_assignment` | The learner has no assignment for `exp_id`. |
+| `no_treatment_surface_for_variant` | The learner's variant has no treatment surface (a control learner, `variant_b`). |
+| `not_treatment_surface` | `exposure_surface` is not the variant's treatment surface. |
+| `exposure_before_assignment` | `occurred_at` is earlier than the assignment time. Equal is allowed. |
+
+Other rejections are the shared ones (`schema_invalid`, `untrusted_producer`, `outside_late_window`, `dedup_key_mismatch`). `subject_id` must be the UUID of an existing learner: for a learner with no aggregate ingestion raises an error and creates nothing.
+
+### Example
+
+```json
+{
+  "event_id": "019c26c2-7b87-7d0c-89db-8ef5b5110c4c",
+  "event_type": "learning.surface_viewed",
+  "schema_version": 1,
+  "occurred_at": "2026-10-03T09:30:00Z",
+  "ingested_at": "2026-10-03T09:30:02Z",
+  "subject_id": "5b0d6c6e-2f4a-4a53-9a57-3c1f7e2d9b10",
+  "producer": "learning-svc",
+  "correlation_id": "view_492_001",
+  "causation_id": null,
+  "dedup_key": "019c26c2-7b87-7d0c-89db-8ef5b5110c4c:v1",
+  "payload": {
+    "view_id": "view_492_001",
+    "exp_id": "exp_007",
+    "exposure_surface": "streak_risk_reminder",
+    "timezone": "Asia/Kolkata"
+  },
+  "provenance": {
+    "source": "client"
+  }
+}
+```
+
+## Experiment assignment (`ExperimentAssigned`), M7
+
+A domain event emitted by the `Learner` aggregate (not an ingested source event) when a learner is assigned to an experiment. It earns no XP and touches no streak, quest or checkpoint state. It is not an exposure.
+
+| Field | Type | Notes |
+|---|---|---|
+| `exp_id` | string | the experiment |
+| `variant` | string | `variant_a` or `variant_b`, decided by `assign(str(learner id), exp_id)` |
+| `hash_version` | string | `hash_v2` |
+| `propensity` | number | probability of the selected variant, 0.5 |
+| `assigned_at` | ISO-8601 string | timezone-aware; supplied by the caller. A naive time is refused with `ValueError` |
+
+The event also carries `source_event_id`, `correlation_id` and `causation_id` (provenance only, null when not supplied). Recording is idempotent on `exp_id`: a second assignment returns without emitting, even if `assigned_at` differs, and the first stays. The aggregate keeps these facts in `experiment_assignments` (`exp_id` to the fields above); replay applies the stored values and never recomputes the hash.
+
+## Experiment exposure (`ExperimentExposed`), M7
+
+A domain event emitted by the `Learner` aggregate when an assigned learner views a treatment surface (normally from an accepted `learning.surface_viewed`). It earns no XP and touches no streak, quest or checkpoint state.
+
+| Field | Type | Notes |
+|---|---|---|
+| `exp_id` | string | the experiment |
+| `variant` | string | taken from the stored assignment, never from the source event |
+| `exposure_surface` | string | the treatment surface viewed (`streak_risk_reminder` for `variant_a` of `exp_007`) |
+| `assignment_ref` | string | `experiment_assignment:<exp_id>` |
+| `view_id` | string | the identity of the view |
+| `exposed_at` | ISO-8601 string | the source event's `occurred_at`; timezone-aware |
+
+The event also carries `source_event_id`, `correlation_id` and `causation_id` (provenance). The learner keeps `experiment_exposures` (`view_id` to the fields above), `first_exposure_view_ids` (`exp_id` to the `view_id` of the first exposure) and `exposure_sources` (`view_id` to the source `event_id`).
+
+- Recording is idempotent on `view_id`. Every distinct view is recorded.
+- The first exposure per experiment is derived as the earliest by `(exposed_at, view_id)`, so it does not depend on arrival order; equal times are broken by `view_id`. It is rebuilt from the stored events on replay.
+- Exposure is never created by assignment alone, and a control learner never has one.

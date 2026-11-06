@@ -3,6 +3,9 @@
 import hashlib
 import json
 
+# Identifies the hashing scheme in assign(); stored on every ExperimentAssigned event.
+HASH_VERSION = "hash_v2"
+
 
 def assign(subject_id: str, exp_id: str) -> tuple[str, float]:
     """Assign a subject to the fixed 50/50 experiment variant."""

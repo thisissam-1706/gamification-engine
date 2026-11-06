@@ -1,0 +1,34 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SurfaceViewedPayload",
+  "type": "object",
+  "required": [
+    "view_id",
+    "exp_id",
+    "exposure_surface",
+    "timezone"
+  ],
+  "properties": {
+    "view_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Immutable identifier of this surface view (the business action id)."
+    },
+    "exp_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Experiment the viewed surface belongs to."
+    },
+    "exposure_surface": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Learning surface the learner viewed."
+    },
+    "timezone": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Learner IANA timezone at the time of the view."
+    }
+  },
+  "additionalProperties": false
+}

@@ -68,6 +68,36 @@ def test_assignment_matches_golden_hash_buckets(subject_id, exp_id, expected_var
     assert assign(subject_id, exp_id) == (expected_variant, 0.5)
 
 
-@pytest.mark.skip(reason="Exposure logging is not implemented yet.")
-def test_exposure_is_logged_only_after_treatment_surface_view():
-    pass
+def test_exposure_is_logged_only_after_treatment_surface_view(tmp_path):
+    from datetime import timedelta
+
+    from src.experiments.service import assign_learner_to_experiment
+    from tests.experiments.support import (
+        ASSIGNED_AT,
+        EXP_ID,
+        create_learner,
+        exposure_state,
+        ingest_surface_viewed,
+        open_persisted,
+        stored_event_names,
+        surface_viewed_envelope,
+    )
+
+    with open_persisted(tmp_path) as (application, evidence):
+        learner_id = create_learner(application, "variant_a")
+        assert assign_learner_to_experiment(application, learner_id, EXP_ID, ASSIGNED_AT)
+
+        # Assignment alone never produces an exposure, and repeating it changes nothing.
+        assert not assign_learner_to_experiment(
+            application, learner_id, EXP_ID, ASSIGNED_AT + timedelta(hours=2)
+        )
+        assert "ExperimentExposed" not in stored_event_names(application, learner_id)
+        assert exposure_state(application, learner_id)["first_exposure"] is None
+
+        # A surface view is what logs the exposure.
+        view = surface_viewed_envelope(learner_id, "view-1", ASSIGNED_AT + timedelta(hours=1))
+        assert ingest_surface_viewed(application, evidence, view).status == "accepted"
+        names = stored_event_names(application, learner_id)
+        assert names.count("ExperimentExposed") == 1
+        assert names.index("ExperimentAssigned") < names.index("ExperimentExposed")
+        assert exposure_state(application, learner_id)["first_exposure"]["view_id"] == "view-1"

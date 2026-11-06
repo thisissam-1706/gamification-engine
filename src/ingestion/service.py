@@ -13,6 +13,7 @@ from jsonschema import Draft7Validator, FormatChecker, ValidationError
 from eventsourcing.application import AggregateNotFoundError
 from eventsourcing.persistence import IntegrityError
 
+from src.experiments.exposure import ExposureRefused
 from src.ingestion.config import DEFAULT_CONFIG, IngestConfig
 from src.ingestion.evidence import DeliveryBinding, EvidenceStore
 from src.ingestion.validation import (
@@ -21,6 +22,7 @@ from src.ingestion.validation import (
     validate_lesson_completed_envelope,
     validate_lesson_completed_payload,
     validate_producer,
+    validate_surface_viewed_payload,
 )
 from src.state_machine.learner import Learner, LearnerApplication
 from src.state_machine.rules import get_ruleset
@@ -98,6 +100,22 @@ def _accept_checkpoint_attempt(
     )
 
 
+def _accept_surface_viewed(
+    learner: Learner, action_id: str, envelope: Mapping[str, Any], config: IngestConfig
+) -> bool:
+    payload = envelope["payload"]
+    # variant and assignment_ref are derived by the aggregate, never taken from the event.
+    return learner.record_experiment_exposure(
+        str(payload["exp_id"]),
+        str(payload["exposure_surface"]),
+        view_id=action_id,
+        exposed_at=datetime.fromisoformat(str(envelope["occurred_at"])),
+        source_event_id=str(envelope["event_id"]),
+        correlation_id=envelope["correlation_id"],
+        causation_id=envelope["causation_id"],
+    )
+
+
 LESSON_COMPLETED = _EventSpec(
     event_type="learning.lesson_completed",
     id_field="completion_id",
@@ -117,6 +135,16 @@ CHECKPOINT_ATTEMPTED = _EventSpec(
     sources=lambda learner: learner.checkpoint_sources,
     is_accepted=lambda learner, action_id: action_id in learner.checkpoint_attempts,
     accept=_accept_checkpoint_attempt,
+)
+SURFACE_VIEWED = _EventSpec(
+    event_type="learning.surface_viewed",
+    id_field="view_id",
+    action_prefix="surface_view:",
+    duplicate_reason="duplicate_view_id",
+    validate_payload=validate_surface_viewed_payload,
+    sources=lambda learner: learner.exposure_sources,
+    is_accepted=lambda learner, action_id: action_id in learner.experiment_exposures,
+    accept=_accept_surface_viewed,
 )
 
 
@@ -219,6 +247,40 @@ def ingest_checkpoint_attempted(
         authenticated_producer,
         config,
     )
+
+
+def ingest_surface_viewed(
+    application: LearnerApplication,
+    evidence: EvidenceStore,
+    envelope: Mapping[str, Any],
+    *,
+    authenticated_producer: str,
+    config: IngestConfig = DEFAULT_CONFIG,
+) -> IngestionResult:
+    """Validates and accepts one surface view or records its outcome."""
+    return _ingest(
+        SURFACE_VIEWED, application, evidence, envelope, authenticated_producer, config
+    )
+
+
+def _record_refusal(
+    evidence: EvidenceStore,
+    learner_id: str,
+    action_id: str,
+    event_id: str,
+    received_at: str,
+    reason: str,
+) -> IngestionResult:
+    """A rule refusal by the aggregate: nothing was saved, so only evidence is written."""
+    evidence.record(
+        "rejected",
+        learner_id,
+        reason,
+        action_id=action_id,
+        event_id=event_id,
+        received_at=received_at,
+    )
+    return IngestionResult("rejected", reason)
 
 
 def _ingest(
@@ -379,7 +441,12 @@ def _ingest(
         return IngestionResult("duplicate", spec.duplicate_reason)
 
     quest_already_complete = _quest_already_complete(learner, assignment_id)
-    accepted = spec.accept(learner, raw_id, envelope, config)
+    try:
+        accepted = spec.accept(learner, raw_id, envelope, config)
+    except ExposureRefused as exc:
+        return _record_refusal(
+            evidence, learner_id, action_id, event_id, received_at, exc.reason
+        )
     if not accepted:
         original = spec.sources(learner).get(raw_id)
         evidence.record(
@@ -425,7 +492,12 @@ def _ingest(
             return IngestionResult("duplicate", spec.duplicate_reason)
 
         quest_already_complete = _quest_already_complete(learner, assignment_id)
-        accepted = spec.accept(learner, raw_id, envelope, config)
+        try:
+            accepted = spec.accept(learner, raw_id, envelope, config)
+        except ExposureRefused as exc:
+            return _record_refusal(
+                evidence, learner_id, action_id, event_id, received_at, exc.reason
+            )
         if not accepted:
             original = spec.sources(learner).get(raw_id)
             if original is not None:

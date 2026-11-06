@@ -1,5 +1,7 @@
 # Gamification, Social Cohort, Notification and Retention Experimentation Engine
 
+> **Changelog (2026-11-06):** M7 wording: experiment assignment is recorded as `ExperimentAssigned` and treatment-surface exposure as `ExperimentExposed` (AT-12 and AT-13 passing on synthetic fixtures); the two M7 placeholder tests now pass; exposure is not yet consumed by the metric.
+
 > **Changelog (2026-11-02):** M8 wording: the AT-15 wipe destroys all derived state and rebuilds from the retained event log with a fresh application instance; the synthetic population is small (15 learners).
 
 > **Changelog (2026-11-02):** Added ADR-0007 (rule-based remediation policy) to the ADR list; the M1 description now names both ingested event types.
@@ -146,7 +148,7 @@ Then open <http://localhost:8000/>.
 | M4 | Intervention/quest policy | ☐ (implemented for synthetic fixtures: checkpoint_attempted ingestion, rule-based remediation policy with stored decisions, remediation_v1 quest (remediation completions only), deadline expiry sweep; policy and sweep invoked, not scheduled; no notification hook) |
 | M5 | Multi-channel notifications | ☐ (in-app and simulated-push slice implemented; email adapter not implemented) |
 | M6 | Abuse detection | ☐ (implemented for synthetic fixtures; flag-only; thresholds unvalidated on real data; XP decay is opt-in ruleset `v2`) |
-| M7 | Experimentation and metrics | ☐ (assignment and metric implemented; simulator is a stub; exposure logging not implemented) |
+| M7 | Experimentation and metrics | ☐ (experiment assignment recorded as `ExperimentAssigned` and treatment-surface exposure as `ExperimentExposed` (AT-12 and AT-13 passing; synthetic fixtures; control learners never produce exposure events); exposure not yet consumed by the metric; simulator partially implemented (pilot v1); AT-18 to be written) |
 | M8 | Scale and recovery | ☑ (pinned synthetic workload, multi-learner full-state rebuild AT-15 (the wipe destroys all derived state, i.e. the leaderboard and projections, and rebuilds from the retained event log with a fresh application instance; the event log itself is not wiped; synthetic population is small: 15 learners, 612 replayed entries), leaderboard p50/p95/p99 latency bounds, DLQ outage recovery drain, raw-log experiment reproduction) |
 
 M1 means events from the learning app are validated against versioned schemas before acceptance (currently `lesson_completed` and `checkpoint_attempted` are ingested), while M2 means XP, streaks, freezes, one quest, and one badge are computed deterministically and can be rebuilt exactly from the event history. M3 means synthetic learners are deterministically grouped into bounded cohorts (500–5,000 members; 30-day inactivity pruning is specified but not yet scheduled or wired in) and ranked at cohort and global levels via SQLite projections with exact tie-breaking, measurable latency, and differential reconciliation (AT-7).
@@ -163,5 +165,5 @@ M1 means events from the learning app are validated against versioned schemas be
 | `test_retry_dlq` | M5 | planned placeholder |
 | `test_leaderboard_reconciliation` | M3 | passing (AT-7) |
 | `test_full_state_rebuild` | M2, M7, M8 | passing (AT-15; multi-learner full-state disaster recovery) |
-| `test_assignment_vs_exposure` | M7 | planned placeholder |
-| `test_exposure_is_logged_only_after_treatment_surface_view` | M7 | planned placeholder |
+| `test_assignment_vs_exposure` | M7 | passing (AT-13; synthetic fixtures) |
+| `test_exposure_is_logged_only_after_treatment_surface_view` | M7 | passing (AT-13; synthetic fixtures) |
