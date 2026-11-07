@@ -38,3 +38,5 @@ docker-compose.override.yml
 *.pdf 
 reviews/
 ai_documented_changes/
+
+docs/audit/
