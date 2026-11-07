@@ -67,6 +67,7 @@ assessment is used for everyone, or results are reported by difficulty level.
 Analysis is by assignment: every assigned eligible learner stays in the arm they were assigned to, whether or not they ever opened the app or viewed the treatment surface, so the two groups remain comparable and the sample-ratio check stays meaningful. Exposure (`ExperimentExposed`, recorded only when a `variant_a` learner views the treatment surface) is a secondary signal, for example to report how many treated learners actually saw the reminder. Control learners never produce an exposure event, so exposure is not compared across arms. The metric does not consume exposure yet.
 
 Fatigue metrics include messages per learner per day, opt-outs, and cap breaches;
+messages per learner per day is the messages sent (delivered plus provider-failed) divided by eligible learners times the 14-day window, reported for both arms;
 the [daily notification cap](problem-boundaries.md#notification-channels-and-constraints) applies. Assignment, eligibility, decision, delivery,
 and exposure are logged as five separate events. Both groups use the same consent
 and fatigue rules. Results come from synthetic data and do not demonstrate

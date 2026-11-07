@@ -136,7 +136,7 @@ def test_null_run_control_untouched_and_analyze_is_pure():
     assert control["exposed"] == 0 and control["messages_sent"] == 0
     assert first["arms"]["treatment"]["messages_sent"] > 0
     assert first["meta"]["setting"] == "null" and first["meta"]["data_cutoff"] == "2026-09-29T00:00:00Z"
-    assert len(first["meta"]["notes"]) == 3
+    assert len(first["meta"]["notes"]) == 4
 
 
 def test_cap_stress_breaches_only_in_treatment():

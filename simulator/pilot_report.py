@@ -11,6 +11,7 @@ from src.experiments.metrics import mastery_report
 ARM_VARIANTS = {"treatment": "variant_a", "control": "variant_b"}
 SENT = ("delivered", "provider_failed")
 SRM_ALPHA = 0.001
+FATIGUE_WINDOW_DAYS = 14  # same window as the primary metric
 
 
 def _ts(value: str) -> datetime:
@@ -156,6 +157,11 @@ def _arm_report(run: PilotRun, variant: str) -> dict:
             mastery.missing_outcome / mastery.denominator if mastery.denominator else None
         ),
         "messages_sent": status_counts["delivered"] + status_counts["provider_failed"],
+        "messages_per_learner_per_day": (
+            (status_counts["delivered"] + status_counts["provider_failed"])
+            / (eligible * FATIGUE_WINDOW_DAYS)
+            if eligible else None
+        ),
         "delivered": status_counts["delivered"],
         "provider_failed": status_counts["provider_failed"],
         "suppressed_cap": status_counts["suppressed_cap"],
@@ -204,6 +210,8 @@ def analyze(run: PilotRun) -> dict:
                 "headline mastery rate = mastered / (mature learners with an outcome + mature "
                 "learners with no outcome, counted as not mastered + mature invalid); immature "
                 "learners (assigned_at + 14 days > data cutoff) are excluded and reported separately",
+                f"messages_per_learner_per_day = messages sent / (eligible learners * "
+                f"{FATIGUE_WINDOW_DAYS}-day window); sent counts delivered plus provider_failed messages",
                 "synthetic data; results do not demonstrate real-world causality",
             ],
         },
