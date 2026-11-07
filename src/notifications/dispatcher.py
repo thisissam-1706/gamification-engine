@@ -6,6 +6,7 @@ from typing import Any
 import uuid
 
 from src.notifications.channels.base import BaseChannelAdapter
+from src.notifications.channels.email import SimulatedEmailAdapter
 from src.notifications.channels.in_app import InAppChannelAdapter
 from src.notifications.channels.push import SimulatedPushAdapter
 from src.notifications.guardrails import (
@@ -37,13 +38,14 @@ class NotificationDispatcher:
         retry_scheduler: RetryScheduler | None = None,
         fatigue_cap: int = 5,
         quiet_start_hour: int = 22,
-        quiet_end_hour: int = 7,
+        quiet_end_hour: int = 8,
         clock: Callable[[], datetime | str] | None = None,
     ) -> None:
         self.store = store
         self.adapters = adapters or {
             ChannelType.IN_APP: InAppChannelAdapter(),
             ChannelType.PUSH: SimulatedPushAdapter(),
+            ChannelType.EMAIL: SimulatedEmailAdapter(),
         }
         self.retry_scheduler = retry_scheduler or RetryScheduler(max_retries=3)
         self.fatigue_cap = fatigue_cap

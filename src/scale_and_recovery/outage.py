@@ -80,7 +80,7 @@ class NotificationOutageHarness:
             adapters={ChannelType.PUSH: self.adapter},
             retry_scheduler=self.retry_scheduler,
             quiet_start_hour=22,
-            quiet_end_hour=7,
+            quiet_end_hour=8,
         )
 
     def close(self) -> None:

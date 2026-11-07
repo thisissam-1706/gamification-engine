@@ -33,12 +33,12 @@ def test_stale_after_quiet_hours_suppression(tmp_path):
         store=store,
         adapters={ChannelType.PUSH: push},
         quiet_start_hour=22,
-        quiet_end_hour=7,
+        quiet_end_hour=8,
     )
 
     prefs = LearnerPreferences(learner_id="L_stale", timezone="Asia/Kolkata")
     # Generated at 23:00 IST (17:30 UTC), but with only a 3-hour TTL (10800 sec)
-    # Next morning 07:00 IST is 8 hours later, so TTL will have expired!
+    # Next morning 08:00 IST is 9 hours later, so TTL will have expired!
     gen_utc = "2026-10-12T17:30:00Z"
 
     prop = NotificationProposal(
@@ -70,7 +70,7 @@ def test_queued_opt_out_cancellation(tmp_path):
         store=store,
         adapters={ChannelType.PUSH: push},
         quiet_start_hour=22,
-        quiet_end_hour=7,
+        quiet_end_hour=8,
     )
 
     # Initial state: learner has not opted out
@@ -90,7 +90,7 @@ def test_queued_opt_out_cancellation(tmp_path):
     # 1. Evening dispatch reschedules for next morning
     resched_fact = dispatcher.dispatch(prop, prefs=active_prefs, now_utc=evening_ts)
     assert resched_fact.status == NotificationStatus.QUEUED
-    assert resched_fact.rescheduled_for == "2026-10-13T01:30:00Z"
+    assert resched_fact.rescheduled_for == "2026-10-13T02:30:00Z"
 
     # 2. Before morning dispatch arrives, learner revokes Push consent!
     revoked_prefs = LearnerPreferences(
@@ -124,7 +124,7 @@ def test_release_rescheduled_delivers_due_messages(tmp_path):
         store=store,
         adapters={ChannelType.PUSH: push},
         quiet_start_hour=22,
-        quiet_end_hour=7,
+        quiet_end_hour=8,
     )
     prefs = LearnerPreferences(learner_id="L_morning", timezone="Asia/Kolkata")
     evening_ts = "2026-10-12T17:30:00Z"  # 23:00 IST
@@ -141,7 +141,7 @@ def test_release_rescheduled_delivers_due_messages(tmp_path):
     resched = dispatcher.dispatch(prop, prefs=prefs, now_utc=evening_ts)
     assert resched.status == NotificationStatus.QUEUED
 
-    # Release at 07:00 IST next morning
+    # Release at 08:00 IST next morning
     morning_facts = dispatcher.release_rescheduled(
         now_utc=resched.rescheduled_for,
         prefs_provider={"L_morning": prefs},

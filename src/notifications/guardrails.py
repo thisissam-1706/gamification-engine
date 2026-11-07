@@ -56,7 +56,7 @@ def evaluate_quiet_hours(
     now_utc: datetime,
     timezone_str: str,
     quiet_start_hour: int = 22,
-    quiet_end_hour: int = 7,
+    quiet_end_hour: int = 8,
 ) -> tuple[bool, datetime | None]:
     """Determines whether the current instant falls inside quiet hours in learner's local timezone.
 
@@ -73,7 +73,7 @@ def evaluate_quiet_hours(
     # Check if inside quiet hours
     in_quiet = False
     if quiet_start_hour > quiet_end_hour:
-        # e.g., 22:00 to 07:00 (spans midnight)
+        # e.g., 22:00 to 08:00 (spans midnight)
         in_quiet = local_dt.hour >= quiet_start_hour or local_dt.hour < quiet_end_hour
     else:
         in_quiet = quiet_start_hour <= local_dt.hour < quiet_end_hour
@@ -83,7 +83,7 @@ def evaluate_quiet_hours(
 
     # Calculate next dispatch time at quiet_end_hour:00 local time
     if quiet_start_hour > quiet_end_hour:
-        # Spans midnight (e.g. 22:00 to 07:00)
+        # Spans midnight (e.g. 22:00 to 08:00)
         if local_dt.hour >= quiet_start_hour:
             next_date = local_dt.date() + timedelta(days=1)
         else:

@@ -63,13 +63,13 @@ def test_short_ttl_message_suppressed_on_release(tmp_path):
         store=store,
         adapters={ChannelType.PUSH: push},
         quiet_start_hour=22,
-        quiet_end_hour=7,
+        quiet_end_hour=8,
     )
 
     prefs = LearnerPreferences(learner_id="L_ttl_rel", timezone="Asia/Kolkata")
     evening_ts = "2026-10-12T17:30:00Z"  # 23:00 IST -> quiet hours
 
-    # TTL: 8.5 hours (30600s). Target 07:00 IST is 8h later, so not yet expired at dispatch.
+    # TTL: 9.5 hours (34200s). Target 08:00 IST is 9h later, so not yet expired at dispatch.
     prop = NotificationProposal(
         proposal_id="p_short_ttl_01",
         learner_id="L_ttl_rel",
@@ -77,16 +77,16 @@ def test_short_ttl_message_suppressed_on_release(tmp_path):
         category=NotificationCategory.STREAK_RISK,
         template_id="streak_warning_short",
         created_at=evening_ts,
-        ttl_seconds=8 * 3600 + 1800,
+        ttl_seconds=9 * 3600 + 1800,
     )
 
     res_resched = dispatcher.dispatch(prop, prefs=prefs, now_utc=evening_ts)
     assert res_resched.status == NotificationStatus.QUEUED
-    assert res_resched.rescheduled_for == "2026-10-13T01:30:00Z"  # 07:00 IST
+    assert res_resched.rescheduled_for == "2026-10-13T02:30:00Z"  # 08:00 IST
 
-    # Morning release job runs at 08:00 IST (2026-10-13T02:30:00Z), 9 hours after creation (> 8.5h TTL)
+    # Morning release job runs at 09:00 IST (2026-10-13T03:30:00Z), 10 hours after creation (> 9.5h TTL)
     morning_facts = dispatcher.release_rescheduled(
-        now_utc="2026-10-13T02:30:00Z",
+        now_utc="2026-10-13T03:30:00Z",
         prefs_provider={"L_ttl_rel": prefs},
     )
 
@@ -113,7 +113,7 @@ def test_release_during_changed_timezone_quiet_hours_requeued(tmp_path):
         store=store,
         adapters={ChannelType.PUSH: push},
         quiet_start_hour=22,
-        quiet_end_hour=7,
+        quiet_end_hour=8,
     )
 
     # Initial timezone: UTC. Proposal dispatched at 22:30 UTC -> quiet hours
@@ -131,14 +131,14 @@ def test_release_during_changed_timezone_quiet_hours_requeued(tmp_path):
 
     res_queue = dispatcher.dispatch(prop, prefs=initial_prefs, now_utc=evening_ts)
     assert res_queue.status == NotificationStatus.QUEUED
-    assert res_queue.rescheduled_for == "2026-10-13T07:00:00Z"
+    assert res_queue.rescheduled_for == "2026-10-13T08:00:00Z"
 
     # Learner travels to New York (America/New_York, UTC-4)
-    # At 2026-10-13T07:00:00Z, New York local time is 03:00 (inside 22:00-07:00 quiet hours!)
+    # At 2026-10-13T08:00:00Z, New York local time is 04:00 (inside 22:00-08:00 quiet hours!)
     ny_prefs = LearnerPreferences(learner_id="L_traveler", timezone="America/New_York")
 
     release_facts = dispatcher.release_rescheduled(
-        now_utc="2026-10-13T07:00:00Z",
+        now_utc="2026-10-13T08:00:00Z",
         prefs_provider={"L_traveler": ny_prefs},
     )
 
@@ -146,15 +146,15 @@ def test_release_during_changed_timezone_quiet_hours_requeued(tmp_path):
     re_fact = release_facts[0]
     assert re_fact.status == NotificationStatus.QUEUED
     assert re_fact.reason == "quiet_hours_rescheduled"
-    # New release time: 07:00 NY time on Oct 13 = 11:00 UTC
-    assert re_fact.rescheduled_for == "2026-10-13T11:00:00Z"
+    # New release time: 08:00 NY time on Oct 13 = 12:00 UTC
+    assert re_fact.rescheduled_for == "2026-10-13T12:00:00Z"
     assert len(push.delivered_messages) == 0
 
     # Rescheduled row must NOT be marked released yet
     resched_entry = store.get_rescheduled_entry("p_tz_travel_01")
     assert resched_entry is not None
     assert resched_entry["released"] is False
-    assert resched_entry["rescheduled_for"] == "2026-10-13T11:00:00Z"
+    assert resched_entry["rescheduled_for"] == "2026-10-13T12:00:00Z"
 
     store.close()
 
@@ -269,7 +269,7 @@ def test_template_and_ttl_survive_release_and_replay(tmp_path):
         store=store,
         adapters={ChannelType.PUSH: capturing_push},
         quiet_start_hour=22,
-        quiet_end_hour=7,
+        quiet_end_hour=8,
     )
     prefs = LearnerPreferences(learner_id="L_meta", timezone="UTC")
 
@@ -286,9 +286,9 @@ def test_template_and_ttl_survive_release_and_replay(tmp_path):
     # Rescheduled at 23:00 UTC
     dispatcher.dispatch(prop_resched, prefs=prefs, now_utc="2026-10-12T23:00:00Z")
 
-    # Release at 07:00 UTC next morning
+    # Release at 08:00 UTC next morning
     dispatcher.release_rescheduled(
-        now_utc="2026-10-13T07:00:00Z",
+        now_utc="2026-10-13T08:00:00Z",
         prefs_provider={"L_meta": prefs},
     )
 
@@ -346,7 +346,7 @@ def test_simulated_crash_mid_release_does_not_lose_message(tmp_path):
         store=store,
         adapters={ChannelType.PUSH: crashing_adapter},
         quiet_start_hour=22,
-        quiet_end_hour=7,
+        quiet_end_hour=8,
     )
     prefs = LearnerPreferences(learner_id="L_crash_rel", timezone="UTC")
 
@@ -366,7 +366,7 @@ def test_simulated_crash_mid_release_does_not_lose_message(tmp_path):
     # 2. Morning arrives; release attempt crashes during adapter.send
     with pytest.raises(KeyboardInterrupt, match="Simulated sudden process death"):
         dispatcher_crashing.release_rescheduled(
-            now_utc="2026-10-13T07:00:00Z",
+            now_utc="2026-10-13T08:00:00Z",
             prefs_provider={"L_crash_rel": prefs},
         )
 
@@ -381,11 +381,11 @@ def test_simulated_crash_mid_release_does_not_lose_message(tmp_path):
         store=store,
         adapters={ChannelType.PUSH: recovered_push},
         quiet_start_hour=22,
-        quiet_end_hour=7,
+        quiet_end_hour=8,
     )
 
     facts = dispatcher_recovered.release_rescheduled(
-        now_utc="2026-10-13T07:01:00Z",
+        now_utc="2026-10-13T08:01:00Z",
         prefs_provider={"L_crash_rel": prefs},
     )
 

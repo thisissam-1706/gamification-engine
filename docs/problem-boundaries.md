@@ -7,7 +7,7 @@
 * **Cohorts and Leaderboards:** Learners are deterministically assigned to scoped cohorts. Leaderboard projections are SQLite-backed (M3); Redis-backed leaderboards are deferred until measurements justify them.
 ## Notification Channels and Constraints
 
-Interventions are delivered via push notifications. The daily notification cap is **5 messages per 24-hour period per learner**, and localized quiet hours are **22:00–08:00** in the learner’s timezone; both constraints prevent notification fatigue.
+Interventions are delivered via push notifications, with email as a second simulated channel. The daily notification cap is **5 messages per 24-hour period per learner**, and localized quiet hours are **22:00–08:00** in the learner’s timezone; both constraints prevent notification fatigue.
 
 * **Synthetic-Population Size:** The system assumes a high-volume synthetic user base for future peak-load and P99 measurements; Kafka partition concurrency is not part of the current implementation.
 * **System Exclusions:** Rule-based abuse detection (M6) exists but is flag-only: it is retroactive, never runs inside ingestion, never changes XP, streaks or leaderboards, and never confirms a signal or corrects XP (see [abuse-detection.md](abuse-detection.md)); an independent consumer and separate event-stream deployment are future extensions.

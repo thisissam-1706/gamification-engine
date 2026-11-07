@@ -188,7 +188,7 @@ def test_queued_proposal_redispatched_is_duplicate_and_preserves_release_flag(tm
         store=store,
         adapters={ChannelType.PUSH: push},
         quiet_start_hour=22,
-        quiet_end_hour=7,
+        quiet_end_hour=8,
     )
 
     prefs = LearnerPreferences(learner_id="L_quiet", timezone="Asia/Kolkata")
