@@ -18,8 +18,13 @@ class LeaderboardStore(ABC):
     """Abstract interface for leaderboard read model persistence."""
 
     @abstractmethod
-    def transaction(self):
-        """Context manager for executing operations within a single atomic transaction."""
+    def transaction(self, immediate: bool = False):
+        """Context manager for executing operations within a single atomic transaction.
+
+        immediate=True asks the store to take its write lock before the first read, so a
+        check-then-write sequence cannot interleave with another connection. It only has an
+        effect on the outermost call.
+        """
         raise NotImplementedError
 
     @abstractmethod
@@ -389,13 +394,19 @@ class SQLiteLeaderboardStore(LeaderboardStore):
         self.connection.commit()
 
     @contextmanager
-    def transaction(self):
+    def transaction(self, immediate: bool = False):
         """Context manager for executing operations within a single atomic transaction.
 
         Rolls back all changes if an exception is raised. Supports reentrant / nested calls.
+
+        immediate=True runs BEGIN IMMEDIATE on the outermost call (unless the connection
+        already has a transaction open) so the write lock is held from before the first read.
+        A nested call cannot upgrade an outer transaction; its flag is ignored.
         """
         self._transaction_depth += 1
         try:
+            if immediate and self._transaction_depth == 1 and not self.connection.in_transaction:
+                self.connection.execute("BEGIN IMMEDIATE")
             yield self.connection.cursor()
             if self._transaction_depth == 1:
                 self.connection.commit()
@@ -1345,10 +1356,10 @@ class InMemoryLeaderboardStore(LeaderboardStore):
         self._transaction_depth = 0
 
     @contextmanager
-    def transaction(self):
+    def transaction(self, immediate: bool = False):
         """Context manager for executing operations within a single atomic transaction.
 
-        Rolls back all state changes if an exception is raised.
+        Rolls back all state changes if an exception is raised. immediate is accepted and ignored.
         """
         self._transaction_depth += 1
         snapshot = None

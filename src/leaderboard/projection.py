@@ -244,7 +244,9 @@ class LeaderboardProjection:
             cohort_id = domain_event.cohort_id
             epoch = str(domain_event.membership_epoch)
             assigned_at = normalize_to_utc_iso(domain_event.assigned_at)
-            with self.store.transaction():
+            # immediate: assign_cohort's admission check runs inside this outer transaction,
+            # so the write lock must be taken here (a nested call cannot upgrade it).
+            with self.store.transaction(immediate=True):
                 self.assign_cohort(subject_id, cohort_id, epoch, assigned_at, real_offset)
                 self.store.record_processed_offset(
                     real_offset, cohort_id=cohort_id, occurred_at=assigned_at
@@ -411,39 +413,42 @@ class LeaderboardProjection:
         """
         assigned_at = normalize_to_utc_iso(assigned_at)
         key = (subject_id, epoch)
-        old_cohort = self._cohort_memberships.get(key)
-        if not old_cohort:
-            old_cohort = self.store.get_member_cohort(epoch, subject_id)
 
-        # Enforce cohort lifecycle admission rules
-        cohort_def = self.store.get_cohort_definition(cohort_id)
-        if cohort_def is None:
-            cohort_def = CohortDefinition(
-                cohort_id=cohort_id,
-                strategy="activity_volume",
-                epoch=epoch,
-                status="forming",
-            )
-            self.store.save_cohort_definition(cohort_def)
+        # The admission check and the write share one write-locked transaction, so two
+        # connections cannot both read max_size - 1 members and both be admitted.
+        with self.store.transaction(immediate=True):
+            old_cohort = self._cohort_memberships.get(key)
+            if not old_cohort:
+                old_cohort = self.store.get_member_cohort(epoch, subject_id)
 
-        # Enforce admission check for arrivals/reassignments
-        if old_cohort != cohort_id:
-            current_count = self.store.get_cohort_member_count(cohort_id, epoch)
-            CohortLifecycleService.assert_can_admit_member(cohort_def, current_count)
-
-            # Auto-advance forming cohort to active when minimum threshold is met
-            if cohort_def.status == "forming" and (current_count + 1) >= cohort_def.min_size:
-                cohort_def = CohortLifecycleService.transition(cohort_def, "active")
+            # Enforce cohort lifecycle admission rules
+            cohort_def = self.store.get_cohort_definition(cohort_id)
+            if cohort_def is None:
+                cohort_def = CohortDefinition(
+                    cohort_id=cohort_id,
+                    strategy="activity_volume",
+                    epoch=epoch,
+                    status="forming",
+                )
                 self.store.save_cohort_definition(cohort_def)
 
-        # Read global score and first_reached from store (not process memory)
-        global_entry = self.store.get_entry("global", "global", epoch, subject_id)
-        current_score = global_entry.score if global_entry is not None else 0
-        first_reached = (
-            global_entry.first_reached_at if global_entry is not None else assigned_at
-        )
+            # Enforce admission check for arrivals/reassignments
+            if old_cohort != cohort_id:
+                current_count = self.store.get_cohort_member_count(cohort_id, epoch)
+                CohortLifecycleService.assert_can_admit_member(cohort_def, current_count)
 
-        with self.store.transaction():
+                # Auto-advance forming cohort to active when minimum threshold is met
+                if cohort_def.status == "forming" and (current_count + 1) >= cohort_def.min_size:
+                    cohort_def = CohortLifecycleService.transition(cohort_def, "active")
+                    self.store.save_cohort_definition(cohort_def)
+
+            # Read global score and first_reached from store (not process memory)
+            global_entry = self.store.get_entry("global", "global", epoch, subject_id)
+            current_score = global_entry.score if global_entry is not None else 0
+            first_reached = (
+                global_entry.first_reached_at if global_entry is not None else assigned_at
+            )
+
             # Atomically purge any previous cohort memberships and orphan duplicates
             self.store.remove_cohort_memberships(
                 epoch=epoch,
