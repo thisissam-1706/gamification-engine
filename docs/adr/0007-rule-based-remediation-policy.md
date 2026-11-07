@@ -24,6 +24,7 @@ M4 (AT-17) asks for a learning-oriented intervention: when a learner fails their
 *Negative*:
 - The policy and the sweep are **invoked, not scheduled**: nothing in `src` calls `run_remediation` or `run_quest_expiry` (only tests do); until something does, no decision is made and no quest expires on its own.
 - There is **no notification hook**: a learner is not told about a remediation quest.
+  - *Update (2026-11-07):* a separate opt-in wrapper, `src/interventions/notification_hook.py` (`run_remediation_with_notification`), now sends one remediation notice per `assign` decision through the notification dispatcher (push by default; proposal id `remediation_notice:<attempt_id>`, so a re-run is deduplicated). It calls `run_remediation`; `policy.py` and `service.py` still do not know about notifications, and the notification outcome never changes the stored decision or quest. The wrapper is still invoked, not scheduled: nothing in `src` calls it, and `run_quest_expiry` sends no notice.
 - The M7 mastery metric (`first_eligible_checkpoint_mastery`) does not yet read checkpoint events: it takes caller-supplied attempt and completion records, and nothing feeds it from `Learner.checkpoint_attempts`.
 - Assign decisions stored before the quest was wired in have no quest and are not backfilled.
 - The 14-day window, the 7-day deadline and the single-quest design are untuned defaults checked only against synthetic data.
