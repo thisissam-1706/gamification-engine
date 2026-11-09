@@ -1,5 +1,7 @@
 # Gamification, Social Cohort, Notification and Retention Experimentation Engine
 
+> **Changelog (2026-11-09):** Demo backend (`webapp/demo_backend.py`): `create_sandbox` seeds fresh SQLite stores and `Sandbox` exposes `submit_lesson_completed`, `submit_checkpoint`, `set_clock`/`get_clock`, and `reset`; the demo clock is per-learner. After every accepted event the leaderboard projection and the remediation notification hook run synchronously inside the same lock. Seeded learners carry no ingestion evidence; all data is synthetic. The web UI can now be run in a writable DEMO_MODE (see "Running the web UI" below).
+
 > **Changelog (2026-11-07):** M3 wording: cohort admission is now atomic (member count, capacity check and write share one write-locked SQLite transaction); the "capacity check not transactional" known gap was removed.
 
 > **Changelog (2026-11-07):** M7 wording: AT-18 (policy comparison) now passes on the synthetic simulator (`tests/simulator/test_policy_comparison.py`); eligibility, decision and delivery are simulator stand-ins, and exposure is still not consumed by the metric.
@@ -120,7 +122,7 @@ Kafka/Redpanda, Redis, and PostgreSQL setup instructions will be added only if m
 
 ## Running the web UI
 
-A read-only learner home page runs on seeded demo data (UI layer in `webapp/`, not engine state). From the repository root, in an activated virtual environment:
+A learner home page serves seeded demo data (UI layer in `webapp/`, not engine state). By default it is **read-only**: the existing endpoints only serve pre-seeded SQLite snapshots and no events can be submitted through the UI.
 
 ```bash
 python -m pip install -e ".[web]"
@@ -135,6 +137,42 @@ python -m uvicorn webapp.app:app --port 8000
 ```
 
 Then open <http://localhost:8000/>.
+
+### DEMO_MODE — writable sandbox
+
+Set `DEMO_MODE=1` together with `DEMO_SANDBOX_PATH` to run a writable sandbox copy of the stores. `DEMO_SANDBOX_PATH` is required when `DEMO_MODE=1`; if its live profile is absent, the server seeds a fresh golden snapshot into `<DEMO_SANDBOX_PATH>/golden`, copies it to `<DEMO_SANDBOX_PATH>/live`, and routes all reads to the live copy. POST endpoints become available to submit events against the live stores.
+
+```bash
+DEMO_MODE=1 DEMO_SANDBOX_PATH=/tmp/demo-sandbox \
+  python -m uvicorn webapp.app:app --port 8000
+```
+
+**Demo clock** — the demo clock is **per-learner**. Set a learner's simulated "now" to any UTC instant and subsequent submissions use that instant as `occurred_at` and `ingested_at`:
+
+```bash
+# Read learner clock
+curl http://localhost:8000/api/demo/learners/<id>/clock
+
+# Set learner clock
+curl -X POST http://localhost:8000/api/demo/learners/<id>/clock \
+     -H "Content-Type: application/json" \
+     -d '{"now_utc":"2026-10-20T10:00:00Z"}'
+
+# Submit a lesson completion
+curl -X POST http://localhost:8000/api/demo/learners/<id>/lesson-complete \
+     -H "Content-Type: application/json" \
+     -d '{"lesson_id":"lesson_intro_1","completion_kind":"lesson"}'
+
+# Submit a checkpoint attempt
+curl -X POST http://localhost:8000/api/demo/learners/<id>/checkpoint \
+     -H "Content-Type: application/json" \
+     -d '{"assessment_id":"quiz_1","passed":false}'
+
+# Reset sandbox to seeded state
+curl -X POST http://localhost:8000/api/demo/reset
+```
+
+After every accepted event the leaderboard projection and (for failed checkpoints) the remediation notification hook run synchronously inside the same submit lock. Seeded learners carry no ingestion evidence; all data is synthetic.
 
 ## Reproducing the evidence
 

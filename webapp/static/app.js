@@ -48,13 +48,18 @@
     missed: "missed", future: "upcoming",
   };
 
-  var state = { home: null, scope: "cohort", token: 0, currentId: null };
+  var state = {
+    home: null, scope: "cohort", token: 0, currentId: null,
+    demo: false, version: null, pollTimer: null, highlight: null
+  };
 
   function getJSON(url) {
     return fetch(url).then(function (response) {
       if (response.ok) return response.json();
       return response.json().catch(function () { return {}; }).then(function (body) {
-        throw new Error(body.message || ("Request failed (" + response.status + ")"));
+        var error = new Error(body.message || ("Request failed (" + response.status + ")"));
+        error.status = response.status;
+        throw error;
       });
     });
   }
@@ -128,6 +133,35 @@
     $("ruleset-chip").textContent = "Ruleset " + l.ruleset;
   }
 
+  function animateNumber(element, start, end) {
+    var reduceMotion = reduceMotionPreference();
+    if (reduceMotion || start === end) {
+      element.textContent = fmt(end);
+      return;
+    }
+    var started = null;
+    function tick(timestamp) {
+      if (started === null) started = timestamp;
+      var progress = Math.min(1, (timestamp - started) / 600);
+      var eased = 1 - Math.pow(1 - progress, 3);
+      element.textContent = fmt(Math.round(start + (end - start) * eased));
+      if (progress < 1) window.requestAnimationFrame(tick);
+    }
+    element.textContent = fmt(start);
+    window.requestAnimationFrame(tick);
+  }
+
+  function reduceMotionPreference() {
+    return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  }
+
+  function questKey(q) { return q.kind + ":" + q.title; }
+  function questMap(home) {
+    var map = {};
+    home.quests.forEach(function (q) { map[questKey(q)] = q; });
+    return map;
+  }
+
   function progressBar(progress, target, label) {
     var bar = el("div", "bar");
     bar.setAttribute("role", "progressbar");
@@ -143,6 +177,7 @@
 
   function weeklyTile(q) {
     var tile = el("article", "quest weekly");
+    tile.dataset.questKey = questKey(q);
     tile.appendChild(el("div", "quest-label", "Weekly quest"));
     tile.appendChild(el("h3", "quest-title", q.title));
     tile.appendChild(progressBar(q.progress, q.target, q.title + " progress"));
@@ -158,6 +193,7 @@
 
   function comebackTile(q) {
     var tile = el("article", "quest comeback");
+    tile.dataset.questKey = questKey(q);
     var top = el("div", "quest-top");
     top.appendChild(el("div", "quest-label", "Comeback quest"));
     var chipText = q.status === "completed" ? "Complete" :
@@ -181,8 +217,25 @@
     var list = $("quest-list");
     list.replaceChildren();
     home.quests.forEach(function (q) {
-      if (q.kind === "weekly") list.appendChild(weeklyTile(q));
-      else if (q.kind === "remediation") list.appendChild(comebackTile(q));
+      var tile = q.kind === "weekly" ? weeklyTile(q) :
+        (q.kind === "remediation" ? comebackTile(q) : null);
+      if (!tile) return;
+      var old = state.highlight && state.highlight.beforeQuests[questKey(q)];
+      if (state.highlight && !old) {
+        tile.classList.add("live-new-quest");
+        tile.appendChild(el("span", "live-new-tag", "New"));
+      }
+      if (state.highlight && old && (old.progress !== q.progress || old.status !== q.status)) {
+        tile.classList.add("live-progress");
+        var fill = tile.querySelector(".bar > span");
+        if (fill) {
+          fill.style.width = (old.target > 0 ? Math.min(100, (old.progress / old.target) * 100) : 0) + "%";
+          window.requestAnimationFrame(function () {
+            fill.style.width = (q.target > 0 ? Math.min(100, (q.progress / q.target) * 100) : 0) + "%";
+          });
+        }
+      }
+      list.appendChild(tile);
     });
     if (!list.children.length) list.appendChild(el("p", "empty", "No quests right now. New ones will show up here."));
   }
@@ -226,7 +279,18 @@
       }
       previous = row.rank;
       var item = el("li", "lb-row" + (row.is_you ? " you" : ""));
-      item.appendChild(el("span", "lb-rank", String(row.rank)));
+      if (state.highlight && row.is_you && state.highlight.rankChange) {
+        item.classList.add("live-rank");
+      }
+      var rank = el("span", "lb-rank", String(row.rank));
+      if (state.highlight && row.is_you && state.highlight.rankChange) {
+        rank.appendChild(el(
+          "span",
+          "live-rank-change",
+          (state.highlight.rankChange < 0 ? " ▲ " : " ▼ ") + Math.abs(state.highlight.rankChange)
+        ));
+      }
+      item.appendChild(rank);
       item.appendChild(el("span", "lb-name", row.is_you ? "You" : row.display_name));
       item.appendChild(el("span", "lb-xp", fmt(row.xp) + " XP"));
       list.appendChild(item);
@@ -255,6 +319,9 @@
       var text = el("div");
       text.appendChild(el("div", "msg-title", m.title));
       text.appendChild(el("div", "msg-body", m.body));
+      if (state.highlight && state.highlight.newInbox[m.created_at + ":" + m.title]) {
+        item.appendChild(el("span", "live-new-tag", "New"));
+      }
       item.appendChild(text);
       list.appendChild(item);
     });
@@ -271,7 +338,8 @@
       weekday: "short", day: "numeric", month: "short", year: "numeric",
       hour: "2-digit", minute: "2-digit", timeZone: "UTC", hour12: false,
     }).format(when);
-    $("as-of").textContent = "Seeded demo data, as of " + text + " UTC. Not live.";
+    $("as-of").textContent = state.demo ? "Live demo, as of " + text + " UTC" :
+      "Seeded demo data, as of " + text + " UTC. Not live.";
   }
 
   function render(home) {
@@ -287,6 +355,110 @@
     $("main").setAttribute("aria-busy", "false");
   }
 
+  function showUpdatedNote() {
+    var note = $("live-update-note");
+    if (!note) {
+      note = el("span", "live-update-note", "Updated just now");
+      note.id = "live-update-note";
+      $("refresh").parentNode.appendChild(note);
+    }
+    note.classList.remove("is-visible");
+    void note.offsetWidth;
+    note.classList.add("is-visible");
+  }
+
+  function compareHome(before, after) {
+    var oldRank = (state.scope === "cohort" ? before.leaderboard.cohort_rows : before.leaderboard.global_rows)
+      .filter(function (row) { return row.is_you; })[0];
+    var newRank = (state.scope === "cohort" ? after.leaderboard.cohort_rows : after.leaderboard.global_rows)
+      .filter(function (row) { return row.is_you; })[0];
+    var newInbox = {};
+    var oldInbox = {};
+    before.inbox.forEach(function (m) { oldInbox[m.created_at + ":" + m.title] = true; });
+    after.inbox.forEach(function (m) {
+      if (!oldInbox[m.created_at + ":" + m.title]) newInbox[m.created_at + ":" + m.title] = true;
+    });
+    var beforeBadges = {};
+    before.badges.forEach(function (badge) { beforeBadges[badge.name] = badge.earned; });
+    var newlyEarnedBadges = after.badges.filter(function (badge) {
+      return badge.earned && !beforeBadges[badge.name];
+    });
+    var beforeQuest = questMap(before);
+    var completedQuest = after.quests.filter(function (quest) {
+      return quest.status === "completed" &&
+        beforeQuest[questKey(quest)] &&
+        beforeQuest[questKey(quest)].status !== "completed";
+    });
+    return {
+      beforeXp: before.learner.xp,
+      beforeLevel: before.learner.level,
+      beforeStreak: before.streak.days,
+      beforeWeek: before.streak.week.slice(),
+      beforeQuests: questMap(before),
+      rankChange: oldRank && newRank && oldRank.rank !== newRank.rank ? newRank.rank - oldRank.rank : 0,
+      newlyEarnedBadges: newlyEarnedBadges,
+      completedQuest: completedQuest[0] || null,
+      newInbox: newInbox,
+      inboxChanged: Object.keys(newInbox).length > 0
+    };
+  }
+
+  function showCelebration(changes, after) {
+    if (!changes || !window.StreakwiseConfetti) return;
+    var bannerText = null;
+    var burstSize = null;
+    var origin = null;
+    if (changes.newlyEarnedBadges.length) {
+      bannerText = "Badge unlocked: " + changes.newlyEarnedBadges[0].name;
+      burstSize = "big";
+    } else if (after.learner.level > changes.beforeLevel) {
+      bannerText = "Level " + after.learner.level + "!";
+      burstSize = "big";
+    } else if (changes.completedQuest) {
+      burstSize = "medium";
+      var completedKey = questKey(changes.completedQuest);
+      origin = Array.prototype.slice.call(document.querySelectorAll("[data-quest-key]"))
+        .filter(function (card) { return card.dataset.questKey === completedKey; })[0] || null;
+    } else if (after.streak.days > changes.beforeStreak) {
+      burstSize = after.streak.days === 7 || after.streak.days % 7 === 0 ? "medium" : "small";
+      origin = document.querySelector(".flame-box");
+    } else if (changes.rankChange < 0) {
+      burstSize = "small";
+      origin = document.querySelector(".lb-row.you");
+    }
+    if (bannerText) {
+      document.querySelectorAll(".celebration-banner").forEach(function (banner) { banner.remove(); });
+      var banner = el("div", "celebration-banner", bannerText);
+      banner.setAttribute("role", "status");
+      document.body.appendChild(banner);
+    }
+    if (burstSize && !reduceMotionPreference()) {
+      window.StreakwiseConfetti.burst({ size: burstSize, origin: origin });
+    }
+  }
+
+  function highlightChanges(changes, after) {
+    if (!changes) return;
+    if (changes.beforeXp !== after.learner.xp) {
+      animateNumber($("xp-number"), changes.beforeXp, after.learner.xp);
+    }
+    if (changes.beforeStreak !== after.streak.days) {
+      $("streak-days").classList.add("live-count");
+      $("streak-days").textContent = String(after.streak.days);
+      document.querySelector(".flame-box").classList.add("live-flame");
+    }
+    if (changes.beforeStreak !== after.streak.days || JSON.stringify(changes.beforeWeek) !== JSON.stringify(after.streak.week)) {
+      Array.prototype.forEach.call(document.querySelectorAll(".day"), function (day, index) {
+        if (changes.beforeWeek[index] !== after.streak.week[index]) day.classList.add("live-dot");
+      });
+    }
+    if (changes.inboxChanged) {
+      $("bell").classList.add("live-bell");
+      $("bell-count").classList.add("live-count");
+    }
+    showUpdatedNote();
+  }
+
   // ---------------------------------------------------------------- loading
 
   function setRefreshing(on) {
@@ -295,7 +467,8 @@
     $("refresh-label").textContent = on ? "Refreshing..." : "Refresh";
   }
 
-  function load(id) {
+  function load(id, liveUpdate) {
+    var before = state.home;
     var token = ++state.token;
     state.currentId = id;
     $("main").setAttribute("aria-busy", "true");
@@ -305,7 +478,14 @@
         if (token !== state.token) return; // a newer selection superseded this one
         setRefreshing(false);
         clearError();
+        var isReset = liveUpdate && before && home.learner.xp < before.learner.xp;
+        state.highlight = liveUpdate && before && !isReset ? compareHome(before, home) : null;
         render(home);
+        if (!isReset) {
+          highlightChanges(state.highlight, home);
+          showCelebration(state.highlight, home);
+        }
+        state.highlight = null;
       },
       function (err) {
         if (token !== state.token) return;
@@ -326,13 +506,15 @@
         select.appendChild(option);
       });
       clearError();
-      return load(learners[0].id);
+      var requested = new URLSearchParams(window.location.search).get("learner");
+      var selected = learners.some(function (l) { return l.id === requested; }) ? requested : learners[0].id;
+      select.value = selected;
+      return load(selected).then(startDemoPolling);
     }).catch(function (err) {
       showError("Could not load the learner list. " + err.message);
     });
   }
 
-  $("learner-select").addEventListener("change", function (event) { load(event.target.value); });
   $("retry").addEventListener("click", function () {
     if (state.currentId) load(state.currentId); else init();
   });
@@ -344,6 +526,58 @@
   });
   $("refresh").addEventListener("click", function () {
     if (state.currentId) load(state.currentId); else init();
+  });
+
+  function syncLearnerURL(id) {
+    var url = new URL(window.location.href);
+    url.searchParams.set("learner", id);
+    window.history.replaceState({}, "", url);
+  }
+
+  function checkDemoVersion() {
+    return getJSON("/api/demo/version").then(function (result) {
+      state.demo = true;
+      state.version = result.version;
+      if (state.home) renderAsOf(state.home);
+    }).catch(function (error) {
+      if (error.status === 404) state.demo = false;
+    });
+  }
+
+  function startDemoPolling() {
+    return checkDemoVersion().then(function () {
+      if (!state.demo) return;
+      if (state.pollTimer) window.clearInterval(state.pollTimer);
+      state.pollTimer = window.setInterval(function () {
+        if (!document.hidden) {
+          getJSON("/api/demo/version").then(function (result) {
+            if (result.version !== state.version) {
+              state.version = result.version;
+              load(state.currentId, true);
+            }
+          }).catch(function (error) {
+            if (error.status === 404) state.demo = false;
+          });
+        }
+      }, 1500);
+    });
+  }
+
+  $("learner-select").addEventListener("change", function (event) {
+    syncLearnerURL(event.target.value);
+    load(event.target.value);
+  });
+  document.addEventListener("visibilitychange", function () {
+    if (!document.hidden && state.demo) {
+      getJSON("/api/demo/version").then(function (result) {
+        if (result.version !== state.version) {
+          state.version = result.version;
+          load(state.currentId, true);
+        }
+      }).catch(function (error) {
+        if (error.status === 404) state.demo = false;
+      });
+    }
   });
 
   // Nav pills: smooth-scroll to the section and mark the clicked pill active.

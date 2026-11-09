@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Streakwise - Fractions basics</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&amp;display=swap">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="lesson.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to lesson</a>
+
+  <header class="topbar lesson-topbar">
+    <a class="brand" href="index.html" aria-label="Streakwise home">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="#fff"><path d="M13.2 2 4.5 13.4c-.4.5 0 1.1.6 1.1H10l-1.2 7.1c-.1.7.8 1 1.2.5l8.7-11.4c.4-.5 0-1.1-.6-1.1H14l1.200-7.100c.1-.7-.8-1-1.2-.5z"/></svg>
+      </span>
+      <span class="brand-name">Streakwise</span>
+    </a>
+    <div class="lesson-controls">
+      <label for="learner-select" class="sr-only">Choose learner</label>
+      <select id="learner-select" class="learner-select"></select>
+      <span class="muted" id="demo-clock" aria-live="polite"></span>
+      <a class="pill lesson-home-link" id="home-link" href="demo.html">Open home page</a>
+      <a class="pill" href="demo.html">Split view</a>
+    </div>
+  </header>
+
+  <main id="main" class="lesson-layout">
+    <div class="error lesson-error" id="setup-error" role="alert" hidden>
+      <span id="setup-error-text"></span>
+      <button class="btn-small" id="retry-button" type="button">Retry</button>
+    </div>
+    <section class="changes-card scenario-card" aria-labelledby="scenario-title">
+      <h2 class="card-title" id="scenario-title">Scenario</h2>
+      <p><strong>Priya Nair</strong> is building a daily learning habit and wants to see how one freeze protects her streak.</p>
+      <h3>Try this</h3>
+      <ol>
+        <li>Choose a time below to move Priya's demo clock.</li>
+        <li>Complete the lesson and submit the checkpoint on that day.</li>
+        <li>Move the clock again and repeat to see the streak rules in action.</li>
+      </ol>
+      <h3>You should see</h3>
+      <ul>
+        <li><strong>Same day, evening:</strong> XP increases, while the streak stays at 4.</li>
+        <li><strong>Next day:</strong> the streak becomes 5 and the freeze remains available.</li>
+        <li><strong>Skip a day:</strong> the freeze covers the gap, the streak extends, and freezes go from 1 to 0.</li>
+        <li><strong>Skip again with no freeze:</strong> the streak resets to 1.</li>
+      </ul>
+      <div class="scenario-actions">
+        <button class="btn-small" id="same-day-button" type="button" data-request-control>Same day, evening</button>
+        <button class="btn-small" id="next-day-button" type="button" data-request-control>Next day</button>
+        <button class="btn-small" id="skip-day-button" type="button" data-request-control>Skip a day</button>
+        <button class="btn-small" id="reset-demo-button" type="button" data-request-control>Reset demo</button>
+      </div>
+    </section>
+    <section class="lesson-card" id="lesson-card" aria-labelledby="lesson-title">
+      <div class="lesson-heading">
+        <span class="chip chip-violet" id="section-label">Lesson</span>
+        <p class="muted" id="question-count">Question 1 of 5</p>
+      </div>
+      <h1 id="lesson-title">Fractions basics</h1>
+      <div class="lesson-progress" id="lesson-progress" role="progressbar" aria-label="Lesson progress" aria-valuemin="0" aria-valuemax="5" aria-valuenow="1">
+        <span id="progress-fill"></span>
+      </div>
+
+      <div id="question-screen">
+        <p class="lesson-prompt" id="question-prompt" tabindex="-1"></p>
+        <fieldset class="answer-list" id="answer-list">
+          <legend class="sr-only">Choose an answer</legend>
+        </fieldset>
+        <div class="feedback" id="feedback" role="status" aria-live="polite" hidden>
+          <strong id="feedback-title"></strong>
+          <p id="feedback-explanation"></p>
+        </div>
+        <button class="lesson-button" id="continue-button" type="button" disabled>Continue</button>
+      </div>
+
+      <div id="summary-screen" hidden>
+        <div class="summary-icon" aria-hidden="true">✓</div>
+        <h2 id="summary-title"></h2>
+        <p class="summary-score" id="summary-score"></p>
+        <p class="muted" id="summary-message"></p>
+        <button class="lesson-button" id="summary-button" type="button" data-request-control></button>
+      </div>
+    </section>
+    <div class="error lesson-error" id="request-error" role="alert" hidden>
+      <span id="request-error-text"></span>
+      <button class="btn-small" id="request-retry-button" type="button">Retry</button>
+    </div>
+    <section class="changes-card" id="changes-panel" aria-labelledby="changes-title" hidden>
+      <h2 class="card-title" id="changes-title">What changed</h2>
+      <div class="result-metrics" id="result-metrics" hidden>
+        <div class="result-metric">
+          <span class="muted">XP</span>
+          <strong id="result-xp">0</strong>
+        </div>
+        <div class="result-metric result-flame" id="result-flame" aria-label="Current streak">
+          <span aria-hidden="true">🔥</span>
+          <strong id="result-streak">0</strong>
+          <span class="muted">day streak</span>
+        </div>
+      </div>
+      <ul class="changes-list" id="changes-list"></ul>
+    </section>
+  </main>
+
+  <footer class="page-foot">
+    <p class="muted">Take your time. You can use Tab and the arrow keys to answer.</p>
+    <p><a class="pill" href="demo.html">Split view</a></p>
+  </footer>
+
+  <script src="lesson.js"></script>
+  <script>
+    if (new URLSearchParams(window.location.search).get("embed") === "1") {
+      document.querySelector(".lesson-topbar").hidden = true;
+    }
+  </script>
+</body>
+</html>

@@ -19,6 +19,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html { scroll-behavior: smooth; }
 body {
   margin: 0;
@@ -222,6 +223,54 @@ ol, ul { margin: 0; padding: 0; list-style: none; }
 .msg-body { font-size: 14px; color: var(--muted); }
 .empty { margin-top: 14px; color: var(--muted); }
 
+.live-update-note {
+  display: inline-block; margin-left: 8px; color: var(--muted); font-size: 13px;
+  opacity: 0; transition: opacity 300ms ease;
+}
+.live-update-note.is-visible { opacity: 1; animation: live-note-fade 3s ease forwards; }
+.live-new-tag {
+  display: inline-block; margin-left: auto; padding: 2px 7px; border-radius: 999px;
+  background: var(--violet-tint); color: var(--violet-dark); font-size: 11px; font-weight: 700;
+}
+.live-progress .bar > span { transition: width 700ms ease; }
+.live-new-quest { animation: live-quest-in 600ms ease; }
+.live-rank { animation: live-flash 900ms ease; }
+.live-rank-change { color: var(--violet-dark); font-size: 12px; }
+.live-count { animation: live-flash 900ms ease; }
+.live-flame { animation: live-flame-pulse 900ms ease; }
+.live-dot { animation: live-flash 900ms ease; }
+.live-bell { animation: live-flash 900ms ease; }
+.confetti-canvas {
+  position: fixed; inset: 0; z-index: 20; pointer-events: none;
+}
+.celebration-banner {
+  position: fixed; top: 76px; left: 50%; z-index: 21; transform: translateX(-50%);
+  padding: 12px 20px; border-radius: 999px; background: var(--violet-dark);
+  color: #fff; font-weight: 700; box-shadow: 0 8px 24px rgba(20, 23, 43, 0.2);
+  animation: celebration-banner-in 2.8s ease forwards;
+}
+
+@keyframes live-flash {
+  0%, 100% { background-color: transparent; }
+  35% { background-color: var(--amber-tint-2); }
+}
+@keyframes live-flame-pulse {
+  50% { transform: scale(1.12); }
+}
+@keyframes live-note-fade {
+  0%, 75% { opacity: 1; }
+  100% { opacity: 0; }
+}
+@keyframes celebration-banner-in {
+  0% { opacity: 0; transform: translate(-50%, -10px); }
+  12%, 78% { opacity: 1; transform: translate(-50%, 0); }
+  100% { opacity: 0; transform: translate(-50%, -10px); }
+}
+@keyframes live-quest-in {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 .page-foot { max-width: 1280px; margin: 0 auto; padding: 0 32px 28px; font-size: 13px; text-align: center; }
 
 @media (max-width: 640px) {
@@ -230,4 +279,13 @@ ol, ul { margin: 0; padding: 0; list-style: none; }
   .page-foot { padding: 0 16px 24px; }
   .topbar-right { margin-left: 0; }
 }
-@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .live-update-note.is-visible, .live-rank, .live-count, .live-flame, .live-dot, .live-bell {
+    animation: none;
+    opacity: 1;
+  }
+  .live-progress .bar > span { transition: none; }
+  .live-new-quest { animation: none; }
+  .celebration-banner { animation: none; opacity: 1; transform: translateX(-50%); }
+}

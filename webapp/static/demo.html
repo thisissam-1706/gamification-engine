@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Streakwise - Demo split view</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&amp;display=swap">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="demo.css">
+</head>
+<body>
+  <header class="topbar demo-topbar">
+    <a class="brand" href="demo.html" aria-label="Streakwise demo home">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="#fff"><path d="M13.2 2 4.5 13.4c-.4.5 0 1.1.6 1.1H10l-1.2 7.1c-.1.7.8 1 1.2.5l8.7-11.4c.4-.5 0-1.1-.6-1.1H14l1.200-7.100c.1-.7-.8-1-1.2-.5z"/></svg>
+      </span>
+      <span class="brand-name">Demo split view</span>
+    </a>
+    <div class="demo-controls">
+      <label for="demo-learner" class="sr-only">Choose learner</label>
+      <select id="demo-learner" class="learner-select"></select>
+      <span class="muted" id="demo-clock" aria-live="polite">Loading clock...</span>
+      <button class="btn-small" id="same-day" type="button">Same day, evening</button>
+      <button class="btn-small" id="next-day" type="button">Next day</button>
+      <button class="btn-small" id="skip-day" type="button">Skip a day</button>
+      <button class="btn-small" id="reset-demo" type="button">Reset demo</button>
+    </div>
+  </header>
+  <div class="error demo-error" id="demo-error" role="alert" hidden>
+    <span id="demo-error-text"></span>
+  </div>
+  <main class="demo-layout">
+    <section class="demo-pane" aria-labelledby="lesson-pane-title">
+      <h1 id="lesson-pane-title">Lesson</h1>
+      <iframe id="lesson-frame" title="Fractions lesson" loading="eager"></iframe>
+    </section>
+    <section class="demo-pane" aria-labelledby="home-pane-title">
+      <h1 id="home-pane-title">Learner home</h1>
+      <iframe id="home-frame" title="Learner home" loading="eager"></iframe>
+    </section>
+  </main>
+  <script src="demo.js"></script>
+</body>
+</html>

@@ -118,9 +118,17 @@
   </main>
 
   <footer class="page-foot">
+    <p><a class="pill" href="lesson.html">Start a fractions lesson</a></p>
+    <p><a class="pill" href="demo.html">Split view</a></p>
     <p id="as-of" class="muted"></p>
   </footer>
 
+  <script src="confetti.js"></script>
   <script src="app.js"></script>
+  <script>
+    if (new URLSearchParams(window.location.search).get("embed") === "1") {
+      document.querySelector(".topbar").hidden = true;
+    }
+  </script>
 </body>
 </html>
