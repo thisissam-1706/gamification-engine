@@ -25,6 +25,7 @@ from pathlib import Path
 from uuid import UUID, uuid5
 
 from src.interventions.service import run_remediation
+from src.leaderboard.cohort_builder import build_weekly_cohorts
 from src.leaderboard.projection import LeaderboardProjection
 from src.leaderboard.store import SQLiteLeaderboardStore
 from src.notifications.dispatcher import NotificationDispatcher
@@ -36,7 +37,11 @@ from src.notifications.models import (
     NotificationStatus,
 )
 from src.notifications.store import NotificationStore
-from src.scale_and_recovery.rebuild import read_all_notifications
+from src.scale_and_recovery.rebuild import (
+    SYNTHETIC_BUCKETS,
+    SYNTHETIC_MIN_COHORT_SIZE,
+    read_all_notifications,
+)
 from src.scale_and_recovery.workload import WorkloadProfile, generate_synthetic_workload
 from src.state_machine.learner import Learner, LearnerApplication
 
@@ -57,8 +62,8 @@ DISPLAY_NAMES = [
     "Vikram Rao", "Ananya Das", "Kabir Singh", "Meera Pillai",
     "Ishaan Gupta", "Diya Menon", "Arjun Reddy", "Tara Bose",
 ]
-# UI-only cohort names.
-COHORT_NAMES = {"cohort_a": "Cohort A", "cohort_b": "Cohort B"}
+# UI-only cohort names ("Cohort A", "Cohort B", ...) are given to the cohorts the builder
+# produces, in cohort id order; see _cohort_names().
 
 WEEKLY_QUEST_ASSIGNED_AT = "2026-10-15T00:00:00Z"  # engine default deadline: +7 days
 FREEZE_LEARNER = 1      # has a freeze; its 2026-10-14 is skipped, so the day is frozen
@@ -95,7 +100,7 @@ def seed(data_dir: Path | str = DATA_DIR) -> dict:
 
     workload = generate_synthetic_workload(
         WorkloadProfile(
-            population_size=POPULATION, cohort_count=2, events_per_learner=10,
+            population_size=POPULATION, events_per_learner=10,
             seed=SEED, epoch=EPOCH, base_start_iso="2026-10-12T08:00:00Z",
         )
     )
@@ -107,14 +112,10 @@ def seed(data_dir: Path | str = DATA_DIR) -> dict:
     )
     uuids: dict[int, UUID] = {}
     try:
-        # 1. Learners: stable ids, cohort, weekly quest, and the scripted freeze.
+        # 1. Learners: stable ids, weekly quest, and the scripted freeze.
         for lid in workload.learner_ids:
             i = index_of[lid]
             learner = Learner._create(Learner.Created, id=learner_uuid(i))
-            learner.assign_cohort(
-                workload.cohort_assignments[lid], EPOCH,
-                assigned_at=workload.profile.base_start_iso,
-            )
             learner.assign_quest(
                 "lesson_starter_v1",
                 assignment_id="weekly:2026-W42",
@@ -124,6 +125,23 @@ def seed(data_dir: Path | str = DATA_DIR) -> dict:
                 learner.acquire_freeze("freeze:welcome", activity_date="2026-10-12")
             app.save(learner)
             uuids[i] = learner.id
+
+        # 1b. Prior-week lessons (ISO week before EPOCH, Monday to Thursday), then this week's
+        #     cohorts from them. The history is ordinary lesson completions in the event log.
+        for evt in workload.history_events:
+            learner = app.repository.get(uuids[index_of[evt.learner_id]])
+            learner.complete_lesson(
+                completion_id=evt.completion_id, lesson_id=evt.lesson_id,
+                occurred_at=evt.occurred_at, timezone="UTC",
+            )
+            app.save(learner)
+        built = build_weekly_cohorts(
+            app, [str(u) for u in uuids.values()], EPOCH,
+            min_size=SYNTHETIC_MIN_COHORT_SIZE,  # see rebuild.py: 12 learners, a rank needs a rival
+            activity_buckets=SYNTHETIC_BUCKETS, module_buckets=SYNTHETIC_BUCKETS,
+            reference_time=_dt(workload.profile.base_start_iso),
+        )
+        cohort_names = _cohort_names(built.cohort_counts)
 
         # 2. Base activity, minus scripted skips, up to the as-of instant.
         for evt in workload.events:
@@ -202,11 +220,16 @@ def seed(data_dir: Path | str = DATA_DIR) -> dict:
         app.close()
 
     profile = {
-        "as_of": AS_OF, "epoch": EPOCH, "cohort_names": COHORT_NAMES,
+        "as_of": AS_OF, "epoch": EPOCH, "cohort_names": cohort_names,
         "quiet_hours": quiet, "learners": profile_learners,
     }
     (data_dir / "ui_profile.json").write_text(json.dumps(profile, indent=2, sort_keys=True))
     return {"learners": len(uuids), "as_of": AS_OF, "epoch": EPOCH, "data_dir": str(data_dir)}
+
+
+def _cohort_names(cohort_counts: dict[str, int]) -> dict[str, str]:
+    """UI-only display names for the built cohorts, in cohort id order."""
+    return {cohort_id: f"Cohort {chr(ord('A') + n)}" for n, cohort_id in enumerate(sorted(cohort_counts))}
 
 
 def _inbox_facts(learner: Learner, as_of: datetime):

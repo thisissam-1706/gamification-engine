@@ -39,6 +39,36 @@ def _read_learner_xp(events_db_path: Path, learner_id: str) -> int:
         app.close()
 
 
+def _read_learner_epoch_xp(events_db_path: Path, learner_id: str, epoch: str) -> int:
+    """XP from completions that occurred in ``epoch``; the leaderboard scores one epoch at a time.
+
+    The seeded learners also carry prior-week history lessons, which count toward ``xp_total``
+    but not toward this epoch's leaderboard score.
+    """
+    from src.leaderboard.cohorts import get_calendar_week
+
+    app = LearnerApplication(
+        env={
+            "PERSISTENCE_MODULE": "eventsourcing.sqlite",
+            "SQLITE_DBNAME": str(events_db_path),
+        }
+    )
+    try:
+        events = list(app.events.get(UUID(learner_id)))
+        week_of = {
+            e.completion_id: get_calendar_week(e.occurred_at)
+            for e in events
+            if type(e).__name__ == "LessonCompleted"
+        }
+        return sum(
+            e.xp_amount
+            for e in events
+            if type(e).__name__ == "XPAwarded" and week_of.get(e.completion_id) == epoch
+        )
+    finally:
+        app.close()
+
+
 def _read_learner_quests(events_db_path: Path, learner_id: str) -> dict:
     app = LearnerApplication(
         env={
@@ -182,7 +212,7 @@ def test_two_lessons_different_local_days_keep_streak(tmp_path: Path) -> None:
 
 
 def test_leaderboard_score_equals_xp_after_accepted_lesson(tmp_path: Path) -> None:
-    """7. after an accepted lesson the learner's leaderboard score equals their XP (read via LeaderboardService)."""
+    """7. after an accepted lesson the learner's leaderboard score equals their XP for the epoch (read via LeaderboardService)."""
     box = create_sandbox(tmp_path)
     profile = json.loads((box.live_dir / "ui_profile.json").read_text())
     learner_id = next(iter(profile["learners"].keys()))
@@ -191,9 +221,10 @@ def test_leaderboard_score_equals_xp_after_accepted_lesson(tmp_path: Path) -> No
     res = box.submit_lesson_completed(learner_id, "lesson_lb_sync_test")
     assert res.get("status") == "accepted"
 
-    xp = _read_learner_xp(box.live_dir / "events.db", learner_id)
+    xp = _read_learner_epoch_xp(box.live_dir / "events.db", learner_id, epoch)
     lb_score = _read_leaderboard_score(box.live_dir / "leaderboard.db", learner_id, epoch=epoch)
     assert lb_score == xp
+    assert xp > 0  # guards against comparing two zeros
 
 
 def test_failed_checkpoint_assigns_remediation_quest_and_notification(tmp_path: Path) -> None:

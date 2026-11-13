@@ -1,10 +1,23 @@
 """Deterministic synthetic workload generator for scale, replay, and latency benchmarks."""
 
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 import hashlib
 import random
+import re
 from typing import Any
+
+# Lesson ids are "<module_id>/<lesson>". Each learner studies one home module, assigned
+# round-robin by learner index (no randomness, so the event stream is unchanged).
+MODULE_IDS = ("math_101", "py_101", "sql_101")
+
+# Prior-week history: learner i completes HISTORY_LESSON_COUNTS[i % 10] lessons on the Monday to
+# Thursday of the ISO week before the profile epoch. The counts cover every activity tier
+# (<3 casual, 3-9 regular, >=10 intensive). History never touches Friday to Sunday, so it cannot
+# join or bridge a streak with activity in the epoch week or with the Oct 10-11 demo overlays.
+HISTORY_LESSON_COUNTS = (2, 3, 9, 10, 0, 5, 12, 1, 7, 4)
+HISTORY_DAYS = 4
+_EPOCH_PATTERN = re.compile(r"^(\d{4})-W(\d{2})$")
 
 
 @dataclass(frozen=True)
@@ -12,6 +25,8 @@ class WorkloadProfile:
     """Configuration for a pinned synthetic scale and recovery run."""
 
     population_size: int = 50
+    # No longer used: cohorts are produced by build_weekly_cohorts, not by round-robin. Kept so
+    # existing callers keep working.
     cohort_count: int = 2
     events_per_learner: int = 30
     duplicate_rate: float = 0.05
@@ -30,7 +45,6 @@ class SyntheticEvent:
 
     sequence_num: int
     learner_id: str
-    cohort_id: str
     completion_id: str
     lesson_id: str
     occurred_at: str
@@ -46,12 +60,50 @@ class SyntheticWorkload:
 
     profile: WorkloadProfile
     learner_ids: list[str]
-    cohort_assignments: dict[str, str]
     events: list[SyntheticEvent]
     total_events: int
     clean_events_count: int
     duplicate_events_count: int
     late_events_count: int
+    # learner_id -> home module id (the module prefix of every lesson id the learner completes).
+    learner_modules: dict[str, str] = field(default_factory=dict)
+    # Lessons completed in the ISO week before profile.epoch. They are real events: whoever ingests
+    # the workload must ingest these first, because the weekly cohort builder reads them. They are
+    # not part of ``events`` or ``total_events``.
+    history_events: list[SyntheticEvent] = field(default_factory=list)
+    # learner_id -> cohort id. Empty when generated; filled by the code that ingests the workload
+    # (the rebuild harness, the demo seed) from build_weekly_cohorts.
+    cohort_assignments: dict[str, str] = field(default_factory=dict)
+
+
+def _history_events(
+    profile: WorkloadProfile, learner_ids: list[str], learner_modules: dict[str, str]
+) -> list[SyntheticEvent]:
+    """Prior-week lessons: only Monday to Thursday of the ISO week before ``profile.epoch``.
+
+    Pure arithmetic on the learner index (no random draws), so the main event stream and every
+    seeded run are unchanged by it.
+    """
+    match = _EPOCH_PATTERN.match(profile.epoch)
+    if match is None:
+        raise ValueError(f"epoch must look like 'YYYY-Www', got {profile.epoch!r}")
+    prior_monday = date.fromisocalendar(int(match.group(1)), int(match.group(2)), 1) - timedelta(days=7)
+    events: list[SyntheticEvent] = []
+    for index, lid in enumerate(learner_ids):
+        for k in range(HISTORY_LESSON_COUNTS[index % len(HISTORY_LESSON_COUNTS)]):
+            day = prior_monday + timedelta(days=k % HISTORY_DAYS)
+            when = datetime(day.year, day.month, day.day, 9 + 2 * (k // HISTORY_DAYS), tzinfo=timezone.utc)
+            events.append(
+                SyntheticEvent(
+                    sequence_num=len(events),
+                    learner_id=lid,
+                    completion_id=f"cmp_hist_{lid}_{k:03d}",
+                    lesson_id=f"{learner_modules[lid]}/hist_{k + 1}",
+                    occurred_at=when.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    activity_date=when.strftime("%Y-%m-%d"),
+                )
+            )
+    return events
 
 
 def generate_synthetic_workload(profile: WorkloadProfile) -> SyntheticWorkload:
@@ -62,12 +114,9 @@ def generate_synthetic_workload(profile: WorkloadProfile) -> SyntheticWorkload:
     rng = random.Random(profile.seed)
     base_dt = datetime.fromisoformat(profile.base_start_iso.replace("Z", "+00:00")).astimezone(timezone.utc)
 
-    # 1. Deterministic population and cohort assignments
+    # 1. Deterministic population and home modules (cohorts come later, from the cohort builder)
     learner_ids = [f"learner_{i:04d}" for i in range(profile.population_size)]
-    cohort_names = [f"cohort_{chr(ord('a') + c)}" for c in range(profile.cohort_count)]
-    cohort_assignments = {
-        lid: cohort_names[i % profile.cohort_count] for i, lid in enumerate(learner_ids)
-    }
+    learner_modules = {lid: MODULE_IDS[i % len(MODULE_IDS)] for i, lid in enumerate(learner_ids)}
 
     # 2. Build interleaving event sequence
     clean_events: list[SyntheticEvent] = []
@@ -78,7 +127,6 @@ def generate_synthetic_workload(profile: WorkloadProfile) -> SyntheticWorkload:
     # Create baseline events across learners
     for step in range(profile.events_per_learner):
         for lid in learner_ids:
-            cohort_id = cohort_assignments[lid]
             # Time progression: each step advances hours/days deterministically
             prev_time = learner_last_time[lid]
             # Advance between 2 to 24 hours
@@ -87,14 +135,13 @@ def generate_synthetic_workload(profile: WorkloadProfile) -> SyntheticWorkload:
             learner_last_time[lid] = event_dt
 
             comp_id = f"cmp_{lid}_{step:03d}"
-            lesson_id = f"lesson_{(step % 10) + 1}"
+            lesson_id = f"{learner_modules[lid]}/lesson_{(step % 10) + 1}"
             iso_time = event_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
             act_date = event_dt.strftime("%Y-%m-%d")
 
             event = SyntheticEvent(
                 sequence_num=seq,
                 learner_id=lid,
-                cohort_id=cohort_id,
                 completion_id=comp_id,
                 lesson_id=lesson_id,
                 occurred_at=iso_time,
@@ -118,7 +165,6 @@ def generate_synthetic_workload(profile: WorkloadProfile) -> SyntheticWorkload:
             dup_event = SyntheticEvent(
                 sequence_num=seq,
                 learner_id=orig.learner_id,
-                cohort_id=orig.cohort_id,
                 completion_id=orig.completion_id,  # identical business completion_id!
                 lesson_id=orig.lesson_id,
                 occurred_at=dup_dt.strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -147,9 +193,8 @@ def generate_synthetic_workload(profile: WorkloadProfile) -> SyntheticWorkload:
             late_event = SyntheticEvent(
                 sequence_num=seq,
                 learner_id=target.learner_id,
-                cohort_id=target.cohort_id,
                 completion_id=late_comp_id,
-                lesson_id=f"lesson_late_{(i % 5) + 1}",
+                lesson_id=f"{learner_modules[target.learner_id]}/lesson_late_{(i % 5) + 1}",
                 occurred_at=late_dt.strftime("%Y-%m-%dT%H:%M:%SZ"),
                 activity_date=late_dt.strftime("%Y-%m-%d"),
                 is_duplicate=False,
@@ -196,7 +241,8 @@ def generate_synthetic_workload(profile: WorkloadProfile) -> SyntheticWorkload:
     return SyntheticWorkload(
         profile=profile,
         learner_ids=learner_ids,
-        cohort_assignments=cohort_assignments,
+        learner_modules=learner_modules,
+        history_events=_history_events(profile, learner_ids, learner_modules),
         events=final_stream,
         total_events=len(final_stream),
         clean_events_count=len(clean_events),

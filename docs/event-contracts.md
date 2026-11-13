@@ -25,12 +25,18 @@ This is a source learning event. It records that a learner completed a specific 
 | Field | Required | Meaning |
 |---|---:|---|
 | `completion_id` | Yes | The immutable identifier for one completed attempt, created by the learning service. This is the stable business action identity. |
-| `lesson_id` | Yes | Stable identifier of the completed lesson. |
+| `lesson_id` | Yes | Stable identifier of the completed lesson. By convention `<module_id>/<lesson>` (see "Lesson id convention" below). |
 | `lesson_version` | No | Immutable version of the lesson definition completed. |
 | `timezone` | Yes | Learner IANA timezone at completion, such as `Asia/Kolkata`. |
 | `completion_kind` | No | One of `lesson`, `review`, or `remediation`. Ingestion passes it to the aggregate (M6). Absent means `lesson`. `review` and `remediation` never decay and do not count toward the repeat count `N`. |
 
 The machine-readable payload contract is [lesson_completed.schema.json](../src/schemas/events/lesson_completed.schema.json).
+
+### Lesson id convention
+
+By convention `lesson_id` is `<module_id>/<lesson>`, for example `math_101/l3`. The module of a lesson is the text before the **first** `/`, so `math_101/l3/extra` belongs to `math_101`. A `lesson_id` with no `/` (for example `lesson_3` or `l_492`), or with an empty prefix (`/l3`), has no module and maps to the module `general`.
+
+This is a convention, not a schema rule: the schema only requires a non-empty string, ingestion accepts any `lesson_id`, and nothing validates the prefix. The weekly cohort builder is the one consumer; it reads the prefix to choose a learner's module (see `ranking-consistency.md`, section 2). A lesson without a module still counts toward the learner's activity tier.
 
 ### Producer and idempotency rules
 

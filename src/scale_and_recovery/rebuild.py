@@ -7,15 +7,31 @@ import json
 import os
 import time
 from typing import Any, Literal
-from uuid import UUID
+from uuid import UUID, uuid5
 
 from eventsourcing.application import Notification
+from src.leaderboard.cohort_builder import build_weekly_cohorts
 from src.leaderboard.projection import LeaderboardProjection
 from src.leaderboard.service import LeaderboardService
 from src.leaderboard.store import SQLiteLeaderboardStore
 from src.state_machine.learner import Learner, LearnerApplication
 from src.state_machine.projection import rebuild_learner_state
 from .workload import SyntheticWorkload
+
+
+# The synthetic populations are tiny (8 to 15 learners). The hash buckets in the cohort builder
+# split a tier and module into up to 50 groups, so almost every group is a single learner. A rank
+# needs at least one rival, so the smallest sensible cohort is 2; the builder merges any group below
+# it. The production default (500) would merge a whole synthetic population into one cohort.
+SYNTHETIC_MIN_COHORT_SIZE = 2
+# One hash bucket per tier and per module, so a synthetic cohort is exactly one activity tier in one
+# module. With the builder's default bucket counts (10 and 5) the 8 to 15 learners would be spread
+# over dozens of buckets and merged into a single cohort, ignoring tier and module.
+SYNTHETIC_BUCKETS = 1
+
+# Fixed namespace: the same synthetic learner always gets the same aggregate id, so the cohort
+# builder (which hashes the id) gives the same cohorts on every run.
+LEARNER_ID_NAMESPACE = UUID("3b9d4a0e-7c1f-4f8e-9a52-5d0c6e2b8f14")
 
 
 @dataclass(frozen=True)
@@ -131,15 +147,42 @@ class FullStateRebuildHarness:
 
         learner_uuids: dict[str, UUID] = {}
 
-        # 1. Initialize learners and cohort assignments
+        # 1. Initialize learners
         for lid in workload.learner_ids:
-            cohort_id = workload.cohort_assignments[lid]
-            learner = Learner()
-            learner.assign_cohort(cohort_id, self.epoch, assigned_at=workload.profile.base_start_iso)
+            learner = Learner._create(Learner.Created, id=uuid5(LEARNER_ID_NAMESPACE, lid))
             self.app.save(learner)
             learner_uuids[lid] = learner.id
 
-        # 2. Ingest activity events
+        # 2. Ingest the prior-week history, then build the weekly cohorts from it. The history is
+        #    ordinary lesson completions in the event log, so replay sees it too.
+        for evt in workload.history_events:
+            learner = self.app.repository.get(learner_uuids[evt.learner_id])
+            learner.complete_lesson(
+                completion_id=evt.completion_id,
+                lesson_id=evt.lesson_id,
+                occurred_at=evt.occurred_at,
+                timezone="UTC",
+            )
+            self.app.save(learner)
+        built = build_weekly_cohorts(
+            self.app,
+            [str(uid) for uid in learner_uuids.values()],
+            self.epoch,
+            min_size=SYNTHETIC_MIN_COHORT_SIZE,
+            activity_buckets=SYNTHETIC_BUCKETS,
+            module_buckets=SYNTHETIC_BUCKETS,
+            reference_time=datetime.fromisoformat(
+                workload.profile.base_start_iso.replace("Z", "+00:00")
+            ),
+        )
+        unassigned = [lid for lid, uid in learner_uuids.items() if str(uid) not in built.assignments]
+        if unassigned:
+            raise RuntimeError(f"cohort builder left learners unassigned: {unassigned}")
+        workload.cohort_assignments = {
+            lid: built.assignments[str(uid)] for lid, uid in learner_uuids.items()
+        }
+
+        # 3. Ingest activity events
         for evt in workload.events:
             lid = evt.learner_id
             uid = learner_uuids[lid]
@@ -152,7 +195,7 @@ class FullStateRebuildHarness:
             )
             self.app.save(learner)
 
-        # 3. Project authoritative notifications into the leaderboard read model
+        # 4. Project authoritative notifications into the leaderboard read model
         notifications = read_all_notifications(self.app, start=1)
         for n in notifications:
             self.proj.apply(n, offset=n.id)

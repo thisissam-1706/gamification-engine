@@ -94,7 +94,9 @@ def run_benchmark(profile_name: str = "small", seed: int = 42) -> dict:
                 service=harness.service,
                 store=harness.store,
                 epoch=profile.epoch,
-                cohort_id="cohort_a",
+                # Cohorts come from the cohort builder (filled in during ingestion): use the largest.
+                cohort_id=max(sorted(set(workload.cohort_assignments.values())),
+                              key=list(workload.cohort_assignments.values()).count),
                 sample_learners=workload.learner_ids,
                 num_query_samples=latency_queries,
             )

@@ -91,7 +91,6 @@ def test_corrupted_score_after_replay_is_reported_as_mismatch(tmp_path):
         str(tmp_path / "events.db"), str(tmp_path / "leaderboard.db"), epoch=EPOCH
     )
     victim = workload.learner_ids[0]
-    victim_cohort = workload.cohort_assignments[victim]
     victim_uuid = {}
     original_ingest = harness.ingest_workload
     original_rebuild = harness.execute_full_rebuild
@@ -102,6 +101,8 @@ def test_corrupted_score_after_replay_is_reported_as_mismatch(tmp_path):
         return uuids
 
     def rebuild_then_corrupt(wl, uuids):
+        # Cohorts come from the cohort builder during ingestion, so they are only known now.
+        victim_cohort = wl.cohort_assignments[victim]
         original_rebuild(wl, uuids)
         row = harness.store.get_rank("cohort", victim_cohort, EPOCH, victim_uuid["id"])
         assert row is not None
