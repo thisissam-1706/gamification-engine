@@ -355,3 +355,22 @@ The event also carries `source_event_id`, `correlation_id` and `causation_id` (p
 - Recording is idempotent on `view_id`. Every distinct view is recorded.
 - The first exposure per experiment is derived as the earliest by `(exposed_at, view_id)`, so it does not depend on arrival order; equal times are broken by `view_id`. It is rebuilt from the stored events on replay.
 - Exposure is never created by assignment alone, and a control learner never has one.
+
+## Correlation and causation on engine-produced events
+
+Source events from the learning app carry a `correlation_id` and a `causation_id` in their envelope. The engine's own events (the facts it creates while handling a delivery) carry the same two fields as provenance. They never affect learner state or any rule.
+
+| Case | `correlation_id` | `causation_id` |
+|---|---|---|
+| Events derived while handling one delivery (`XPAwarded`, `StreakUpdated`, `BadgeAwarded`, `QuestProgressed`, `QuestCompleted`, `QuestExpired`) | the delivery's `correlation_id` | the `event_id` of the delivery that started the chain |
+| `LessonCompleted`, `CheckpointAttempted` and the other accepted source facts | the delivery's `correlation_id` | the envelope's own `causation_id`, unchanged |
+| `RemediationDecided` and the remediation `QuestAssigned` | the attempt delivery's `correlation_id` | the attempt delivery's `event_id` |
+| Quest expiry sweep (`QuestExpired`) | `quest_expiry_sweep:<as_of>`, where `<as_of>` is the sweep's `as_of` in ISO-8601 | none |
+| Cohort assignment (`CohortAssigned`) | `cohort_assignment:<epoch>` unless the caller passes one | none unless the caller passes one |
+| `FreezeAcquired` | none unless the caller passes one | none unless the caller passes one |
+| Notifications (proposal, terminal fact, and the stored rescheduled, dead-letter and proposal rows) | the triggering attempt's `correlation_id` | the triggering attempt's `event_id` |
+
+- `causation_id` is the `event_id` of the delivery that started the chain, not the immediate trigger. Engine events have no `event_id` of their own, so one event cannot name another as its cause; naming the delivery is a deliberate simplification of "immediate trigger".
+- A notification re-queued by `release_rescheduled` or replayed by `replay_dlq` keeps the ids stored with it.
+- Events stored before this change have no such fields. They read back as `None` and still replay; a database from before this change opens, adds the notification columns in place, and its old rows have `None` ids.
+- `trace_delivery` lists the stored events whose `causation_id` is the delivery's `event_id` (`derived_events`) and, when given a notification store, the notification proposals with the same `causation_id` (`notifications`).

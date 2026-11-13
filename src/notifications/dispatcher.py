@@ -28,6 +28,15 @@ from src.notifications.queue import RetryScheduler
 from src.notifications.store import NotificationStore
 
 
+def _terminal_fact(proposal: NotificationProposal, **fields: Any) -> TerminalFact:
+    """Builds a TerminalFact that carries the proposal's correlation and causation ids."""
+    return TerminalFact(
+        correlation_id=proposal.correlation_id,
+        causation_id=proposal.causation_id,
+        **fields,
+    )
+
+
 class NotificationDispatcher:
     """Orchestrates candidate proposals through consent, fatigue cap, quiet hours, delivery, and DLQ."""
 
@@ -81,7 +90,8 @@ class NotificationDispatcher:
 
         # 1. Deduplication check (AT-9, M5-N1)
         if self.store.is_proposal_seen(proposal.proposal_id):
-            return TerminalFact(
+            return _terminal_fact(
+                proposal,
                 event_id=f"supp_dup_{proposal.proposal_id}",
                 event_type="notification_suppressed",
                 proposal_id=proposal.proposal_id,
@@ -108,8 +118,11 @@ class NotificationDispatcher:
                 proposal.category,
                 now_iso,
                 "missing_preferences",
+                correlation_id=proposal.correlation_id,
+                causation_id=proposal.causation_id,
             )
-            return TerminalFact(
+            return _terminal_fact(
+                proposal,
                 event_id=suppression_id,
                 event_type="notification_suppressed",
                 proposal_id=proposal.proposal_id,
@@ -133,8 +146,11 @@ class NotificationDispatcher:
                 proposal.category,
                 now_iso,
                 consent_reason or "opt_out",
+                correlation_id=proposal.correlation_id,
+                causation_id=proposal.causation_id,
             )
-            return TerminalFact(
+            return _terminal_fact(
+                proposal,
                 event_id=suppression_id,
                 event_type="notification_suppressed",
                 proposal_id=proposal.proposal_id,
@@ -158,8 +174,11 @@ class NotificationDispatcher:
                 proposal.category,
                 now_iso,
                 "ttl_expired",
+                correlation_id=proposal.correlation_id,
+                causation_id=proposal.causation_id,
             )
-            return TerminalFact(
+            return _terminal_fact(
+                proposal,
                 event_id=suppression_id,
                 event_type="notification_suppressed",
                 proposal_id=proposal.proposal_id,
@@ -193,8 +212,11 @@ class NotificationDispatcher:
                 proposal.category,
                 now_iso,
                 fatigue_reason or "daily_cap_exceeded",
+                correlation_id=proposal.correlation_id,
+                causation_id=proposal.causation_id,
             )
-            return TerminalFact(
+            return _terminal_fact(
+                proposal,
                 event_id=suppression_id,
                 event_type="notification_suppressed",
                 proposal_id=proposal.proposal_id,
@@ -225,8 +247,11 @@ class NotificationDispatcher:
                 proposal.category,
                 now_iso,
                 "invalid_timezone",
+                correlation_id=proposal.correlation_id,
+                causation_id=proposal.causation_id,
             )
-            return TerminalFact(
+            return _terminal_fact(
+                proposal,
                 event_id=suppression_id,
                 event_type="notification_suppressed",
                 proposal_id=proposal.proposal_id,
@@ -250,8 +275,11 @@ class NotificationDispatcher:
                     proposal.category,
                     now_iso,
                     "ttl_expired",
+                    correlation_id=proposal.correlation_id,
+                    causation_id=proposal.causation_id,
                 )
-                return TerminalFact(
+                return _terminal_fact(
+                    proposal,
                     event_id=suppression_id,
                     event_type="notification_suppressed",
                     proposal_id=proposal.proposal_id,
@@ -275,8 +303,11 @@ class NotificationDispatcher:
                 proposal.payload,
                 template_id=proposal.template_id,
                 ttl_seconds=proposal.ttl_seconds,
+                correlation_id=proposal.correlation_id,
+                causation_id=proposal.causation_id,
             )
-            return TerminalFact(
+            return _terminal_fact(
+                proposal,
                 event_id=f"resched_{uuid.uuid4().hex[:12]}",
                 event_type="notification_rescheduled",
                 proposal_id=proposal.proposal_id,
@@ -301,8 +332,11 @@ class NotificationDispatcher:
                 proposal.category,
                 now_iso,
                 "unsupported_channel",
+                correlation_id=proposal.correlation_id,
+                causation_id=proposal.causation_id,
             )
-            return TerminalFact(
+            return _terminal_fact(
+                proposal,
                 event_id=suppression_id,
                 event_type="notification_suppressed",
                 proposal_id=proposal.proposal_id,
@@ -328,8 +362,11 @@ class NotificationDispatcher:
                 proposal.category,
                 now_iso,
                 proposal.payload,
+                correlation_id=proposal.correlation_id,
+                causation_id=proposal.causation_id,
             )
-            return TerminalFact(
+            return _terminal_fact(
+                proposal,
                 event_id=dispatch_id,
                 event_type="notification_dispatched",
                 proposal_id=proposal.proposal_id,
@@ -355,8 +392,11 @@ class NotificationDispatcher:
                 created_at=created_ts,
                 template_id=proposal.template_id,
                 ttl_seconds=proposal.ttl_seconds,
+                correlation_id=proposal.correlation_id,
+                causation_id=proposal.causation_id,
             )
-            return TerminalFact(
+            return _terminal_fact(
+                proposal,
                 event_id=dlq_id,
                 event_type="notification_failed",
                 proposal_id=proposal.proposal_id,
@@ -404,6 +444,8 @@ class NotificationDispatcher:
                 payload=payload,
                 created_at=created_at,
                 ttl_seconds=ttl_seconds,
+                correlation_id=item.get("correlation_id"),
+                causation_id=item.get("causation_id"),
             )
 
             # Retrieve preferences
@@ -424,9 +466,12 @@ class NotificationDispatcher:
                     now_iso,
                     "missing_preferences",
                     release_proposal_id=proposal_id,
+                    correlation_id=proposal.correlation_id,
+                    causation_id=proposal.causation_id,
                 )
                 facts.append(
-                    TerminalFact(
+                    _terminal_fact(
+                        proposal,
                         event_id=suppression_id,
                         event_type="notification_suppressed",
                         proposal_id=proposal_id,
@@ -456,9 +501,12 @@ class NotificationDispatcher:
                     now_iso,
                     "invalid_timezone",
                     release_proposal_id=proposal_id,
+                    correlation_id=proposal.correlation_id,
+                    causation_id=proposal.causation_id,
                 )
                 facts.append(
-                    TerminalFact(
+                    _terminal_fact(
+                        proposal,
                         event_id=suppression_id,
                         event_type="notification_suppressed",
                         proposal_id=proposal_id,
@@ -485,9 +533,12 @@ class NotificationDispatcher:
                     payload,
                     template_id=template_id,
                     ttl_seconds=ttl_seconds,
+                    correlation_id=proposal.correlation_id,
+                    causation_id=proposal.causation_id,
                 )
                 facts.append(
-                    TerminalFact(
+                    _terminal_fact(
+                        proposal,
                         event_id=f"resched_{uuid.uuid4().hex[:12]}",
                         event_type="notification_rescheduled",
                         proposal_id=proposal_id,
@@ -515,9 +566,12 @@ class NotificationDispatcher:
                     now_iso,
                     consent_reason or "opt_out",
                     release_proposal_id=proposal_id,
+                    correlation_id=proposal.correlation_id,
+                    causation_id=proposal.causation_id,
                 )
                 facts.append(
-                    TerminalFact(
+                    _terminal_fact(
+                        proposal,
                         event_id=suppression_id,
                         event_type="notification_suppressed",
                         proposal_id=proposal_id,
@@ -543,9 +597,12 @@ class NotificationDispatcher:
                     now_iso,
                     "ttl_expired",
                     release_proposal_id=proposal_id,
+                    correlation_id=proposal.correlation_id,
+                    causation_id=proposal.causation_id,
                 )
                 facts.append(
-                    TerminalFact(
+                    _terminal_fact(
+                        proposal,
                         event_id=suppression_id,
                         event_type="notification_suppressed",
                         proposal_id=proposal_id,
@@ -582,9 +639,12 @@ class NotificationDispatcher:
                     now_iso,
                     fatigue_reason or "daily_cap_exceeded",
                     release_proposal_id=proposal_id,
+                    correlation_id=proposal.correlation_id,
+                    causation_id=proposal.causation_id,
                 )
                 facts.append(
-                    TerminalFact(
+                    _terminal_fact(
+                        proposal,
                         event_id=suppression_id,
                         event_type="notification_suppressed",
                         proposal_id=proposal_id,
@@ -611,9 +671,12 @@ class NotificationDispatcher:
                     now_iso,
                     "unsupported_channel",
                     release_proposal_id=proposal_id,
+                    correlation_id=proposal.correlation_id,
+                    causation_id=proposal.causation_id,
                 )
                 facts.append(
-                    TerminalFact(
+                    _terminal_fact(
+                        proposal,
                         event_id=suppression_id,
                         event_type="notification_suppressed",
                         proposal_id=proposal_id,
@@ -639,9 +702,12 @@ class NotificationDispatcher:
                     now_iso,
                     payload,
                     release_proposal_id=proposal_id,
+                    correlation_id=proposal.correlation_id,
+                    causation_id=proposal.causation_id,
                 )
                 facts.append(
-                    TerminalFact(
+                    _terminal_fact(
+                        proposal,
                         event_id=dispatch_id,
                         event_type="notification_dispatched",
                         proposal_id=proposal_id,
@@ -669,9 +735,12 @@ class NotificationDispatcher:
                     template_id=template_id,
                     ttl_seconds=ttl_seconds,
                     release_proposal_id=proposal_id,
+                    correlation_id=proposal.correlation_id,
+                    causation_id=proposal.causation_id,
                 )
                 facts.append(
-                    TerminalFact(
+                    _terminal_fact(
+                        proposal,
                         event_id=dlq_id,
                         event_type="notification_failed",
                         proposal_id=proposal_id,
@@ -719,6 +788,8 @@ class NotificationDispatcher:
             payload=entry["payload"],
             created_at=created_at,
             ttl_seconds=ttl_seconds,
+            correlation_id=entry.get("correlation_id"),
+            causation_id=entry.get("causation_id"),
         )
 
         # 1. Preferences requirement
@@ -732,8 +803,11 @@ class NotificationDispatcher:
                 proposal.category,
                 now_iso,
                 "missing_preferences",
+                correlation_id=proposal.correlation_id,
+                causation_id=proposal.causation_id,
             )
-            return TerminalFact(
+            return _terminal_fact(
+                proposal,
                 event_id=suppression_id,
                 event_type="notification_suppressed",
                 proposal_id=proposal.proposal_id,
@@ -757,8 +831,11 @@ class NotificationDispatcher:
                 proposal.category,
                 now_iso,
                 consent_reason or "opt_out",
+                correlation_id=proposal.correlation_id,
+                causation_id=proposal.causation_id,
             )
-            return TerminalFact(
+            return _terminal_fact(
+                proposal,
                 event_id=suppression_id,
                 event_type="notification_suppressed",
                 proposal_id=proposal.proposal_id,
@@ -781,8 +858,11 @@ class NotificationDispatcher:
                 proposal.category,
                 now_iso,
                 "ttl_expired",
+                correlation_id=proposal.correlation_id,
+                causation_id=proposal.causation_id,
             )
-            return TerminalFact(
+            return _terminal_fact(
+                proposal,
                 event_id=suppression_id,
                 event_type="notification_suppressed",
                 proposal_id=proposal.proposal_id,
@@ -809,8 +889,11 @@ class NotificationDispatcher:
                 proposal.category,
                 now_iso,
                 "invalid_timezone",
+                correlation_id=proposal.correlation_id,
+                causation_id=proposal.causation_id,
             )
-            return TerminalFact(
+            return _terminal_fact(
+                proposal,
                 event_id=suppression_id,
                 event_type="notification_suppressed",
                 proposal_id=proposal.proposal_id,
@@ -834,8 +917,11 @@ class NotificationDispatcher:
                 proposal.payload,
                 template_id=template_id,
                 ttl_seconds=ttl_seconds,
+                correlation_id=proposal.correlation_id,
+                causation_id=proposal.causation_id,
             )
-            return TerminalFact(
+            return _terminal_fact(
+                proposal,
                 event_id=f"resched_{uuid.uuid4().hex[:12]}",
                 event_type="notification_rescheduled",
                 proposal_id=proposal.proposal_id,
@@ -870,8 +956,11 @@ class NotificationDispatcher:
                 proposal.category,
                 now_iso,
                 fatigue_reason or "daily_cap_exceeded",
+                correlation_id=proposal.correlation_id,
+                causation_id=proposal.causation_id,
             )
-            return TerminalFact(
+            return _terminal_fact(
+                proposal,
                 event_id=suppression_id,
                 event_type="notification_suppressed",
                 proposal_id=proposal.proposal_id,
@@ -895,8 +984,11 @@ class NotificationDispatcher:
                 proposal.category,
                 now_iso,
                 "unsupported_channel",
+                correlation_id=proposal.correlation_id,
+                causation_id=proposal.causation_id,
             )
-            return TerminalFact(
+            return _terminal_fact(
+                proposal,
                 event_id=suppression_id,
                 event_type="notification_suppressed",
                 proposal_id=proposal.proposal_id,
@@ -920,8 +1012,11 @@ class NotificationDispatcher:
                 now_iso,
                 proposal.payload,
                 resolve_dlq_id=dlq_id,
+                correlation_id=proposal.correlation_id,
+                causation_id=proposal.causation_id,
             )
-            return TerminalFact(
+            return _terminal_fact(
+                proposal,
                 event_id=dispatch_id,
                 event_type="notification_dispatched",
                 proposal_id=proposal.proposal_id,
@@ -935,7 +1030,8 @@ class NotificationDispatcher:
         else:
             # A failed replay must not reuse the DLQ ID as a terminal event ID.
             fail_event_id = f"replay_fail_{uuid.uuid4().hex[:12]}"
-            return TerminalFact(
+            return _terminal_fact(
+                proposal,
                 event_id=fail_event_id,
                 event_type="notification_failed",
                 proposal_id=proposal.proposal_id,

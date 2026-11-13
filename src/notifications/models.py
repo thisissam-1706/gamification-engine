@@ -40,6 +40,8 @@ class NotificationProposal:
     payload: Mapping[str, Any] = field(default_factory=dict)
     created_at: str = ""  # ISO UTC
     ttl_seconds: int = 86400  # Default 24h TTL
+    correlation_id: str | None = None
+    causation_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -67,3 +69,5 @@ class TerminalFact:
     reason: str | None = None
     rescheduled_for: str | None = None
     attempt_count: int = 1
+    correlation_id: str | None = None
+    causation_id: str | None = None

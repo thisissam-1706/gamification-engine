@@ -1,6 +1,7 @@
 """Read-only trace from one source delivery to the rewards it produced."""
 
 from dataclasses import dataclass
+from typing import Any
 from uuid import UUID
 
 from src.ingestion.evidence import EvidenceRecord, EvidenceStore
@@ -39,6 +40,15 @@ class XPAwardedFact:
 
 
 @dataclass(frozen=True)
+class DerivedEventFact:
+    """A stored event the engine created while handling the traced delivery."""
+
+    event_type: str
+    correlation_id: str | None
+    causation_id: str | None
+
+
+@dataclass(frozen=True)
 class DeliveryTrace:
     provenance: DeliveryProvenance
     lesson_completed: LessonCompletedFact | None
@@ -47,10 +57,17 @@ class DeliveryTrace:
     # Exposure facts (which variant/surface showed the reward) arrive with the
     # pilot; until then nothing records them, so this is always empty.
     exposures: tuple[()] = ()
+    # Every stored learner event whose causation_id is this delivery's event_id.
+    derived_events: tuple[DerivedEventFact, ...] = ()
+    # Notification proposals caused by this delivery (rows from NotificationStore).
+    notifications: tuple[dict[str, Any], ...] = ()
 
 
 def trace_delivery(
-    application: LearnerApplication, evidence: EvidenceStore, event_id: str
+    application: LearnerApplication,
+    evidence: EvidenceStore,
+    event_id: str,
+    notification_store: Any = None,
 ) -> DeliveryTrace | None:
     """Follows event_id -> bound action -> stored facts; writes nothing."""
     binding = evidence.delivery_binding(event_id)
@@ -76,6 +93,7 @@ def trace_delivery(
     # Reads stored events directly; the aggregate is never loaded or saved.
     lesson_completed: LessonCompletedFact | None = None
     xp_awards: list[XPAwardedFact] = []
+    derived_events: list[DerivedEventFact] = []
     for domain_event in application.events.get(UUID(binding.learner_id)):
         if (
             isinstance(domain_event, Learner.LessonCompleted)
@@ -97,9 +115,24 @@ def trace_delivery(
                 )
             )
 
+        if getattr(domain_event, "causation_id", None) == event_id:
+            derived_events.append(
+                DerivedEventFact(
+                    event_type=type(domain_event).__name__,
+                    correlation_id=getattr(domain_event, "correlation_id", None),
+                    causation_id=getattr(domain_event, "causation_id", None),
+                )
+            )
+
+    notifications: tuple[dict[str, Any], ...] = ()
+    if notification_store is not None:
+        notifications = tuple(notification_store.list_proposals_by_causation(event_id))
+
     return DeliveryTrace(
         provenance=provenance,
         lesson_completed=lesson_completed,
         xp_awards=tuple(xp_awards),
         evidence=tuple(evidence.list_mentioning(event_id)),
+        derived_events=tuple(derived_events),
+        notifications=notifications,
     )

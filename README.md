@@ -1,5 +1,7 @@
 # Gamification, Social Cohort, Notification and Retention Experimentation Engine
 
+> **Changelog (2026-11-14):** M1: engine-produced events and notifications now carry correlation and causation ids, and `trace_delivery` follows them. Events the engine creates while handling one delivery (XP, streak, badge, quest progress, completion and expiry, remediation decision and quest assignment) carry the delivery's `correlation_id` and use the delivery's `event_id` as `causation_id`; sweeps and cohort assignment have their own default correlation ids; notifications carry the ids of the attempt that triggered them. Events stored before this change have none and still replay. No acceptance-test wording, number or threshold changed.
+
 > **Changelog (2026-11-09):** Demo backend (`webapp/demo_backend.py`): `create_sandbox` seeds fresh SQLite stores and `Sandbox` exposes `submit_lesson_completed`, `submit_checkpoint`, `set_clock`/`get_clock`, and `reset`; the demo clock is per-learner. After every accepted event the leaderboard projection and the remediation notification hook run synchronously inside the same lock. Seeded learners carry no ingestion evidence; all data is synthetic. The web UI can now be run in a writable DEMO_MODE (see "Running the web UI" below).
 
 > **Changelog (2026-11-07):** M3 wording: cohort admission is now atomic (member count, capacity check and write share one write-locked SQLite transaction); the "capacity check not transactional" known gap was removed.
@@ -184,7 +186,7 @@ After every accepted event the leaderboard projection and (for failed checkpoint
 
 | Milestone | Description | Status |
 |-----------|-------------|--------|
-| M1 | Canonical engagement events | ☐ (partial: lesson_completed and checkpoint_attempted ingested; ID binding, late window, rule selection tested) |
+| M1 | Canonical engagement events | ☐ (partial: lesson_completed and checkpoint_attempted ingested; ID binding, late window, rule selection tested; engine-produced events and notifications carry correlation and causation ids and trace_delivery follows them) |
 | M2 | Deterministic gamification | ☑ (slice done: XP, streak/freezes, one quest, one badge, replay) |
 | M3 | Cohorts and leaderboards | ☐ (leaderboard duplicate, restart, offset and time handling tested; known gaps: cohort merge helper not wired in, member count covers learners assigned for the current weekly epoch (30-day inactivity pruning not wired in); no production notification-log poller; reconciliation rebuilds from the projection's applied-event log) |
 | M4 | Intervention/quest policy | ☐ (implemented for synthetic fixtures: checkpoint_attempted ingestion, rule-based remediation policy with stored decisions, remediation_v1 quest (remediation completions only), deadline expiry sweep; policy and sweep invoked, not scheduled; an opt-in notification wrapper (`src/interventions/notification_hook.py`) sends one remediation notice per assign decision (push by default, deduped by proposal id), still invoked and not scheduled) |

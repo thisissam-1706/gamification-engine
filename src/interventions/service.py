@@ -49,7 +49,10 @@ def run_remediation(
         clock(),
         config,
     )
-    learner.record_remediation_decision(decision)
+    correlation_id, causation_id = learner.checkpoint_chain_ids(attempt_id)
+    learner.record_remediation_decision(
+        decision, correlation_id=correlation_id, causation_id=causation_id
+    )
     if decision.action == "assign":
         # Raises before the save for an unknown quest, so no decision is stored without its quest.
         learner.assign_quest(
@@ -58,6 +61,8 @@ def run_remediation(
             assigned_at=decision.decided_at,
             deadline_at=decision.deadline_at,
             definition_version=config.quest_definition_version,
+            correlation_id=correlation_id,
+            causation_id=causation_id,
         )
     application.save(learner)
     return decision
@@ -71,7 +76,10 @@ def run_quest_expiry(
 ) -> list[str]:
     """Expires the learner's overdue quests; saves only if something expired."""
     learner = application.repository.get(UUID(learner_id))
-    expired = learner.expire_due_quests(clock())
+    as_of = clock()
+    expired = learner.expire_due_quests(
+        as_of, correlation_id=f"quest_expiry_sweep:{as_of.isoformat()}"
+    )
     if expired:
         application.save(learner)
     return expired

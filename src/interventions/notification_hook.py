@@ -2,6 +2,7 @@
 
 from datetime import datetime, timezone
 from typing import Callable
+from uuid import UUID
 
 from src.interventions.config import RemediationConfig
 from src.interventions.policy import RemediationDecision
@@ -47,6 +48,9 @@ def run_remediation_with_notification(
         return decision, None
 
     assert decision.deadline_at is not None  # an assign decision always has a deadline
+    # The notice belongs to the same chain as the attempt delivery that triggered it.
+    learner = application.repository.get(UUID(learner_id))
+    correlation_id, causation_id = learner.checkpoint_chain_ids(attempt_id)
     proposal = NotificationProposal(
         proposal_id=f"remediation_notice:{attempt_id}",
         learner_id=learner_id,
@@ -61,5 +65,7 @@ def run_remediation_with_notification(
             "attempt_id": attempt_id,
         },
         created_at=_iso_utc(decision.decided_at),
+        correlation_id=correlation_id,
+        causation_id=causation_id,
     )
     return decision, dispatcher.dispatch(proposal, prefs=prefs, now_utc=clock())

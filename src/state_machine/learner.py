@@ -69,6 +69,8 @@ class Learner(Aggregate):
         self.checkpoint_sources: dict[str, str] = {}
         # assessment_id -> attempt_id of the earliest attempt by (occurred_at, attempt_id).
         self.first_checkpoint_attempt_ids: dict[str, str] = {}
+        # attempt_id -> (correlation_id, source event_id) of the delivery that carried it.
+        self.checkpoint_correlations: dict[str, tuple[str | None, str | None]] = {}
         # Remediation decisions: decision_id -> stored fields (datetimes as ISO strings).
         self.remediation_decisions: dict[str, dict[str, object]] = {}
         self.xp_total = 0
@@ -151,7 +153,14 @@ class Learner(Aggregate):
             causation_id,
         )
         self._award_xp(
-            reward_id, completion_id, xp_amount, rule_version, repeat_index, completion_kind
+            reward_id,
+            completion_id,
+            xp_amount,
+            rule_version,
+            repeat_index,
+            completion_kind,
+            correlation_id=correlation_id,
+            causation_id=source_event_id,
         )
         if activity_date is not None:
             ruleset = get_ruleset(rule_version)
@@ -183,6 +192,8 @@ class Learner(Aggregate):
                     rule_version,
                     revision,
                     supersedes,
+                    correlation_id=correlation_id,
+                    causation_id=source_event_id,
                 )
             if (
                 ruleset.badge_id not in self.badges_issued
@@ -202,6 +213,8 @@ class Learner(Aggregate):
                     rule_version,
                     awarded_at,
                     sorted(self.completed_lesson_ids),
+                    correlation_id=correlation_id,
+                    causation_id=source_event_id,
                 )
             if outcomes[activity_date][0] == 1 and previous_streak > 1:
                 self.streak_before_break = previous_streak
@@ -217,7 +230,13 @@ class Learner(Aggregate):
             if occurred is not None and occurred < assigned_at:
                 continue
             if occurred is not None and deadline is not None and occurred > deadline:
-                self._expire_quest(assignment_id, q_id, deadline.isoformat())
+                self._expire_quest(
+                    assignment_id,
+                    q_id,
+                    deadline.isoformat(),
+                    correlation_id=correlation_id,
+                    causation_id=source_event_id,
+                )
                 continue
             quest_completion_id = f"quest_completion:{assignment_id}"
             if quest_completion_id not in self.completed_quest_ids:
@@ -235,7 +254,13 @@ class Learner(Aggregate):
                 target = definition.target
                 new_step = int(instance["progress"]) + 1
                 self._progress_quest(
-                    completion_id, assignment_id, q_id, new_step, target
+                    completion_id,
+                    assignment_id,
+                    q_id,
+                    new_step,
+                    target,
+                    correlation_id=correlation_id,
+                    causation_id=source_event_id,
                 )
                 if new_step >= target:
                     self._complete_quest(
@@ -243,6 +268,8 @@ class Learner(Aggregate):
                         assignment_id,
                         q_id,
                         occurred.isoformat() if occurred is not None else None,
+                        correlation_id=correlation_id,
+                        causation_id=source_event_id,
                     )
         return True
 
@@ -351,9 +378,14 @@ class Learner(Aggregate):
         }
         if source_event_id is not None:
             self.checkpoint_sources[attempt_id] = source_event_id
+        self.checkpoint_correlations[attempt_id] = (correlation_id, source_event_id)
         first_id = self.first_checkpoint_attempt_ids.get(assessment_id)
         if first_id is None or self._attempt_order(attempt_id) < self._attempt_order(first_id):
             self.first_checkpoint_attempt_ids[assessment_id] = attempt_id
+
+    def checkpoint_chain_ids(self, attempt_id: str) -> tuple[str | None, str | None]:
+        """(correlation_id, source event_id) of the attempt's delivery; (None, None) if unknown."""
+        return self.checkpoint_correlations.get(attempt_id, (None, None))
 
     def _attempt_order(self, attempt_id: str) -> tuple[datetime, str]:
         occurred = _as_datetime(self.checkpoint_attempts[attempt_id]["occurred_at"])
@@ -497,7 +529,13 @@ class Learner(Aggregate):
         view_id = self.first_exposure_view_ids.get(exp_id)
         return None if view_id is None else dict(self.experiment_exposures[view_id])
 
-    def record_remediation_decision(self, decision: "RemediationDecision") -> bool:
+    def record_remediation_decision(
+        self,
+        decision: "RemediationDecision",
+        *,
+        correlation_id: str | None = None,
+        causation_id: str | None = None,
+    ) -> bool:
         """Records one remediation decision; it earns no XP and touches no streak or quest.
 
         Idempotent on ``decision_id``: a second call returns False and emits nothing,
@@ -515,6 +553,8 @@ class Learner(Aggregate):
             None if decision.deadline_at is None else decision.deadline_at.isoformat(),
             decision.quest_id,
             decision.policy_version,
+            correlation_id,
+            causation_id,
         )
         return True
 
@@ -530,6 +570,8 @@ class Learner(Aggregate):
         deadline_at: str | None,
         quest_id: str | None,
         policy_version: str,
+        correlation_id: str | None = None,
+        causation_id: str | None = None,
     ) -> None:
         """Applies a recorded remediation decision; a pure state fold."""
         self.remediation_decisions[decision_id] = {
@@ -545,7 +587,12 @@ class Learner(Aggregate):
         }
 
     def acquire_freeze(
-        self, freeze_id: str, *, activity_date: str | None = None
+        self,
+        freeze_id: str,
+        *,
+        activity_date: str | None = None,
+        correlation_id: str | None = None,
+        causation_id: str | None = None,
     ) -> bool:
         """Records one durable freeze acquisition for later streak projection."""
         if freeze_id in self.freeze_ids:
@@ -557,11 +604,17 @@ class Learner(Aggregate):
             raise ValueError(
                 "activity_date is required when acquiring a freeze before any activity"
             )
-        self._acquire_freeze(freeze_id, acquired)
+        self._acquire_freeze(freeze_id, acquired, correlation_id, causation_id)
         return True
 
     @event("FreezeAcquired")
-    def _acquire_freeze(self, freeze_id: str, activity_date: str | None) -> None:
+    def _acquire_freeze(
+        self,
+        freeze_id: str,
+        activity_date: str | None,
+        correlation_id: str | None = None,
+        causation_id: str | None = None,
+    ) -> None:
         self.freeze_ids.add(freeze_id)
         self.freeze_acquisitions[freeze_id] = activity_date
         self.freezes_remaining += 1
@@ -578,6 +631,8 @@ class Learner(Aggregate):
         rule_version: str,
         revision: int,
         supersedes: str | None,
+        correlation_id: str | None = None,
+        causation_id: str | None = None,
     ) -> None:
         """Records the deterministic streak outcome of one dated completion.
 
@@ -619,6 +674,10 @@ class Learner(Aggregate):
         # Kind of the rewarded completion. Absent (None) on events stored before
         # M6 and on completions delivered without one; both count as a lesson.
         completion_kind: str | None = None,
+        # Provenance only; not folded into state. Absent (None) on events stored
+        # before M1, which replay with these defaults.
+        correlation_id: str | None = None,
+        causation_id: str | None = None,
     ) -> None:
         """Applies an already-decided XP award; it never evaluates a rule."""
         lesson_id = self.completion_lessons.get(completion_id)
@@ -640,6 +699,8 @@ class Learner(Aggregate):
         criteria_version: str,
         awarded_at: str,
         qualifying_action_ids: list[str],
+        correlation_id: str | None = None,
+        causation_id: str | None = None,
     ) -> None:
         """Applies a decided badge award without evaluating its predicate."""
         self.badges_issued[badge_id] = award_id
@@ -652,6 +713,8 @@ class Learner(Aggregate):
         assigned_at: str | datetime | None = None,
         deadline_at: str | datetime | None = None,
         definition_version: str = "v1",
+        correlation_id: str | None = None,
+        causation_id: str | None = None,
     ) -> bool:
         """Assigns one quest to the learner with a stable identity.
 
@@ -672,6 +735,8 @@ class Learner(Aggregate):
             definition_version,
             assigned.isoformat(),
             deadline.isoformat(),
+            correlation_id,
+            causation_id,
         )
         return True
 
@@ -683,6 +748,8 @@ class Learner(Aggregate):
         quest_definition_version: str,
         assigned_at: str,
         deadline_at: str,
+        correlation_id: str | None = None,
+        causation_id: str | None = None,
     ) -> None:
         """Applies quest assignment."""
         self.assigned_quest_ids.add(assignment_id)
@@ -706,6 +773,8 @@ class Learner(Aggregate):
         quest_id: str,
         current_step: int,
         target_step: int,
+        correlation_id: str | None = None,
+        causation_id: str | None = None,
     ) -> None:
         """Applies an explicit progress increment for an active quest."""
         self.quest_progress[assignment_id] = current_step
@@ -718,6 +787,8 @@ class Learner(Aggregate):
         assignment_id: str,
         quest_id: str,
         completed_at: str | None,
+        correlation_id: str | None = None,
+        causation_id: str | None = None,
     ) -> None:
         """Applies an already-decided quest completion."""
         self.completed_quest_ids.add(completion_id)
@@ -727,7 +798,13 @@ class Learner(Aggregate):
         self.quest_instances[assignment_id]["status"] = "completed"
         self.quest_instances[assignment_id]["completed_at"] = _as_datetime(completed_at)
 
-    def expire_due_quests(self, as_of: datetime) -> list[str]:
+    def expire_due_quests(
+        self,
+        as_of: datetime,
+        *,
+        correlation_id: str | None = None,
+        causation_id: str | None = None,
+    ) -> list[str]:
         """Expires every assigned quest whose deadline is strictly before ``as_of``.
 
         Returns the expired assignment ids in sorted order. Each expiry is stamped
@@ -742,12 +819,25 @@ class Learner(Aggregate):
             deadline = instance["deadline_at"]
             if instance["status"] != "assigned" or deadline is None or not deadline < as_of:
                 continue
-            self._expire_quest(assignment_id, str(instance["quest_id"]), deadline.isoformat())
+            self._expire_quest(
+                assignment_id,
+                str(instance["quest_id"]),
+                deadline.isoformat(),
+                correlation_id=correlation_id,
+                causation_id=causation_id,
+            )
             expired.append(assignment_id)
         return expired
 
     @event("QuestExpired")
-    def _expire_quest(self, assignment_id: str, quest_id: str, expired_at: str) -> None:
+    def _expire_quest(
+        self,
+        assignment_id: str,
+        quest_id: str,
+        expired_at: str,
+        correlation_id: str | None = None,
+        causation_id: str | None = None,
+    ) -> None:
         """Applies an already-decided quest expiry."""
         self.quest_instances[assignment_id]["status"] = "expired"
 
@@ -759,6 +849,8 @@ class Learner(Aggregate):
         grouping_rule_version: str = "v1",
         assigned_at: str | datetime | None = None,
         reassign: bool = False,
+        correlation_id: str | None = None,
+        causation_id: str | None = None,
     ) -> bool:
         """Assigns the learner to a cohort for the given epoch."""
         epoch_str = str(membership_epoch)
@@ -768,7 +860,16 @@ class Learner(Aggregate):
         assigned = _as_datetime(assigned_at)
         if assigned is None:
             assigned = datetime.now(dt_timezone.utc)
-        self._assign_cohort(cohort_id, epoch_str, grouping_rule_version, assigned.isoformat())
+        if correlation_id is None:
+            correlation_id = f"cohort_assignment:{epoch_str}"
+        self._assign_cohort(
+            cohort_id,
+            epoch_str,
+            grouping_rule_version,
+            assigned.isoformat(),
+            correlation_id,
+            causation_id,
+        )
         return True
 
     def reassign_cohort(
@@ -778,6 +879,8 @@ class Learner(Aggregate):
         *,
         grouping_rule_version: str = "v1",
         assigned_at: str | datetime | None = None,
+        correlation_id: str | None = None,
+        causation_id: str | None = None,
     ) -> bool:
         """Reassigns the learner to a different cohort for the given epoch."""
         if assigned_at is None:
@@ -788,15 +891,30 @@ class Learner(Aggregate):
             grouping_rule_version=grouping_rule_version,
             assigned_at=assigned_at,
             reassign=True,
+            correlation_id=correlation_id,
+            causation_id=causation_id,
         )
 
-    @event("CohortAssigned")
+    # Declared explicitly (not generated from the method signature) so that the id fields
+    # have defaults: the generated event class requires every field, and code and tests
+    # that build this event directly, as stored events before M1 did, supply neither id.
+    class CohortAssigned(Aggregate.Event):
+        cohort_id: str
+        membership_epoch: str
+        grouping_rule_version: str
+        assigned_at: str
+        correlation_id: str | None = None
+        causation_id: str | None = None
+
+    @event(CohortAssigned)
     def _assign_cohort(
         self,
         cohort_id: str,
         membership_epoch: str,
         grouping_rule_version: str,
         assigned_at: str,
+        correlation_id: str | None = None,
+        causation_id: str | None = None,
     ) -> None:
         """Applies cohort assignment for a membership epoch."""
         self.cohort_memberships[membership_epoch] = {
