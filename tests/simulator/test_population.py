@@ -82,15 +82,3 @@ def test_probabilities_are_clamped():
     for p in create_persona_population(4000, 11):
         assert 0.01 <= p.dropout_probability <= 0.99
         assert 0.01 <= p.base_pass_probability <= 0.99
-
-
-def test_other_entry_points_still_not_implemented():
-    population = create_persona_population(2, 1)
-    with pytest.raises(NotImplementedError):
-        run_sensitivity_sweep(population, {})
-    with pytest.raises(NotImplementedError):
-        apply_notification_perturbation([], "policy")
-    with pytest.raises(NotImplementedError):
-        export_event_stream([], "v1")
-    with pytest.raises(NotImplementedError):
-        generate_baseline_stream(population[0], 7, 1)

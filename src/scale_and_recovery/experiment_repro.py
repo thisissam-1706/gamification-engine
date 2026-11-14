@@ -8,11 +8,14 @@ from pathlib import Path
 import random
 from typing import Any
 
+from src.abuse.service import AbuseDetectionService
+from src.abuse.store import AbuseSignalStore
 from src.experiments.assignment import assign
 from src.experiments.inputs import build_mastery_inputs, read_assignments
 from src.experiments.metrics import MasteryReport, mastery_report
-from src.experiments.runner import ExperimentRunResult, run_experiment
+from src.experiments.runner import ExperimentRunResult, awards_from_abuse_service, run_experiment
 from src.experiments.store import ExperimentStore
+from src.ingestion.evidence import EvidenceStore
 from src.notifications.store import NotificationStore
 from src.state_machine.learner import LearnerApplication
 
@@ -166,33 +169,51 @@ def _checksum(run: ExperimentRunResult) -> str:
 def _engine_pass(
     db_path: str, exp_id: str, assessment_id: str, as_of: datetime
 ) -> tuple[ExperimentRunResult, int, int]:
-    """One run on FRESH application and store objects opened on ``db_path``; all closed afterwards."""
+    """One run on FRESH objects opened on ``db_path``; all closed afterwards.
+
+    The awards for the gaming guardrail come from an ``AbuseDetectionService`` over the same events and the
+    same evidence file. Its signal store is in memory: ``completion_facts()`` never uses it, and this keeps the
+    pass from writing an ``abuse_signals`` table into the log.
+    """
     application = LearnerApplication(
         env={"PERSISTENCE_MODULE": "eventsourcing.sqlite", "SQLITE_DBNAME": db_path}
     )
     try:
-        store = ExperimentStore(db_path)
+        evidence = EvidenceStore(db_path)
         try:
-            notification_store = NotificationStore(db_path)
+            store = ExperimentStore(db_path)
             try:
-                run = run_experiment(
-                    application,
-                    store,
-                    notification_store,
-                    [],
-                    exp_id=exp_id,
-                    assessment_id=assessment_id,
-                    as_of=as_of,
-                )
-                population = len(read_assignments(application, exp_id)[0])
-                attempts = len(
-                    build_mastery_inputs(application, exp_id, assessment_id=assessment_id).attempts
-                )
-                return run, population, attempts
+                notification_store = NotificationStore(db_path)
+                try:
+                    signals = AbuseSignalStore(":memory:")
+                    try:
+                        awards = awards_from_abuse_service(
+                            AbuseDetectionService(application, evidence, signals)
+                        )
+                    finally:
+                        signals.close()
+                    run = run_experiment(
+                        application,
+                        store,
+                        notification_store,
+                        awards,
+                        exp_id=exp_id,
+                        assessment_id=assessment_id,
+                        as_of=as_of,
+                    )
+                    population = len(read_assignments(application, exp_id)[0])
+                    attempts = len(
+                        build_mastery_inputs(
+                            application, exp_id, assessment_id=assessment_id
+                        ).attempts
+                    )
+                    return run, population, attempts
+                finally:
+                    notification_store.close()
             finally:
-                notification_store.close()
+                store.close()
         finally:
-            store.close()
+            evidence.close()
     finally:
         application.close()
 
@@ -206,11 +227,12 @@ def verify_engine_reproduction(
 ) -> EngineReproductionResult:
     """Runs the experiment engine twice on fresh objects over one persisted log and compares checksums.
 
-    ``db_path`` is one sqlite file holding the event store, the experiment tables and the
-    notification tables. No awards are passed, so the gaming guardrail is not exercised. ``as_of``
-    must be timezone-aware (``run_experiment`` raises ValueError otherwise). A ``db_path`` that is
-    not an existing file raises FileNotFoundError before anything is opened or created. A non-empty file that is not
-    a SQLite database raises ValueError (naming the path) before anything is opened; the file is not touched.
+    ``db_path`` is one sqlite file holding the events, the experiment, notification and evidence tables. The
+    awards for the gaming guardrail are the accepted completions of an ``AbuseDetectionService`` over that same
+    file, passed to BOTH computations. ``as_of`` must be timezone-aware (ValueError otherwise, before anything is
+    opened). A ``db_path`` that is not an existing file raises FileNotFoundError before anything is opened or
+    created. A non-empty file that is not a SQLite database raises ValueError (naming the path) before anything is
+    opened; the file is not touched.
     """
     if not Path(db_path).is_file():
         raise FileNotFoundError(f"engine log does not exist: {db_path}")
@@ -218,6 +240,8 @@ def verify_engine_reproduction(
         header = handle.read(len(_SQLITE_HEADER))
     if header and header != _SQLITE_HEADER:
         raise ValueError(f"engine log is not a SQLite database: {db_path}")
+    if as_of.tzinfo is None or as_of.utcoffset() is None:
+        raise ValueError("as_of must be timezone-aware")  # before anything is opened
     run_first, population, attempts = _engine_pass(db_path, exp_id, assessment_id, as_of)
     run_second, _, _ = _engine_pass(db_path, exp_id, assessment_id, as_of)
     first, second = _checksum(run_first), _checksum(run_second)

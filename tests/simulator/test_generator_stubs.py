@@ -106,13 +106,14 @@ def test_baseline_events_carry_no_notification_information():
 def test_generating_a_baseline_does_not_load_the_notification_code():
     code = (
         "import sys\n"
+        "sys.path.insert(0, sys.argv[1])\n"  # -I ignores PYTHONPATH and the cwd: pass the repo root in
         "from simulator.generator import create_persona_population, generate_baseline_stream\n"
         "p = create_persona_population(3, seed=7)[0]\n"
         "generate_baseline_stream(p, 14, 11)\n"
         "print(sorted(m for m in sys.modules if m.startswith('src.notifications')))\n"
     )
     out = subprocess.run(
-        [sys.executable, "-I", "-c", code], cwd=ROOT, capture_output=True, text=True, check=True,
+        [sys.executable, "-I", "-c", code, str(ROOT)], cwd=ROOT, capture_output=True, text=True, check=True,
         env={"PYTHONPATH": str(ROOT)},
     )
     assert out.stdout.strip() == "[]"
@@ -239,6 +240,8 @@ def test_a_different_seed_version_changes_the_exported_bytes():
 
 def test_export_of_a_generated_stream_is_identical_across_interpreters_with_different_hash_seeds():
     code = (
+        "import sys\n"
+        "sys.path.insert(0, sys.argv[1])\n"  # -I ignores PYTHONPATH and the cwd: pass the repo root in
         "import hashlib, json\n"
         "from simulator.generator import (create_persona_population, export_event_stream,\n"
         "    generate_baseline_stream)\n"
@@ -251,7 +254,7 @@ def test_export_of_a_generated_stream_is_identical_across_interpreters_with_diff
     digests = set()
     for hash_seed in ("0", "1", "12345"):
         out = subprocess.run(
-            [sys.executable, "-I", "-c", code], cwd=ROOT, capture_output=True, text=True, check=True,
+            [sys.executable, "-I", "-c", code, str(ROOT)], cwd=ROOT, capture_output=True, text=True, check=True,
             env={"PYTHONPATH": str(ROOT), "PYTHONHASHSEED": hash_seed},
         )
         digests.add(out.stdout.strip())
