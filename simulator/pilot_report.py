@@ -7,10 +7,10 @@ from datetime import datetime, timedelta, timezone
 
 from simulator.pilot import CAP, DATA_CUTOFF_ISO, EXP_ID, PilotRun
 from src.experiments.metrics import mastery_report
+from src.experiments.srm import SRM_ALPHA, srm_check  # noqa: F401  (re-exported)
 
 ARM_VARIANTS = {"treatment": "variant_a", "control": "variant_b"}
 SENT = ("delivered", "provider_failed")
-SRM_ALPHA = 0.001
 FATIGUE_WINDOW_DAYS = 14  # same window as the primary metric
 
 
@@ -31,28 +31,6 @@ def max_in_rolling_24h(timestamps: list[str]) -> int:
             count += 1
         best = max(best, count)
     return best
-
-
-def srm_check(assigned_variant_a: int, assigned_variant_b: int) -> dict:
-    """Chi-square sample-ratio-mismatch check against a 50/50 split."""
-    total = assigned_variant_a + assigned_variant_b
-    expected = total / 2
-    chi2 = (
-        sum((o - expected) ** 2 / expected for o in (assigned_variant_a, assigned_variant_b))
-        if total
-        else 0.0
-    )
-    p_value = math.erfc(math.sqrt(chi2 / 2))
-    return {
-        "assigned_variant_a": assigned_variant_a,
-        "assigned_variant_b": assigned_variant_b,
-        "chi2": chi2,
-        "p_value": p_value,
-        "test": "chi_square_1df",
-        "alpha": SRM_ALPHA,
-        "expected_split": "50/50",
-        "alert": p_value < SRM_ALPHA,
-    }
 
 
 def _buckets(mastery, assigned: dict, eligible_ids: set, attempts: list) -> dict:

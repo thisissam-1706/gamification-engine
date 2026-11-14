@@ -134,5 +134,13 @@ class ExperimentStore:
         query += " ORDER BY learner_id, decided_at"
         return [dict(zip(DECISION_COLUMNS, row)) for row in self.connection.execute(query, params)]
 
+    def list_eligibility(self, exp_id: str) -> list[dict]:
+        """Stored eligibility rows of an experiment, ordered by learner id."""
+        query = (
+            f"SELECT {', '.join(ELIGIBILITY_COLUMNS)} FROM experiment_eligibility "
+            "WHERE exp_id = ? ORDER BY learner_id"
+        )
+        return [dict(zip(ELIGIBILITY_COLUMNS, row)) for row in self.connection.execute(query, (exp_id,))]
+
     def close(self) -> None:
         self.connection.close()
