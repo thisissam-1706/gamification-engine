@@ -155,6 +155,9 @@ class EngineReproductionResult:
         }
 
 
+_SQLITE_HEADER = b"SQLite format 3\x00"
+
+
 def _checksum(run: ExperimentRunResult) -> str:
     """sha256 of the run's ``to_dict()`` as sorted-key JSON."""
     return hashlib.sha256(json.dumps(run.to_dict(), sort_keys=True).encode("utf-8")).hexdigest()
@@ -206,10 +209,15 @@ def verify_engine_reproduction(
     ``db_path`` is one sqlite file holding the event store, the experiment tables and the
     notification tables. No awards are passed, so the gaming guardrail is not exercised. ``as_of``
     must be timezone-aware (``run_experiment`` raises ValueError otherwise). A ``db_path`` that is
-    not an existing file raises FileNotFoundError before anything is opened or created.
+    not an existing file raises FileNotFoundError before anything is opened or created. A non-empty file that is not
+    a SQLite database raises ValueError (naming the path) before anything is opened; the file is not touched.
     """
     if not Path(db_path).is_file():
         raise FileNotFoundError(f"engine log does not exist: {db_path}")
+    with open(db_path, "rb") as handle:
+        header = handle.read(len(_SQLITE_HEADER))
+    if header and header != _SQLITE_HEADER:
+        raise ValueError(f"engine log is not a SQLite database: {db_path}")
     run_first, population, attempts = _engine_pass(db_path, exp_id, assessment_id, as_of)
     run_second, _, _ = _engine_pass(db_path, exp_id, assessment_id, as_of)
     first, second = _checksum(run_first), _checksum(run_second)

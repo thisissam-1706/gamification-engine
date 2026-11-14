@@ -138,3 +138,111 @@ def exposure_state(application: LearnerApplication, learner_id: str) -> dict:
         "first": dict(learner.first_exposure_view_ids),
         "first_exposure": learner.first_experiment_exposure(EXP_ID),
     }
+
+
+# --- shared helpers for the M7 hardening tests (tests/experiments/test_m7_harden.py) ------------
+
+ASSESSMENT_ID = "asmt-1"
+
+
+def make_learner(
+    application: LearnerApplication,
+    variant: str,
+    *,
+    nth: int = 0,
+    created: datetime | None = None,
+    assigned_at: datetime | None = ASSIGNED_AT,
+) -> str:
+    """Saves a learner whose id falls into `variant`; assigns it to EXP_ID unless assigned_at is None.
+
+    ``created`` is the Created event timestamp (None: the real clock, as `Learner._create` does).
+    """
+    from src.experiments.service import assign_learner_to_experiment
+
+    kwargs = {} if created is None else {"timestamp": created}
+    learner = Learner._create(Learner.Created, id=uuid_for_variant(variant, EXP_ID, nth=nth), **kwargs)
+    application.save(learner)
+    if assigned_at is not None:
+        assert assign_learner_to_experiment(application, str(learner.id), EXP_ID, assigned_at)
+    return str(learner.id)
+
+
+def record_attempt(
+    application: LearnerApplication,
+    learner_id: str,
+    attempt_id: str,
+    *,
+    passed: bool = True,
+    occurred_at: datetime | str | None = None,
+    assessment_id: str = ASSESSMENT_ID,
+    version: int = 1,
+) -> None:
+    """Records one accepted checkpoint attempt (default: one day after ASSIGNED_AT)."""
+    learner = application.repository.get(UUID(learner_id))
+    assert learner.record_checkpoint_attempt(
+        attempt_id,
+        assessment_id,
+        version,
+        passed,
+        timezone="Asia/Kolkata",
+        occurred_at=occurred_at or ASSIGNED_AT + timedelta(days=1),
+    )
+    application.save(learner)
+
+
+def eligibility_row(learner_id: str, variant: str, *, eligible: bool = True, reason: str | None = None) -> dict:
+    """A complete experiment_eligibility row (as ExperimentStore.record_eligibility takes it)."""
+    return {
+        "exp_id": EXP_ID,
+        "learner_id": learner_id,
+        "variant": variant,
+        "assigned_at": ASSIGNED_AT.isoformat(),
+        "eligible": int(eligible),
+        "reason": reason,
+        "opted_out_push": 0,
+        "opted_out_streak_risk": 0,
+        "timezone": "Asia/Kolkata",
+        "tenure_days": 40,
+    }
+
+
+def record_violation(
+    notification_store,
+    learner_id: str,
+    occurred_at: str,
+    *,
+    reason: str = "daily_cap_exceeded",
+    variant: str | None = None,
+    exp_id: str = EXP_ID,
+) -> None:
+    """Inserts one guardrail-violation row directly (unique ids)."""
+    key = uuid4().hex[:12]
+    assert notification_store.record_guardrail_violation(
+        f"viol-{key}", exp_id, variant, learner_id, f"prop-{key}", reason, occurred_at
+    )
+
+
+def xp_award(learner_id: str, occurred_at: datetime, xp: int, repeat_index: int | None = None):
+    """An XPAwardFact for the gaming guardrail."""
+    from src.abuse.guardrail import XPAwardFact
+
+    return XPAwardFact(learner_id, occurred_at, xp, repeat_index)
+
+
+def decision_rows(store) -> list[dict]:
+    """Every experiment_decisions row, read with raw SQL (no dependence on list_decisions)."""
+    columns = (
+        "exp_id", "learner_id", "variant", "decided_at", "outcome", "reason",
+        "proposal_id", "fact_event_id", "fact_status",
+    )
+    rows = store.connection.execute(
+        f"SELECT {', '.join(columns)} FROM experiment_decisions ORDER BY learner_id, decided_at"
+    ).fetchall()
+    return [dict(zip(columns, row)) for row in rows]
+
+
+class NeverDispatcher:
+    """A dispatcher stand-in for sweep paths that must not send anything."""
+
+    def dispatch(self, proposal, prefs=None, now_utc=None):  # pragma: no cover - failure path
+        raise AssertionError(f"dispatcher must not be called (proposal {proposal.proposal_id})")

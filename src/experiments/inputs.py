@@ -17,19 +17,29 @@ class MasteryInputs:
     completions: list[dict]  # one per attempt, copied from its CheckpointAttempted
     variants: dict[str, str]  # str(learner_id) -> variant
     ignored_other_assessment_attempts: int = 0
+    ignored_unassigned_attempts: int = 0  # attempts of learners with no assignment for exp_id
 
 
 def _iso(value: str | datetime) -> str:
     return value if isinstance(value, str) else value.isoformat()
 
 
-def _scan(
-    application: LearnerApplication, exp_id: str
-) -> tuple[dict[str, str], dict[str, str], list[tuple[str, object]]]:
-    """(assignments, variants, checkpoint attempt events) from every stored domain event."""
+@dataclass(frozen=True)
+class EventScan:
+    """What one pass over the stored domain events collects for one experiment."""
+
+    assignments: dict[str, str]  # str(learner_id) -> assigned_at ISO string, first assignment wins
+    variants: dict[str, str]  # str(learner_id) -> variant
+    attempt_events: list[tuple[str, object]]  # (learner_id, CheckpointAttempted), every assessment
+    exposures: list[tuple[str, str | datetime]]  # (learner_id, exposed_at) of ExperimentExposed for exp_id
+
+
+def scan_events(application: LearnerApplication, exp_id: str) -> EventScan:
+    """One pass over every stored domain event; share the result via the ``scan=`` parameters."""
     assignments: dict[str, str] = {}
     variants: dict[str, str] = {}
     attempt_events: list[tuple[str, object]] = []
+    exposures: list[tuple[str, str | datetime]] = []
     for notification in read_all_notifications(application):
         event = application.mapper.to_domain_event(notification)
         learner_id = str(event.originator_id)
@@ -39,15 +49,21 @@ def _scan(
                 variants[learner_id] = event.variant
         elif isinstance(event, Learner.CheckpointAttempted):
             attempt_events.append((learner_id, event))
-    return assignments, variants, attempt_events
+        elif isinstance(event, Learner.ExperimentExposed):
+            if event.exp_id == exp_id:
+                exposures.append((learner_id, event.exposed_at))
+    return EventScan(assignments, variants, attempt_events, exposures)
 
 
 def read_assignments(
-    application: LearnerApplication, exp_id: str
+    application: LearnerApplication, exp_id: str, *, scan: EventScan | None = None
 ) -> tuple[dict[str, str], dict[str, str]]:
-    """({str(learner_id): assigned_at ISO}, {str(learner_id): variant}) for ``exp_id``; first wins."""
-    assignments, variants, _ = _scan(application, exp_id)
-    return assignments, variants
+    """({str(learner_id): assigned_at ISO}, {str(learner_id): variant}) for ``exp_id``; first wins.
+
+    Scans the log itself unless a ``scan`` of the same experiment is passed.
+    """
+    scan = scan or scan_events(application, exp_id)
+    return scan.assignments, scan.variants
 
 
 def build_mastery_inputs(
@@ -56,14 +72,22 @@ def build_mastery_inputs(
     *,
     assessment_id: str,
     eligible_ids: Collection[str] | None = None,
+    assessment_version: int | None = None,
+    scan: EventScan | None = None,
 ) -> MasteryInputs:
     """Reads every stored domain event; only ``exp_id`` assignments and ``assessment_id`` attempts count.
 
     The first ExperimentAssigned per learner wins. Only learners with an assignment for ``exp_id``
     (and in ``eligible_ids`` when given; an empty collection means nobody) appear in any output,
-    and ``ignored_other_assessment_attempts`` counts attempts of those learners for other assessments.
+    and ``ignored_other_assessment_attempts`` counts attempts of those learners for other assessments
+    (and, when ``assessment_version`` is given, for other versions of this one).
+    ``ignored_unassigned_attempts`` counts attempts of learners with no assignment for ``exp_id``;
+    assigned learners removed by ``eligible_ids`` are in neither count. It scans the log itself unless a
+    ``scan`` of the same experiment is passed (as ``run_experiment`` does, to read the log once).
     """
-    assignments, variants, attempt_events = _scan(application, exp_id)
+    scan = scan or scan_events(application, exp_id)
+    assignments, variants, attempt_events = scan.assignments, scan.variants, scan.attempt_events
+    assigned = set(assignments)
 
     if eligible_ids is not None:
         keep = set(eligible_ids)
@@ -73,10 +97,16 @@ def build_mastery_inputs(
     attempts: list[dict] = []
     completions: list[dict] = []
     ignored = 0
+    unassigned = 0
     for learner_id, event in attempt_events:
-        if learner_id not in assignments:
+        if learner_id not in assigned:
+            unassigned += 1
             continue
-        if event.assessment_id != assessment_id:
+        if learner_id not in assignments:
+            continue  # assigned, but removed by eligible_ids
+        if event.assessment_id != assessment_id or (
+            assessment_version is not None and event.assessment_version != assessment_version
+        ):
             ignored += 1
             continue
         occurred_at = _iso(event.occurred_at)
@@ -99,4 +129,4 @@ def build_mastery_inputs(
                 "occurred_at": occurred_at,
             }
         )
-    return MasteryInputs(assignments, attempts, completions, variants, ignored)
+    return MasteryInputs(assignments, attempts, completions, variants, ignored, unassigned)

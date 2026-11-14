@@ -10,13 +10,12 @@ from datetime import datetime, timedelta, timezone
 
 from src.abuse.guardrail import AwardLike, CohortGamingReport, cohort_gaming_report, iso_week_key
 from src.abuse.service import AbuseDetectionService
-from src.experiments.inputs import build_mastery_inputs, read_assignments
+from src.experiments.inputs import EventScan, build_mastery_inputs, scan_events
 from src.experiments.metrics import MasteryReport, mastery_report
 from src.experiments.srm import srm_check
 from src.experiments.store import ExperimentStore
 from src.notifications.store import NotificationStore
-from src.state_machine.notification_log import read_all_notifications
-from src.state_machine.learner import Learner, LearnerApplication
+from src.state_machine.learner import LearnerApplication
 
 TREATMENT_VARIANT = "variant_a"
 CONTROL_VARIANT = "variant_b"
@@ -49,29 +48,21 @@ def exposure_by_arm(
     *,
     eligible_ids: Collection[str],
     as_of: datetime,
+    scan: EventScan | None = None,
 ) -> ExposureByArm:
     """Exposure among ELIGIBLE learners per arm, from stored events; nothing is written.
 
     A learner is exposed when they have at least one ExperimentExposed for ``exp_id`` with
     ``exposed_at <= as_of``. Treatment rate = exposed / eligible (None when nobody is eligible).
     The control rate is always None: variant_b has no exposure surface (see ``CONTROL_NOTE``).
+    Scans the log itself unless a ``scan`` of the same experiment is passed.
     """
     if as_of.tzinfo is None or as_of.utcoffset() is None:
         raise ValueError("as_of must be timezone-aware")
+    scan = scan or scan_events(application, exp_id)
     keep = set(eligible_ids)
-    variants: dict[str, str] = {}
-    exposed: set[str] = set()
-    for notification in read_all_notifications(application):
-        event = application.mapper.to_domain_event(notification)
-        learner_id = str(event.originator_id)
-        if learner_id not in keep:
-            continue
-        if isinstance(event, Learner.ExperimentAssigned):
-            if event.exp_id == exp_id:
-                variants.setdefault(learner_id, event.variant)
-        elif isinstance(event, Learner.ExperimentExposed):
-            if event.exp_id == exp_id and _instant(event.exposed_at) <= as_of:
-                exposed.add(learner_id)
+    variants = {i: v for i, v in scan.variants.items() if i in keep}
+    exposed = {i for i, at in scan.exposures if i in keep and _instant(at) <= as_of}
 
     treatment = {i for i, v in variants.items() if v == TREATMENT_VARIANT}
     control = {i for i, v in variants.items() if v == CONTROL_VARIANT}
@@ -98,6 +89,10 @@ SRM_ASSIGNED = "srm_assigned"
 SRM_ELIGIBLE = "srm_eligible"
 MISSING_ELIGIBILITY_RECORDS = "missing_eligibility_records"
 NO_ELIGIBLE_LEARNERS = "no_eligible_learners"
+MIXED_ASSESSMENT_VERSIONS = "mixed_assessment_versions"
+
+# Only guardrail-violation rows with this reason count as notification-cap breaches.
+CAP_VIOLATION_REASON = "daily_cap_exceeded"
 
 ARM_VARIANTS = {"treatment": TREATMENT_VARIANT, "control": CONTROL_VARIANT}
 
@@ -182,31 +177,44 @@ def run_experiment(
     *,
     exp_id: str = "exp_007",
     assessment_id: str,
+    assessment_version: int | None = None,
     as_of: datetime,
 ) -> ExperimentRunResult:
     """Reports the experiment's primary metric, exposure and guardrails; never raises on bad data.
 
     Eligibility is the persisted ``experiment_eligibility`` rows, not recomputed. An invalid run is
     still fully reported: ``valid`` is False and ``invalid_reasons`` says why. ``as_of`` is required
-    (None or naive raises ValueError).
+    (None or naive raises ValueError). With ``assessment_version`` only that version's attempts count
+    (others are ignored and counted); without it, counted attempts spanning more than one version
+    invalidate the run (``mixed_assessment_versions``).
     """
     if as_of is None:
         raise ValueError("as_of is required: declare the data cutoff")
     if as_of.tzinfo is None or as_of.utcoffset() is None:
         raise ValueError("as_of must be timezone-aware")
 
-    assignments, variants = read_assignments(application, exp_id)
+    scan = scan_events(application, exp_id)  # the one pass over the stored events
+    assignments, variants = scan.assignments, scan.variants
     stored = {row["learner_id"]: row for row in store.list_eligibility(exp_id)}
     eligible_ids = {i for i in assignments if i in stored and stored[i]["eligible"]}
     arm_of = {name: {i for i in eligible_ids if variants[i] == v} for name, v in ARM_VARIANTS.items()}
 
     inputs = build_mastery_inputs(
-        application, exp_id, assessment_id=assessment_id, eligible_ids=eligible_ids
+        application,
+        exp_id,
+        assessment_id=assessment_id,
+        eligible_ids=eligible_ids,
+        assessment_version=assessment_version,
+        scan=scan,
     )
-    exposure = exposure_by_arm(application, exp_id, eligible_ids=eligible_ids, as_of=as_of)
+    exposure = exposure_by_arm(
+        application, exp_id, eligible_ids=eligible_ids, as_of=as_of, scan=scan
+    )
 
     breaches: dict[str, set[tuple[str, object]]] = {name: set() for name in ARM_VARIANTS}
     for row in notification_store.list_guardrail_violations(experiment_id=exp_id):
+        if row["reason"] != CAP_VIOLATION_REASON:
+            continue
         learner_id = row["learner_id"]
         occurred = _utc(row["occurred_at"])
         if occurred > as_of:
@@ -263,6 +271,8 @@ def run_experiment(
         reasons.append(MISSING_ELIGIBILITY_RECORDS)
     if not eligible_ids:
         reasons.append(NO_ELIGIBLE_LEARNERS)
+    if len({a["assessment_version"] for a in inputs.attempts}) > 1:
+        reasons.append(MIXED_ASSESSMENT_VERSIONS)
     return ExperimentRunResult(
         exp_id=exp_id,
         as_of=as_of,
