@@ -42,6 +42,9 @@ def _build(application, learner_ids, epoch=EPOCH, reference_time=REFERENCE, **kw
         epoch,
         min_size=1,
         reference_time=reference_time,
+        # These tests compute expected ids with the assign_* defaults, so they pin them explicitly.
+        activity_buckets=10,
+        module_buckets=5,
         **kwargs,
     )
 

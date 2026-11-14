@@ -11,6 +11,7 @@ from uuid import UUID, uuid5
 
 from eventsourcing.application import Notification
 from src.leaderboard.cohort_builder import build_weekly_cohorts
+from src.leaderboard.poller import run_until_idle
 from src.leaderboard.projection import LeaderboardProjection
 from src.leaderboard.service import LeaderboardService
 from src.leaderboard.store import SQLiteLeaderboardStore
@@ -196,9 +197,7 @@ class FullStateRebuildHarness:
             self.app.save(learner)
 
         # 4. Project authoritative notifications into the leaderboard read model
-        notifications = read_all_notifications(self.app, start=1)
-        for n in notifications:
-            self.proj.apply(n, offset=n.id)
+        run_until_idle(self.app, self.proj)
 
         return learner_uuids
 
@@ -288,17 +287,15 @@ class FullStateRebuildHarness:
 
         t0 = time.perf_counter()
 
-        # 1. Replay leaderboard projection from notification log offset 1
-        notifications = read_all_notifications(self.app, start=1)
-        for n in notifications:
-            self.proj.apply(n, offset=n.id)
+        # 1. Replay leaderboard projection from notification log offset 1 (the read model is empty)
+        replayed = run_until_idle(self.app, self.proj)
 
         # 2. Re-capture full snapshot post-rebuild
         post_snapshot = self.capture_snapshot(workload, learner_uuids, source="replay")
 
         t1 = time.perf_counter()
         rebuild_duration = max(t1 - t0, 1e-6)
-        return post_snapshot, rebuild_duration, len(notifications)
+        return post_snapshot, rebuild_duration, replayed
 
     def run_rebuild_verification(self, workload: SyntheticWorkload) -> RebuildResult:
         """Full lifecycle: live ingestion -> pre-wipe snapshot -> wipe -> replay -> bit-identical assert."""

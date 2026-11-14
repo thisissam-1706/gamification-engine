@@ -37,12 +37,13 @@ from tests.leaderboard.test_cohort_builder import (
 from tests.leaderboard.test_leaderboard_e2e import read_all_notifications
 
 
-def _run(app, learner_ids, *, min_size=1, max_size=5000, epoch=EPOCH, reference_time=REFERENCE):
+def _run(app, learner_ids, *, min_size=1, max_size=5000, epoch=EPOCH, reference_time=REFERENCE, **kwargs):
     # Imported here so a missing module fails each test with a clear ImportError.
     from src.leaderboard.cohort_builder import build_weekly_cohorts
 
     return build_weekly_cohorts(
-        app, learner_ids, epoch, min_size=min_size, max_size=max_size, reference_time=reference_time
+        app, learner_ids, epoch, min_size=min_size, max_size=max_size, reference_time=reference_time,
+        **kwargs,
     )
 
 
@@ -154,11 +155,12 @@ def test_3_no_cohort_exceeds_max_size_even_when_merging(tmp_path, monkeypatch):
         big, small_math, small_physics = _three_group_population(app)
         everyone = big + [small_math, small_physics]
 
-        # Room for exactly one of the two singletons next to the five: the other stays alone.
+        # Both singletons are casual: they pair up (2) rather than join the intensive five, and the
+        # pair would not fit next to the five anyway (7 > 6). See test_cohort_builder_nearest.py.
         result = _run(app, everyone, min_size=3, max_size=6)
 
         assert max(result.cohort_counts.values()) <= 6
-        assert sorted(result.cohort_counts.values()) == [1, 6]
+        assert sorted(result.cohort_counts.values()) == [2, 5]
         assert sum(result.cohort_counts.values()) == 7
     finally:
         app.close()
@@ -241,7 +243,8 @@ def test_5_lesson_ids_without_a_slash_count_for_the_tier_and_give_general(tmp_pa
             + [(PRIOR_WEEK_START + timedelta(hours=2), "math/l1")],
         )
 
-        cohorts = _run(app, [plain, leading_slash, mixed])  # must not raise
+        # _assert_key computes ids with the assign_* defaults, so pin them explicitly.
+        cohorts = _run(app, [plain, leading_slash, mixed], activity_buckets=10, module_buckets=5)  # must not raise
 
         _assert_key(cohorts, plain, EPOCH, 4, "general", "regular")
         _assert_key(cohorts, leading_slash, EPOCH, 10, "general", "intensive")

@@ -292,7 +292,7 @@
       }
       item.appendChild(rank);
       item.appendChild(el("span", "lb-name", row.is_you ? "You" : row.display_name));
-      item.appendChild(el("span", "lb-xp", fmt(row.xp) + " XP"));
+      item.appendChild(el("span", "lb-xp", fmt(row.xp) + " XP this week"));
       list.appendChild(item);
     });
     if (!rows.length) list.appendChild(el("li", "empty", "No rankings yet this week."));

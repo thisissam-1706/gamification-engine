@@ -26,6 +26,7 @@ from uuid import UUID, uuid5
 
 from src.interventions.service import run_remediation
 from src.leaderboard.cohort_builder import build_weekly_cohorts
+from src.leaderboard.poller import run_until_idle
 from src.leaderboard.projection import LeaderboardProjection
 from src.leaderboard.store import SQLiteLeaderboardStore
 from src.notifications.dispatcher import NotificationDispatcher
@@ -37,11 +38,7 @@ from src.notifications.models import (
     NotificationStatus,
 )
 from src.notifications.store import NotificationStore
-from src.scale_and_recovery.rebuild import (
-    SYNTHETIC_BUCKETS,
-    SYNTHETIC_MIN_COHORT_SIZE,
-    read_all_notifications,
-)
+from src.scale_and_recovery.rebuild import SYNTHETIC_BUCKETS, SYNTHETIC_MIN_COHORT_SIZE
 from src.scale_and_recovery.workload import WorkloadProfile, generate_synthetic_workload
 from src.state_machine.learner import Learner, LearnerApplication
 
@@ -187,8 +184,7 @@ def seed(data_dir: Path | str = DATA_DIR) -> dict:
         # 5. Leaderboard read model from the engine's notification log (as the AT-15 harness does).
         store = SQLiteLeaderboardStore(str(data_dir / "leaderboard.db"))
         projection = LeaderboardProjection(store)
-        for notification in read_all_notifications(app, start=1):
-            projection.apply(notification, offset=notification.id)
+        run_until_idle(app, projection)
         store.close()
 
         # 6. Notifications through the real dispatcher (in-app channel).
