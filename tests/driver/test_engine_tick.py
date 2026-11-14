@@ -28,13 +28,14 @@ from src.notifications.models import ChannelType, LearnerPreferences
 from src.notifications.store import NotificationStore
 from src.state_machine.learner import LearnerApplication
 from tests.experiments.support import (
-    ASSESSMENT_ID,
+    EXP_ID,
+    stored_event_names,
     RecordingPush,
     make_learner,
     record_attempt,
 )
 
-STEPS = ("weekly_cycle", "poll", "quest_expiry", "remediation", "streak_risk", "abuse", "reconcile")
+STEPS = ("weekly_cycle", "assign", "poll", "quest_expiry", "remediation", "streak_risk", "abuse", "reconcile")
 CREATED = datetime(2026, 9, 1, tzinfo=timezone.utc)
 NOW = datetime(2026, 10, 12, 15, 40, tzinfo=timezone.utc)
 ATTEMPT_AT = datetime(2026, 10, 11, 10, 0, tzinfo=timezone.utc)
@@ -224,3 +225,60 @@ def test_second_tick_leaves_leaderboard_rows_unchanged(world):
     _run_tick(world)
 
     assert _board_rows(world) == before
+
+
+def test_epoch_is_the_iso_week_in_utc():
+    from scripts.run_engine_tick import _iso_week
+
+    utc_instant = datetime(2026, 10, 18, 23, 30, tzinfo=timezone.utc)  # Sunday, ISO week 42
+    ist_instant = datetime.fromisoformat("2026-10-19T04:00:00+05:30")  # Monday locally, still Sunday 22:30 in UTC
+
+    assert _iso_week(utc_instant) == "2026-W42"
+    assert _iso_week(ist_instant) == _iso_week(utc_instant)
+
+
+def _assignment_events(world):
+    return sum(stored_event_names(world.application, i).count("ExperimentAssigned") for i in world.ids)
+
+
+def test_unassigned_learner_is_assigned_and_gets_an_eligibility_row(world):
+    learner_id = world.ids[0]
+    assert EXP_ID not in _learner(world, learner_id).experiment_assignments
+    assert world.experiment_store.get_eligibility(EXP_ID, learner_id) is None
+
+    result = _run_tick(world)
+
+    assignment = _learner(world, learner_id).experiment_assignments[EXP_ID]
+    assert assignment["variant"] in ("variant_a", "variant_b")
+    assert world.experiment_store.get_eligibility(EXP_ID, learner_id) is not None
+    assert result["steps"]["assign"] == {"assigned": 4, "already_assigned": 0, "ineligible": 0}
+
+
+def test_already_assigned_learner_keeps_variant_and_assigned_at(world):
+    from src.experiments.service import assign_learner_to_experiment
+
+    learner_id = world.ids[1]
+    earlier = datetime(2026, 10, 1, 12, 0, tzinfo=timezone.utc)
+    assert assign_learner_to_experiment(world.application, learner_id, EXP_ID, earlier)
+    before = dict(_learner(world, learner_id).experiment_assignments[EXP_ID])
+
+    result = _run_tick(world)
+
+    assert _learner(world, learner_id).experiment_assignments[EXP_ID] == before
+    assert stored_event_names(world.application, learner_id).count("ExperimentAssigned") == 1
+    assert result["steps"]["assign"]["already_assigned"] == 1
+    assert result["steps"]["assign"]["assigned"] == 3
+
+
+def test_second_tick_at_the_same_instant_adds_no_assignment_rows(world):
+    _run_tick(world)
+    events_before = _assignment_events(world)
+    rows_before = world.experiment_store.list_eligibility(EXP_ID)
+    assert events_before == 4 and len(rows_before) == 4
+
+    second = _run_tick(world)
+
+    assert _assignment_events(world) == events_before
+    assert world.experiment_store.list_eligibility(EXP_ID) == rows_before
+    assert second["steps"]["assign"]["assigned"] == 0
+    assert second["steps"]["assign"]["already_assigned"] == 4

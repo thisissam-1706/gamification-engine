@@ -1,14 +1,23 @@
-"""One tick of the engine's caller-run jobs (skeleton: every step is a stub for now).
+"""One tick of the engine's caller-run jobs, run once and then exit.
 
     python scripts/run_engine_tick.py --db DB --leaderboard-db LB --prefs prefs.json \\
         --now 2026-10-12T15:40:00+00:00 --out tick.json
+
+``run_tick`` runs eight steps in order at ``now`` (a step that raises is reported under its name with an
+``error`` and the rest still run): ``weekly_cycle`` (finalize last ISO week's cohorts, build this week's),
+``assign`` (put learners not yet in exp_007 into it and record their eligibility), ``poll`` (bring the
+leaderboard up to date from the event log), ``quest_expiry``, ``remediation`` (a decision and notice for every
+checkpoint attempt without one), ``streak_risk`` (the exp_007 reminder sweep), ``abuse`` (flag-only signals) and
+``reconcile`` (audit the epoch's leaderboard scopes). ``main`` opens the stores, loads the preferences, prints
+the result as sorted-key JSON, writes it to ``--out`` if given, and exits 1 if any step reported an error (2 for
+bad arguments). The epoch is the ISO week of ``now`` in UTC.
 
 Nothing here schedules itself; the caller (cron) runs it. ``now`` must be timezone-aware.
 """
 
 import argparse
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import sys
@@ -21,6 +30,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from src.abuse.service import AbuseDetectionService  # noqa: E402,F401
 from src.abuse.store import AbuseSignalStore  # noqa: E402
 from src.experiments.prefs import load_preferences  # noqa: E402
+from src.experiments.service import assign_and_record_eligibility  # noqa: E402
 from src.experiments.store import ExperimentStore  # noqa: E402
 from src.ingestion.evidence import EvidenceStore  # noqa: E402
 from src.leaderboard.projection import LeaderboardProjection  # noqa: E402
@@ -38,7 +48,8 @@ from src.notifications.streak_risk import run_streak_risk_sweep  # noqa: E402,F4
 from src.state_machine.learner import Learner, _as_datetime  # noqa: E402
 from src.state_machine.notification_log import read_all_notifications  # noqa: E402
 
-STEP_NAMES = ("weekly_cycle", "poll", "quest_expiry", "remediation", "streak_risk", "abuse", "reconcile")
+EXP_ID = "exp_007"
+STEP_NAMES = ("weekly_cycle", "assign", "poll", "quest_expiry", "remediation", "streak_risk", "abuse", "reconcile")
 
 
 def _run_step(result: dict, name: str, fn) -> None:
@@ -64,7 +75,7 @@ def _all_learner_ids(application) -> list[str]:
 
 
 def _iso_week(now: datetime) -> str:
-    year, week, _ = now.isocalendar()
+    year, week, _ = now.astimezone(timezone.utc).isocalendar()
     return f"{year}-W{week:02d}"
 
 
@@ -83,20 +94,33 @@ def _weekly_cycle_step(application, projection, learner_ids, now, min_size, max_
     }
 
 
+def _assign_step(application, experiment_store, learner_ids, prefs_by_learner, now) -> dict:
+    """Assigns every learner not yet in exp_007 (assigned_at = now) and records one eligibility row each."""
+    if experiment_store is None:
+        raise ValueError("the assign step needs an experiment store")
+    summary = assign_and_record_eligibility(
+        application, experiment_store, learner_ids, prefs_by_learner, EXP_ID, now
+    )
+    return {
+        "assigned": summary.newly_assigned,
+        "already_assigned": summary.already_assigned,
+        "ineligible": summary.excluded,
+    }
+
+
 def _poll_step(application, projection) -> dict:
     return {"applied": run_until_idle(application, projection)}
 
 
 def _reconcile_step(projection, now) -> dict:
-    """Reconciles the epoch's global scope; repairs = inserted + updated + deleted.
-
-    Cohort scopes are NOT reconciled: the reconciler deletes zero-score cohort members as orphans
-    (see docs/audit/driver-step3-leaderboard.md), which would drop their cohort membership.
-    """
+    """Reconciles the epoch's global scope and each of its cohorts; repairs = inserted + updated + deleted."""
     epoch = _iso_week(now)
     store = projection.store
     reconciler = LeaderboardReconciler(store)
-    scopes = [("global", "global")]
+    scopes = [("global", "global")] + [
+        ("cohort", cohort_id)
+        for cohort_id in sorted({e.scope_id for e in store.get_epoch_entries("cohort", epoch)})
+    ]
     repairs = inserted = updated = deleted = 0
     for scope_type, scope_id in scopes:
         audit = reconciler.reconcile_scope(scope_type, scope_id, epoch, audited_at=now.isoformat())
@@ -211,6 +235,9 @@ def run_tick(
             application, dispatcher, learner_ids, prefs_by_learner, now, experiment_store
         ),
         "abuse": lambda: _abuse_step(application, evidence, signal_store, now),
+        "assign": lambda: _assign_step(
+            application, experiment_store, learner_ids, prefs_by_learner, now
+        ),
         "poll": lambda: _poll_step(application, projection),
         "reconcile": lambda: _reconcile_step(projection, now),
     }
@@ -233,6 +260,8 @@ def parse_args(argv=None):
     parser.add_argument("--prefs", required=True, help="notification preferences JSON file")
     parser.add_argument("--now", required=True, help="timezone-aware ISO 8601")
     parser.add_argument("--out", default=None, help="also write the result JSON here")
+    parser.add_argument("--cohort-min-size", type=int, default=500, help="smallest cohort the weekly builder keeps")
+    parser.add_argument("--cohort-max-size", type=int, default=5000, help="largest cohort the weekly builder allows")
     return parser.parse_args(argv)
 
 
@@ -305,6 +334,7 @@ def main(argv=None) -> int:
                 engine.application, engine.projection, engine.dispatcher, engine.evidence,
                 engine.signal_store,
                 now=now, prefs_by_learner=prefs, experiment_store=engine.experiment_store,
+                cohort_min_size=args.cohort_min_size, cohort_max_size=args.cohort_max_size,
             )
     except UsageError as error:
         print(f"error: {error}", file=sys.stderr)

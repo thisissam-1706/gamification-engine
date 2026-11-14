@@ -38,7 +38,7 @@ def test_main_runs_a_tick_and_prints_json(tmp_path, capsys):
     document = json.loads(printed)
     assert code == 0, document
     assert set(document["steps"]) == {
-        "weekly_cycle", "poll", "quest_expiry", "remediation", "streak_risk", "abuse", "reconcile"
+        "weekly_cycle", "assign", "poll", "quest_expiry", "remediation", "streak_risk", "abuse", "reconcile"
     }
     assert json.loads(out.read_text(encoding="utf-8")) == document
 
@@ -53,3 +53,15 @@ def test_main_rejects_a_naive_now_with_exit_code_2(tmp_path, capsys):
     assert code == 2
     assert captured.out == ""
     assert "timezone" in captured.err
+
+
+def test_main_passes_the_cohort_size_flags_to_the_weekly_cycle(tmp_path, capsys):
+    db, prefs = _db_and_prefs(tmp_path)
+
+    code = _main(["--db", db, "--leaderboard-db", str(tmp_path / "board.db"),
+                  "--prefs", prefs, "--now", NOW, "--cohort-min-size", "2", "--cohort-max-size", "10"])
+
+    document = json.loads(capsys.readouterr().out)
+    assert "error" not in document["steps"]["weekly_cycle"], document["steps"]["weekly_cycle"]
+    assert document["steps"]["weekly_cycle"]["assignments_built"] == 4
+    assert code == 0, document

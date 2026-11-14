@@ -199,6 +199,11 @@ class LeaderboardReconciler:
         orphans = projected_subjects - canonical_subjects
         for orphan_id in orphans:
             proj = projected_entries[orphan_id]
+            # A cohort row IS the membership, and canonical state only lists subjects with XP. A member
+            # with score 0 is consistent with that (no XP, score 0), so it stays; a row with a score but
+            # no XP behind it is a phantom and is still removed.
+            if scope_type == "cohort" and proj.score == 0:
+                continue
             # Leave rows newer than pinned offset alone!
             if pinned_offset == 0 or proj.watermark_offset <= pinned_offset:
                 self.store.remove_member(scope_type, scope_id, epoch, orphan_id)

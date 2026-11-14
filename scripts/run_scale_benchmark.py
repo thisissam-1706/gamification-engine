@@ -21,7 +21,7 @@ from src.state_machine.learner import Learner, LearnerApplication
 from src.scale_and_recovery.hardware import capture_hardware_environment
 from src.scale_and_recovery.latency import LatencyThresholds, measure_leaderboard_latency
 from src.scale_and_recovery.outage import NotificationOutageHarness
-from src.scale_and_recovery.rebuild import FullStateRebuildHarness
+from src.scale_and_recovery.rebuild import LEARNER_ID_NAMESPACE, FullStateRebuildHarness
 from src.scale_and_recovery.workload import WorkloadProfile, generate_synthetic_workload
 
 
@@ -43,6 +43,31 @@ ENGINE_EXP_ID = "exp_007"
 ENGINE_ASSESSMENT_ID = "asmt-1"
 ENGINE_ASSIGNED_AT = datetime(2026, 10, 1, 12, 0, tzinfo=timezone.utc)
 ENGINE_AS_OF = ENGINE_ASSIGNED_AT + timedelta(days=30)
+
+
+def latency_sample_ids(workload) -> list[str]:
+    """The leaderboard is keyed by the aggregate UUID strings, not by workload ids like ``learner_0000``."""
+    return [str(uuid5(LEARNER_ID_NAMESPACE, lid)) for lid in workload.learner_ids]
+
+
+def latency_cohort_and_samples(workload, num_query_samples: int) -> tuple[str, list[str]]:
+    """The cohort the latency step measures (the largest, ties to the lowest id) and ``num_query_samples`` ids.
+
+    Only members of that cohort are sampled (a learner belongs to one cohort, so any other id would be a miss
+    for rank and surrounding queries). If the cohort has fewer members than queries, the members are cycled in
+    order so the number of queries stays the same.
+    """
+    assignments = workload.cohort_assignments
+    counts: dict[str, int] = {}
+    for cohort in assignments.values():
+        counts[cohort] = counts.get(cohort, 0) + 1
+    cohort_id = sorted(counts, key=lambda cohort: (-counts[cohort], cohort))[0]
+    members = [
+        str(uuid5(LEARNER_ID_NAMESPACE, lid))
+        for lid in workload.learner_ids
+        if assignments[lid] == cohort_id
+    ]
+    return cohort_id, [members[n % len(members)] for n in range(num_query_samples)]
 
 
 def build_engine_repro_log(db_path: str, population_size: int, seed: int) -> dict:
@@ -165,16 +190,16 @@ def run_benchmark(profile_name: str = "small", seed: int = 42) -> dict:
         print(f"[3/{TOTAL_STEPS}] Measuring leaderboard latency percentiles...")
         harness.initialize_live_system()
         try:
+            cohort_id, sample_ids = latency_cohort_and_samples(workload, latency_queries)
             latency_res = measure_leaderboard_latency(
                 service=harness.service,
                 store=harness.store,
                 epoch=profile.epoch,
-                # Cohorts come from the cohort builder (filled in during ingestion): use the largest.
-                cohort_id=max(sorted(set(workload.cohort_assignments.values())),
-                              key=list(workload.cohort_assignments.values()).count),
-                sample_learners=workload.learner_ids,
+                cohort_id=cohort_id,
+                sample_learners=sample_ids,
                 num_query_samples=latency_queries,
             )
+            print(f"      Cohort members sampled: {len(set(sample_ids))} in {cohort_id}")
             print(f"      Update latency: P50={latency_res.update_latency.p50:.2f}ms, "
                   f"P95={latency_res.update_latency.p95:.2f}ms, P99={latency_res.update_latency.p99:.2f}ms")
             print(f"      Top-K latency:  P50={latency_res.topk_latency.p50:.2f}ms, "
@@ -193,6 +218,10 @@ def run_benchmark(profile_name: str = "small", seed: int = 42) -> dict:
             print(f"      Recovery drain:   {outage_res.recovery_drained_count} drained in {outage_res.recovery_drain_duration_sec:.3f}s "
                   f"({outage_res.drain_throughput_msgs_per_sec:.1f} msgs/sec)")
             print(f"      Duplicates:       {outage_res.duplicate_deliveries_count}")
+            unresolved = len(notif_harness.store.get_dlq_entries(resolved=False))
+            print(f"      Unresolved DLQ:   {unresolved}")
+            for violation in outage_res.violations:
+                print(f"      Violation:        {violation}")
         finally:
             notif_harness.close()
 

@@ -102,7 +102,7 @@ class NotificationOutageHarness:
         for i in range(num_proposals):
             prop = NotificationProposal(
                 proposal_id=f"prop_outage_{i:04d}",
-                learner_id=f"learner_{i % 10:04d}",
+                learner_id=f"learner_{i % max(1, num_proposals // 5):04d}",  # at most 5 per learner (the daily cap)
                 channel=ChannelType.PUSH,
                 category=NotificationCategory.STREAK_RISK,
                 template_id="streak_warning_v1",
