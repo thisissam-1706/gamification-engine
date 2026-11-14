@@ -1,8 +1,8 @@
 """Simulator stubs (Bias-Avoidance Rules 1-6 of simulator/SPEC.md). Written before the implementation.
 
-The four functions in ``simulator/generator.py`` raise NotImplementedError today. These tests pin the
-behaviour the SPEC requires. Assumptions the SPEC does not fix (marked A1-A5 below, listed again in
-docs/audit/m7-sim.md) are the event and entry shapes:
+These tests pin the behaviour the SPEC requires of the four functions in ``simulator/generator.py``.
+Assumptions the SPEC does not fix (marked A1-A5 below; they are listed in this docstring only) are
+the event and entry shapes:
 
 A1  ``generate_baseline_stream(persona, days, seed)`` -> list of dicts, each with ``learner_id``
     (the persona's), ``day`` (int, 0 <= day < days) and ``return_probability`` (float in [0, 1], the

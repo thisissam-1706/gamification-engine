@@ -9,6 +9,10 @@ from src.experiments.assignment import assign
 from src.ingestion.config import IngestConfig
 from src.ingestion.evidence import EvidenceStore
 from src.ingestion.validation import DEFAULT_INGEST_RULE_VERSION, expected_dedup_key
+from src.notifications.channels.push import SimulatedPushAdapter
+from src.notifications.dispatcher import NotificationDispatcher
+from src.notifications.models import ChannelType, LearnerPreferences
+from src.notifications.store import NotificationStore
 from src.state_machine.learner import Learner, LearnerApplication
 
 EXP_ID = "exp_007"
@@ -246,3 +250,70 @@ class NeverDispatcher:
 
     def dispatch(self, proposal, prefs=None, now_utc=None):  # pragma: no cover - failure path
         raise AssertionError(f"dispatcher must not be called (proposal {proposal.proposal_id})")
+
+
+# --- streak-risk sweep helpers (copied from the streak-risk sweep tests under tests/notifications; behaviour unchanged) ---
+
+IST = "Asia/Kolkata"
+LOCAL_DATE = "2026-10-12"  # the local date used by most sweep tests (was `D`)
+YESTERDAY = "2026-10-11"
+# Created long before every simulated "now" below, so the 3-day tenure exclusion never applies
+# (a Learner built with the real clock would be created after the Oct/Nov 2026 test instants).
+STREAK_CREATED = datetime(2026, 9, 1, tzinfo=timezone.utc)
+
+
+def utc(y, mo, d, h, mi=0) -> datetime:
+    return datetime(y, mo, d, h, mi, tzinfo=timezone.utc)
+
+
+def ist(h, mi=0, day=12) -> datetime:
+    """An instant that reads h:mi on 2026-10-<day> in Asia/Kolkata (UTC+5:30, no DST)."""
+    total = h * 60 + mi - 330
+    day_shift, total = divmod(total, 24 * 60)
+    return utc(2026, 10, day + day_shift, total // 60, total % 60)
+
+
+def streak_learner(variant: str | None, active_dates=(YESTERDAY,), nth: int = 0) -> Learner:
+    """A learner whose id hashes into `variant` (None: no assignment), with completions on
+    `active_dates` (explicit activity dates, so the streak is the run of consecutive days)."""
+    learner = Learner._create(
+        Learner.Created, id=uuid_for_variant(variant or "variant_a", EXP_ID, nth=nth), timestamp=STREAK_CREATED
+    )
+    if variant is not None:
+        assert learner.assign_experiment(EXP_ID, assigned_at=ASSIGNED_AT)
+        assert learner.experiment_assignments[EXP_ID]["variant"] == variant  # setup sanity
+    for i, day in enumerate(active_dates):
+        learner.complete_lesson(f"c-{i}", f"lesson-{i}", activity_date=day)
+    return learner
+
+
+def streak_prefs(learner: Learner, tz: str = IST, **kwargs) -> LearnerPreferences:
+    return LearnerPreferences(str(learner.id), timezone=tz, **kwargs)
+
+
+class RecordingPush(SimulatedPushAdapter):
+    """The simulated push adapter, remembering every proposal it was asked to send."""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.proposals = []
+
+    def send(self, proposal):
+        self.proposals.append(proposal)
+        return super().send(proposal)
+
+
+def recording_dispatcher(tmp_path, **kwargs):
+    """(dispatcher, notification store, recording push adapter) on a file in tmp_path."""
+    store = NotificationStore(str(tmp_path / "notif.db"))
+    adapter = RecordingPush()
+    dispatcher = NotificationDispatcher(
+        store=store, adapters={ChannelType.PUSH: adapter}, **kwargs
+    )
+    return dispatcher, store, adapter
+
+
+def persist_learners(application, *learners):
+    for learner in learners:
+        application.save(learner)
+    return [str(learner.id) for learner in learners]

@@ -13,8 +13,10 @@ Written before the implementation. Assumed new function in
   the sha256 hex digest of ``json.dumps(run.to_dict(), sort_keys=True)`` (UTF-8);
   ``bit_identical = checksum_first == checksum_second``; ``population_size`` = learners assigned for
   ``exp_id`` in the log; ``total_attempts`` = CheckpointAttempted events for ``assessment_id`` of
-  those learners. ``as_of`` is an aware datetime. No awards are passed to ``run_experiment`` (the
-  brief does not say where they come from), so gaming is trivially clean here.
+  those learners. ``as_of`` is an aware datetime. The awards passed to ``run_experiment`` come from
+  an ``AbuseDetectionService`` built on the same database (with an ``EvidenceStore`` on the same file)
+  for both passes, so the gaming guardrail is exercised; the gaming test at the bottom of this file
+  relies on that.
 """
 
 import hashlib

@@ -38,7 +38,7 @@ where:
   `A(subject_id, exp_id) = int.from_bytes(sha256(json.dumps([subject_id, exp_id], separators=(',', ':')).encode('utf-8')).digest()[:8], 'big') mod 100`
   i.e. the first 8 bytes of the SHA-256 of the compact UTF-8 JSON array [subject_id, exp_id], read as a big-endian unsigned integer, mod 100 (versioned as hash_v2). The JSON array deliberately avoids plain concatenation, which collides: ('ab', 'c') and ('a', 'bc') would both hash 'abc'.
 * **Primary Metric (Mprimary):** The core educational or behavioral outcome measure used to evaluate policy efficacy.
-* **Guardrails (G):** A set of systemic constraints (e.g., daily notification caps, fatigue thresholds, decayed-XP caps) that, if violated by any treatment variant, automatically invalidate the experiment and halt policy execution.
+* **Guardrails (G):** A set of systemic constraints (e.g., daily notification caps, fatigue thresholds, decayed-XP caps) that, if violated by any treatment variant, make the run invalid: `run_experiment` returns `valid` False with `invalid_reasons` and still reports every number. Acting on that verdict (stopping the policy) is the caller's job and is not automated.
 * **Contamination & SRM Checks (C):** Automated statistical controls, including a chi-square (χ2) goodness-of-fit test on assignment distribution, to catch Sample-Ratio Mismatch (SRM).
 
 **Implementation Example (exp_007)**

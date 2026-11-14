@@ -26,15 +26,16 @@ from src.experiments.store import ExperimentStore
 from src.notifications.models import NotificationStatus, TerminalFact
 from src.notifications.streak_risk import run_streak_risk_sweep
 from src.state_machine.learner import Learner
-from tests.experiments.support import EXP_ID, open_persisted
-from tests.notifications.test_streak_risk import (
-    D,
+from tests.experiments.support import (
+    EXP_ID,
+    LOCAL_DATE,
     YESTERDAY,
-    _dispatcher,
-    _learner,
-    _persist,
-    _prefs,
     ist,
+    open_persisted,
+    persist_learners,
+    recording_dispatcher,
+    streak_learner,
+    streak_prefs,
 )
 
 COLUMNS = "exp_id, learner_id, variant, decided_at, outcome, reason, proposal_id, fact_event_id, fact_status"
@@ -54,7 +55,7 @@ def _by_learner(store: ExperimentStore) -> dict[str, dict]:
 
 def _sweep(application, dispatcher, learners, now, store=None, **kwargs):
     ids = [str(learner.id) for learner in learners]
-    prefs = {str(learner.id): _prefs(learner) for learner in learners}
+    prefs = {str(learner.id): streak_prefs(learner) for learner in learners}
     return run_streak_risk_sweep(
         application, dispatcher, ids, prefs, now_utc=now, store=store, **kwargs
     )
@@ -80,10 +81,10 @@ def _eligibility_row(learner, *, eligible: bool, reason: str | None) -> dict:
 
 def test_sent_and_skipped_outcomes_each_get_one_decision_row(tmp_path):
     with open_persisted(tmp_path) as (application, _):
-        sent = _learner("variant_a")
-        done = _learner("variant_a", active_dates=(YESTERDAY, D), nth=1)
-        _persist(application, sent, done)
-        dispatcher, notif_store, push = _dispatcher(tmp_path)
+        sent = streak_learner("variant_a")
+        done = streak_learner("variant_a", active_dates=(YESTERDAY, LOCAL_DATE), nth=1)
+        persist_learners(application, sent, done)
+        dispatcher, notif_store, push = recording_dispatcher(tmp_path)
         store = ExperimentStore(":memory:")
         try:
             now = ist(21, 10)
@@ -115,9 +116,9 @@ def test_sent_and_skipped_outcomes_each_get_one_decision_row(tmp_path):
 
 def test_quiet_hours_skip_is_recorded_with_its_reason(tmp_path):
     with open_persisted(tmp_path) as (application, _):
-        learner = _learner("variant_a")
-        _persist(application, learner)
-        dispatcher, notif_store, push = _dispatcher(tmp_path)
+        learner = streak_learner("variant_a")
+        persist_learners(application, learner)
+        dispatcher, notif_store, push = recording_dispatcher(tmp_path)
         store = ExperimentStore(":memory:")
         try:
             _sweep(application, dispatcher, [learner], ist(23, 0), store=store)
@@ -134,10 +135,10 @@ def test_quiet_hours_skip_is_recorded_with_its_reason(tmp_path):
 
 def test_store_none_behaves_as_before(tmp_path):
     with open_persisted(tmp_path) as (application, _):
-        sent = _learner("variant_a")
-        control = _learner("variant_b", nth=1)
-        _persist(application, sent, control)
-        dispatcher, notif_store, push = _dispatcher(tmp_path)
+        sent = streak_learner("variant_a")
+        control = streak_learner("variant_b", nth=1)
+        persist_learners(application, sent, control)
+        dispatcher, notif_store, push = recording_dispatcher(tmp_path)
         try:
             result = _sweep(application, dispatcher, [sent, control], ist(21, 10), store=None)
             first, second = result.outcomes
@@ -154,10 +155,10 @@ def test_store_none_behaves_as_before(tmp_path):
 
 def test_rerun_with_same_now_adds_no_duplicate_rows(tmp_path):
     with open_persisted(tmp_path) as (application, _):
-        sent = _learner("variant_a")
-        control = _learner("variant_b", nth=1)
-        _persist(application, sent, control)
-        dispatcher, notif_store, push = _dispatcher(tmp_path)
+        sent = streak_learner("variant_a")
+        control = streak_learner("variant_b", nth=1)
+        persist_learners(application, sent, control)
+        dispatcher, notif_store, push = recording_dispatcher(tmp_path)
         store = ExperimentStore(":memory:")
         try:
             now = ist(21, 10)
@@ -177,9 +178,9 @@ def test_rerun_with_same_now_adds_no_duplicate_rows(tmp_path):
 def test_stored_ineligible_learner_is_skipped_without_calling_the_dispatcher(tmp_path):
     with open_persisted(tmp_path) as (application, _):
         # Live checks pass: treatment arm, created long ago, no opt-outs, streak at risk.
-        learner = _learner("variant_a")
-        _persist(application, learner)
-        dispatcher, notif_store, push = _dispatcher(tmp_path)
+        learner = streak_learner("variant_a")
+        persist_learners(application, learner)
+        dispatcher, notif_store, push = recording_dispatcher(tmp_path)
         store = ExperimentStore(":memory:")
         try:
             store.record_eligibility(
@@ -192,7 +193,7 @@ def test_stored_ineligible_learner_is_skipped_without_calling_the_dispatcher(tmp
             assert outcome.reason == "ineligible:excluded_tenure"
             assert push.proposals == []
             assert not notif_store.is_proposal_seen(
-                f"streak_risk:{learner.id}:{D}:2100"
+                f"streak_risk:{learner.id}:{LOCAL_DATE}:2100"
             )
             (row,) = _decisions(store)
             assert row["outcome"] == "skipped"
@@ -205,9 +206,9 @@ def test_stored_ineligible_learner_is_skipped_without_calling_the_dispatcher(tmp
 
 def test_stored_eligible_learner_is_still_sent(tmp_path):
     with open_persisted(tmp_path) as (application, _):
-        learner = _learner("variant_a")
-        _persist(application, learner)
-        dispatcher, notif_store, push = _dispatcher(tmp_path)
+        learner = streak_learner("variant_a")
+        persist_learners(application, learner)
+        dispatcher, notif_store, push = recording_dispatcher(tmp_path)
         store = ExperimentStore(":memory:")
         try:
             store.record_eligibility(_eligibility_row(learner, eligible=True, reason=None))
@@ -225,9 +226,9 @@ def test_stored_eligible_learner_is_still_sent(tmp_path):
 
 def test_control_learners_are_recorded_as_skipped_not_treatment(tmp_path):
     with open_persisted(tmp_path) as (application, _):
-        control = _learner("variant_b")
-        _persist(application, control)
-        dispatcher, notif_store, push = _dispatcher(tmp_path)
+        control = streak_learner("variant_b")
+        persist_learners(application, control)
+        dispatcher, notif_store, push = recording_dispatcher(tmp_path)
         store = ExperimentStore(":memory:")
         try:
             _sweep(application, dispatcher, [control], ist(21, 10), store=store)
@@ -246,9 +247,9 @@ def test_control_learners_are_recorded_as_skipped_not_treatment(tmp_path):
 
 def test_sweep_at_a_different_now_adds_new_rows(tmp_path):
     with open_persisted(tmp_path) as (application, _):
-        learner = _learner("variant_a")
-        _persist(application, learner)
-        dispatcher, notif_store, push = _dispatcher(tmp_path)
+        learner = streak_learner("variant_a")
+        persist_learners(application, learner)
+        dispatcher, notif_store, push = recording_dispatcher(tmp_path)
         store = ExperimentStore(":memory:")
         try:
             _sweep(application, dispatcher, [learner], ist(20, 10), store=store)
@@ -287,8 +288,8 @@ class _FixedStatusDispatcher:
 @pytest.mark.parametrize("status", [NotificationStatus.SUPPRESSED, NotificationStatus.FAILED])
 def test_suppressed_or_failed_fact_is_recorded_as_sent_with_that_status(tmp_path, status):
     with open_persisted(tmp_path) as (application, _):
-        learner = _learner("variant_a")
-        _persist(application, learner)
+        learner = streak_learner("variant_a")
+        persist_learners(application, learner)
         dispatcher = _FixedStatusDispatcher(status)
         store = ExperimentStore(":memory:")
         try:
@@ -298,23 +299,23 @@ def test_suppressed_or_failed_fact_is_recorded_as_sent_with_that_status(tmp_path
             assert row["reason"] is None
             assert row["fact_status"] == status.value
             assert row["fact_event_id"] == result.outcomes[0].fact.event_id == "evt-1"
-            assert row["proposal_id"] == f"streak_risk:{learner.id}:{D}:2100"
+            assert row["proposal_id"] == f"streak_risk:{learner.id}:{LOCAL_DATE}:2100"
         finally:
             store.close()
 
 
 def test_no_stored_eligibility_row_falls_through_to_normal_evaluation(tmp_path):
     with open_persisted(tmp_path) as (application, _):
-        ok = _learner("variant_a")
-        young = _learner("variant_a", nth=1)
+        ok = streak_learner("variant_a")
+        young = streak_learner("variant_a", nth=1)
         young_created = ist(21, 10) - timedelta(days=1)
         young = _young(young, young_created)
-        _persist(application, ok, young)
-        dispatcher, notif_store, push = _dispatcher(tmp_path)
+        persist_learners(application, ok, young)
+        dispatcher, notif_store, push = recording_dispatcher(tmp_path)
         store = ExperimentStore(":memory:")
         try:
             # An unrelated learner's row exists; neither of these learners has one.
-            other = _learner("variant_a", nth=2)
+            other = streak_learner("variant_a", nth=2)
             store.record_eligibility(_eligibility_row(other, eligible=False, reason="excluded_tenure"))
             result = _sweep(application, dispatcher, [ok, young], ist(21, 10), store=store)
             first, second = result.outcomes
@@ -339,10 +340,10 @@ def _young(learner: Learner, created: datetime) -> Learner:
 def test_decision_rows_survive_store_reopen(tmp_path):
     db = str(tmp_path / "experiments.db")
     with open_persisted(tmp_path) as (application, _):
-        sent = _learner("variant_a")
-        control = _learner("variant_b", nth=1)
-        _persist(application, sent, control)
-        dispatcher, notif_store, push = _dispatcher(tmp_path)
+        sent = streak_learner("variant_a")
+        control = streak_learner("variant_b", nth=1)
+        persist_learners(application, sent, control)
+        dispatcher, notif_store, push = recording_dispatcher(tmp_path)
         store = ExperimentStore(db)
         try:
             now = ist(21, 10)

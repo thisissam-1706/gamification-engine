@@ -29,12 +29,12 @@ from src.experiments.runner import exposure_by_arm
 from src.experiments.service import assign_learner_to_experiment
 from src.experiments.srm import SRM_ALPHA, srm_check
 from src.state_machine.learner import Learner
-from tests.experiments.test_m7_inputs import _attempt
 from tests.experiments.support import (
     ASSIGNED_AT,
     EXP_ID,
     TREATMENT_SURFACE,
     open_persisted,
+    record_attempt,
     uuid_for_variant,
 )
 
@@ -493,8 +493,8 @@ def test_no_eligible_learners_is_flagged_and_does_not_raise(env):
 def test_invalid_run_still_returns_mastery_per_arm(env):
     application, _, nstore = env
     ids = _population(env)
-    _attempt(application, ids["a"][0], "att-t-pass", passed=True)
-    _attempt(application, ids["b"][0], "att-c-fail", passed=False)
+    record_attempt(application, ids["a"][0], "att-t-pass", passed=True)
+    record_attempt(application, ids["b"][0], "att-c-fail", passed=False)
     _violate(nstore, ids["a"][1], D1.isoformat())  # makes the run invalid
 
     result = _run_experiment(env, as_of=AS_OF_30)
@@ -511,9 +511,9 @@ def test_invalid_run_still_returns_mastery_per_arm(env):
 def test_mastery_counts_only_eligible_learners_and_the_given_assessment(env):
     application, _, _ = env
     ids = _population(env, treatment=3, control=3, eligible_treatment=2)  # a[2] ineligible
-    _attempt(application, ids["a"][0], "att-1", passed=True)
-    _attempt(application, ids["a"][2], "att-ineligible", passed=True)  # must not count
-    _attempt(application, ids["a"][1], "att-other", assessment_id="asmt-2", passed=True)
+    record_attempt(application, ids["a"][0], "att-1", passed=True)
+    record_attempt(application, ids["a"][2], "att-ineligible", passed=True)  # must not count
+    record_attempt(application, ids["a"][1], "att-other", assessment_id="asmt-2", passed=True)
 
     treatment = _run_experiment(env, as_of=AS_OF_30).arms["treatment"].mastery
     assert treatment.assigned == 2
@@ -573,7 +573,7 @@ def test_one_empty_arm_alerts_srm_and_still_reports(env):
 def test_everyone_immature_gives_no_rate_and_does_not_invalidate_the_run(env):
     application, _, _ = env
     ids = _population(env)
-    _attempt(application, ids["a"][0], "att-1", passed=True)
+    record_attempt(application, ids["a"][0], "att-1", passed=True)
     result = _run_experiment(env)  # as_of is 10 days after assignment: windows are still open
     for arm in result.arms.values():
         assert arm.mastery.rate is None
@@ -587,7 +587,7 @@ def test_two_runs_on_the_same_data_are_identical(env):
 
     application, _, nstore = env
     ids = _population(env)
-    _attempt(application, ids["a"][0], "att-1", passed=True)
+    record_attempt(application, ids["a"][0], "att-1", passed=True)
     _violate(nstore, ids["b"][0], D1.isoformat(), variant="variant_b")
     awards = [_award(ids["a"][0], D1, 100, None), _award(ids["b"][1], D1, 30, 1)]
 
