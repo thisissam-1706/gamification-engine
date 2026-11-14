@@ -227,3 +227,68 @@ def test_a_run_with_an_invalid_verdict_still_reproduces_bit_identically(tmp_path
     assert result.checksum_first == result.checksum_second
     # The invalid run still carries its numbers.
     assert result.run_first.arms["treatment"].mastery.assigned == 4
+
+
+# Gaming guardrail through the abuse service (M7 repro2) ---------------------------------------------------
+
+
+def _build_gaming_log(db: str) -> dict[str, list[str]]:
+    """4 + 4 eligible learners, no attempts, no cap violations; repeat XP only in the treatment arm.
+
+    Week 2026-W40 (2026-10-02): treatment t0 completes lesson-1 for 100 XP, then again for 60 XP (repeat_index 1,
+    so 60 is repeat XP), t1 completes lesson-2 for 100 XP: treatment total 260, repeat 60, share 0.23 > 0.15.
+    Control c0 and c1 complete one lesson each for 100 XP: share 0.
+    XP amounts are explicit so the shares do not depend on the decay ruleset.
+    """
+    application = _application(db)
+    store = ExperimentStore(db)
+    nstore = NotificationStore(db)
+    ids: dict[str, list[str]] = {"a": [], "b": []}
+    try:
+        for key, variant in (("a", "variant_a"), ("b", "variant_b")):
+            for nth in range(4):
+                learner = Learner._create(Learner.Created, id=uuid_for_variant(variant, EXP_ID, nth=nth))
+                application.save(learner)
+                learner_id = str(learner.id)
+                assert assign_learner_to_experiment(application, learner_id, EXP_ID, ASSIGNED_AT)
+                store.record_eligibility(_eligibility_row(learner_id, variant))
+                ids[key].append(learner_id)
+        completions = (
+            (ids["a"][0], "c-a0-first", "lesson-1", 100, T1),
+            (ids["a"][0], "c-a0-repeat", "lesson-1", 60, T1 + timedelta(hours=1)),
+            (ids["a"][1], "c-a1", "lesson-2", 100, T1),
+            (ids["b"][0], "c-b0", "lesson-1", 100, T1),
+            (ids["b"][1], "c-b1", "lesson-2", 100, T1),
+        )
+        for learner_id, completion_id, lesson_id, xp, at in completions:
+            learner = application.repository.get(UUID(learner_id))
+            assert learner.complete_lesson(
+                completion_id, lesson_id, xp_amount=xp, occurred_at=at, timezone="UTC"
+            )
+            application.save(learner)
+    finally:
+        nstore.close()
+        store.close()
+        application.close()
+    return ids
+
+
+def test_repeat_xp_over_the_weekly_share_invalidates_the_run_and_still_reproduces(tmp_path):
+    db = str(tmp_path / "gaming.db")
+    _build_gaming_log(db)
+
+    result = _verify(db)
+
+    for run in (result.run_first, result.run_second):
+        assert run.valid is False
+        assert "gaming_share_breach" in run.invalid_reasons
+        assert list(run.invalid_reasons) == ["gaming_share_breach"]  # nothing else is wrong with this log
+        assert run.gaming.breached is True
+        week = {r.cohort_id: r for r in run.gaming.weeks["2026-W40"]}
+        assert (week["variant_a"].total_xp, week["variant_a"].repeat_xp) == (260, 60)
+        assert week["variant_a"].breached is True
+        assert (week["variant_b"].total_xp, week["variant_b"].repeat_xp) == (200, 0)
+        assert week["variant_b"].breached is False
+    assert result.bit_identical is True
+    assert result.checksum_first == result.checksum_second
+    assert result.run_first.to_dict() == result.run_second.to_dict()
