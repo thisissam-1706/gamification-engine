@@ -15,7 +15,7 @@ from src.experiments.metrics import MasteryReport, mastery_report
 from src.experiments.srm import srm_check
 from src.experiments.store import ExperimentStore
 from src.notifications.store import NotificationStore
-from src.scale_and_recovery.rebuild import read_all_notifications
+from src.state_machine.notification_log import read_all_notifications
 from src.state_machine.learner import Learner, LearnerApplication
 
 TREATMENT_VARIANT = "variant_a"

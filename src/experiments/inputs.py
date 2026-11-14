@@ -4,7 +4,7 @@ from collections.abc import Collection
 from dataclasses import dataclass
 from datetime import datetime
 
-from src.scale_and_recovery.rebuild import read_all_notifications
+from src.state_machine.notification_log import read_all_notifications
 from src.state_machine.learner import Learner, LearnerApplication
 
 

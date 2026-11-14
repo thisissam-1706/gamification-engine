@@ -9,13 +9,13 @@ import time
 from typing import Any, Literal
 from uuid import UUID, uuid5
 
-from eventsourcing.application import Notification
 from src.leaderboard.cohort_builder import build_weekly_cohorts
 from src.leaderboard.poller import run_until_idle
 from src.leaderboard.projection import LeaderboardProjection
 from src.leaderboard.service import LeaderboardService
 from src.leaderboard.store import SQLiteLeaderboardStore
 from src.state_machine.learner import Learner, LearnerApplication
+from src.state_machine.notification_log import read_all_notifications  # noqa: F401  (re-exported)
 from src.state_machine.projection import rebuild_learner_state
 from .workload import SyntheticWorkload
 
@@ -86,23 +86,6 @@ class RebuildResult:
             "post_checksum": self.post_checksum,
             "mismatches": self.mismatches,
         }
-
-
-def read_all_notifications(app: LearnerApplication, start: int = 1) -> list[Notification]:
-    """Reads all notifications from application notification log starting at given position."""
-    notifications = []
-    pos = start
-    while True:
-        batch = list(
-            app.notification_log.select(
-                start=pos, limit=app.notification_log.section_size
-            )
-        )
-        if not batch:
-            break
-        notifications.extend(batch)
-        pos = batch[-1].id + 1
-    return notifications
 
 
 class FullStateRebuildHarness:
