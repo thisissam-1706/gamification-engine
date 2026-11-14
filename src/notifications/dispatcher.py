@@ -62,6 +62,20 @@ class NotificationDispatcher:
         self.quiet_end_hour = quiet_end_hour
         self.clock = clock
 
+    def _record_cap_violation(self, proposal: NotificationProposal, now_iso: str) -> None:
+        """Records a daily-cap guardrail violation for a proposal that belongs to an experiment."""
+        if proposal.experiment_id is None:
+            return
+        self.store.record_guardrail_violation(
+            violation_id=f"viol_{uuid.uuid4().hex[:12]}",
+            experiment_id=proposal.experiment_id,
+            variant=proposal.variant,
+            learner_id=proposal.learner_id,
+            proposal_id=proposal.proposal_id,
+            reason="daily_cap_exceeded",
+            occurred_at=now_iso,
+        )
+
     def _resolve_now_dt(self, now_utc: datetime | str | None) -> tuple[datetime, str]:
         """Resolves current timestamp from parameter or injected clock.
         
@@ -120,6 +134,8 @@ class NotificationDispatcher:
                 "missing_preferences",
                 correlation_id=proposal.correlation_id,
                 causation_id=proposal.causation_id,
+                experiment_id=proposal.experiment_id,
+                variant=proposal.variant,
             )
             return _terminal_fact(
                 proposal,
@@ -148,6 +164,8 @@ class NotificationDispatcher:
                 consent_reason or "opt_out",
                 correlation_id=proposal.correlation_id,
                 causation_id=proposal.causation_id,
+                experiment_id=proposal.experiment_id,
+                variant=proposal.variant,
             )
             return _terminal_fact(
                 proposal,
@@ -176,6 +194,8 @@ class NotificationDispatcher:
                 "ttl_expired",
                 correlation_id=proposal.correlation_id,
                 causation_id=proposal.causation_id,
+                experiment_id=proposal.experiment_id,
+                variant=proposal.variant,
             )
             return _terminal_fact(
                 proposal,
@@ -214,7 +234,10 @@ class NotificationDispatcher:
                 fatigue_reason or "daily_cap_exceeded",
                 correlation_id=proposal.correlation_id,
                 causation_id=proposal.causation_id,
+                experiment_id=proposal.experiment_id,
+                variant=proposal.variant,
             )
+            self._record_cap_violation(proposal, now_iso)
             return _terminal_fact(
                 proposal,
                 event_id=suppression_id,
@@ -249,6 +272,8 @@ class NotificationDispatcher:
                 "invalid_timezone",
                 correlation_id=proposal.correlation_id,
                 causation_id=proposal.causation_id,
+                experiment_id=proposal.experiment_id,
+                variant=proposal.variant,
             )
             return _terminal_fact(
                 proposal,
@@ -277,6 +302,8 @@ class NotificationDispatcher:
                     "ttl_expired",
                     correlation_id=proposal.correlation_id,
                     causation_id=proposal.causation_id,
+                    experiment_id=proposal.experiment_id,
+                    variant=proposal.variant,
                 )
                 return _terminal_fact(
                     proposal,
@@ -305,6 +332,8 @@ class NotificationDispatcher:
                 ttl_seconds=proposal.ttl_seconds,
                 correlation_id=proposal.correlation_id,
                 causation_id=proposal.causation_id,
+                experiment_id=proposal.experiment_id,
+                variant=proposal.variant,
             )
             return _terminal_fact(
                 proposal,
@@ -334,6 +363,8 @@ class NotificationDispatcher:
                 "unsupported_channel",
                 correlation_id=proposal.correlation_id,
                 causation_id=proposal.causation_id,
+                experiment_id=proposal.experiment_id,
+                variant=proposal.variant,
             )
             return _terminal_fact(
                 proposal,
@@ -364,6 +395,8 @@ class NotificationDispatcher:
                 proposal.payload,
                 correlation_id=proposal.correlation_id,
                 causation_id=proposal.causation_id,
+                experiment_id=proposal.experiment_id,
+                variant=proposal.variant,
             )
             return _terminal_fact(
                 proposal,
@@ -394,6 +427,8 @@ class NotificationDispatcher:
                 ttl_seconds=proposal.ttl_seconds,
                 correlation_id=proposal.correlation_id,
                 causation_id=proposal.causation_id,
+                experiment_id=proposal.experiment_id,
+                variant=proposal.variant,
             )
             return _terminal_fact(
                 proposal,
@@ -446,6 +481,8 @@ class NotificationDispatcher:
                 ttl_seconds=ttl_seconds,
                 correlation_id=item.get("correlation_id"),
                 causation_id=item.get("causation_id"),
+                experiment_id=item.get("experiment_id"),
+                variant=item.get("variant"),
             )
 
             # Retrieve preferences
@@ -468,6 +505,8 @@ class NotificationDispatcher:
                     release_proposal_id=proposal_id,
                     correlation_id=proposal.correlation_id,
                     causation_id=proposal.causation_id,
+                    experiment_id=proposal.experiment_id,
+                    variant=proposal.variant,
                 )
                 facts.append(
                     _terminal_fact(
@@ -503,6 +542,8 @@ class NotificationDispatcher:
                     release_proposal_id=proposal_id,
                     correlation_id=proposal.correlation_id,
                     causation_id=proposal.causation_id,
+                    experiment_id=proposal.experiment_id,
+                    variant=proposal.variant,
                 )
                 facts.append(
                     _terminal_fact(
@@ -535,6 +576,8 @@ class NotificationDispatcher:
                     ttl_seconds=ttl_seconds,
                     correlation_id=proposal.correlation_id,
                     causation_id=proposal.causation_id,
+                    experiment_id=proposal.experiment_id,
+                    variant=proposal.variant,
                 )
                 facts.append(
                     _terminal_fact(
@@ -568,6 +611,8 @@ class NotificationDispatcher:
                     release_proposal_id=proposal_id,
                     correlation_id=proposal.correlation_id,
                     causation_id=proposal.causation_id,
+                    experiment_id=proposal.experiment_id,
+                    variant=proposal.variant,
                 )
                 facts.append(
                     _terminal_fact(
@@ -599,6 +644,8 @@ class NotificationDispatcher:
                     release_proposal_id=proposal_id,
                     correlation_id=proposal.correlation_id,
                     causation_id=proposal.causation_id,
+                    experiment_id=proposal.experiment_id,
+                    variant=proposal.variant,
                 )
                 facts.append(
                     _terminal_fact(
@@ -641,7 +688,10 @@ class NotificationDispatcher:
                     release_proposal_id=proposal_id,
                     correlation_id=proposal.correlation_id,
                     causation_id=proposal.causation_id,
+                    experiment_id=proposal.experiment_id,
+                    variant=proposal.variant,
                 )
+                self._record_cap_violation(proposal, now_iso)
                 facts.append(
                     _terminal_fact(
                         proposal,
@@ -673,6 +723,8 @@ class NotificationDispatcher:
                     release_proposal_id=proposal_id,
                     correlation_id=proposal.correlation_id,
                     causation_id=proposal.causation_id,
+                    experiment_id=proposal.experiment_id,
+                    variant=proposal.variant,
                 )
                 facts.append(
                     _terminal_fact(
@@ -704,6 +756,8 @@ class NotificationDispatcher:
                     release_proposal_id=proposal_id,
                     correlation_id=proposal.correlation_id,
                     causation_id=proposal.causation_id,
+                    experiment_id=proposal.experiment_id,
+                    variant=proposal.variant,
                 )
                 facts.append(
                     _terminal_fact(
@@ -737,6 +791,8 @@ class NotificationDispatcher:
                     release_proposal_id=proposal_id,
                     correlation_id=proposal.correlation_id,
                     causation_id=proposal.causation_id,
+                    experiment_id=proposal.experiment_id,
+                    variant=proposal.variant,
                 )
                 facts.append(
                     _terminal_fact(
@@ -790,6 +846,8 @@ class NotificationDispatcher:
             ttl_seconds=ttl_seconds,
             correlation_id=entry.get("correlation_id"),
             causation_id=entry.get("causation_id"),
+            experiment_id=entry.get("experiment_id"),
+            variant=entry.get("variant"),
         )
 
         # 1. Preferences requirement
@@ -805,6 +863,8 @@ class NotificationDispatcher:
                 "missing_preferences",
                 correlation_id=proposal.correlation_id,
                 causation_id=proposal.causation_id,
+                experiment_id=proposal.experiment_id,
+                variant=proposal.variant,
             )
             return _terminal_fact(
                 proposal,
@@ -833,6 +893,8 @@ class NotificationDispatcher:
                 consent_reason or "opt_out",
                 correlation_id=proposal.correlation_id,
                 causation_id=proposal.causation_id,
+                experiment_id=proposal.experiment_id,
+                variant=proposal.variant,
             )
             return _terminal_fact(
                 proposal,
@@ -860,6 +922,8 @@ class NotificationDispatcher:
                 "ttl_expired",
                 correlation_id=proposal.correlation_id,
                 causation_id=proposal.causation_id,
+                experiment_id=proposal.experiment_id,
+                variant=proposal.variant,
             )
             return _terminal_fact(
                 proposal,
@@ -891,6 +955,8 @@ class NotificationDispatcher:
                 "invalid_timezone",
                 correlation_id=proposal.correlation_id,
                 causation_id=proposal.causation_id,
+                experiment_id=proposal.experiment_id,
+                variant=proposal.variant,
             )
             return _terminal_fact(
                 proposal,
@@ -919,6 +985,8 @@ class NotificationDispatcher:
                 ttl_seconds=ttl_seconds,
                 correlation_id=proposal.correlation_id,
                 causation_id=proposal.causation_id,
+                experiment_id=proposal.experiment_id,
+                variant=proposal.variant,
             )
             return _terminal_fact(
                 proposal,
@@ -958,7 +1026,10 @@ class NotificationDispatcher:
                 fatigue_reason or "daily_cap_exceeded",
                 correlation_id=proposal.correlation_id,
                 causation_id=proposal.causation_id,
+                experiment_id=proposal.experiment_id,
+                variant=proposal.variant,
             )
+            self._record_cap_violation(proposal, now_iso)
             return _terminal_fact(
                 proposal,
                 event_id=suppression_id,
@@ -986,6 +1057,8 @@ class NotificationDispatcher:
                 "unsupported_channel",
                 correlation_id=proposal.correlation_id,
                 causation_id=proposal.causation_id,
+                experiment_id=proposal.experiment_id,
+                variant=proposal.variant,
             )
             return _terminal_fact(
                 proposal,
@@ -1014,6 +1087,8 @@ class NotificationDispatcher:
                 resolve_dlq_id=dlq_id,
                 correlation_id=proposal.correlation_id,
                 causation_id=proposal.causation_id,
+                experiment_id=proposal.experiment_id,
+                variant=proposal.variant,
             )
             return _terminal_fact(
                 proposal,

@@ -33,7 +33,9 @@ class NotificationStore:
                 created_at TEXT NOT NULL,
                 status TEXT NOT NULL,
                 correlation_id TEXT,
-                causation_id TEXT
+                causation_id TEXT,
+                experiment_id TEXT,
+                variant TEXT
             )
             """
         )
@@ -86,7 +88,9 @@ class NotificationStore:
                 template_id TEXT DEFAULT 'default_template',
                 ttl_seconds INTEGER DEFAULT 86400,
                 correlation_id TEXT,
-                causation_id TEXT
+                causation_id TEXT,
+                experiment_id TEXT,
+                variant TEXT
             )
             """
         )
@@ -104,7 +108,23 @@ class NotificationStore:
                 template_id TEXT DEFAULT 'default_template',
                 ttl_seconds INTEGER DEFAULT 86400,
                 correlation_id TEXT,
-                causation_id TEXT
+                causation_id TEXT,
+                experiment_id TEXT,
+                variant TEXT
+            )
+            """
+        )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS notification_guardrail_violations (
+                violation_id TEXT PRIMARY KEY,
+                experiment_id TEXT NOT NULL,
+                variant TEXT,
+                learner_id TEXT NOT NULL,
+                proposal_id TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                occurred_at TEXT NOT NULL,
+                UNIQUE (proposal_id, reason)
             )
             """
         )
@@ -139,6 +159,13 @@ class NotificationStore:
         for column in ("correlation_id", "causation_id"):
             if column not in proposal_cols:
                 cursor.execute(f"ALTER TABLE notification_proposals ADD COLUMN {column} TEXT")
+        for column in ("experiment_id", "variant"):
+            if column not in proposal_cols:
+                cursor.execute(f"ALTER TABLE notification_proposals ADD COLUMN {column} TEXT")
+            if column not in rescheduled_cols:
+                cursor.execute(f"ALTER TABLE notification_rescheduled ADD COLUMN {column} TEXT")
+            if column not in dlq_cols:
+                cursor.execute(f"ALTER TABLE notification_dlq ADD COLUMN {column} TEXT")
         self.connection.commit()
 
     def get_proposal_status(self, proposal_id: str) -> NotificationStatus | None:
@@ -182,8 +209,8 @@ class NotificationStore:
                     """
                     INSERT INTO notification_proposals (
                         proposal_id, learner_id, channel, category, created_at, status,
-                        correlation_id, causation_id
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        correlation_id, causation_id, experiment_id, variant
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         proposal.proposal_id,
@@ -194,6 +221,8 @@ class NotificationStore:
                         status.value if isinstance(status, NotificationStatus) else str(status),
                         proposal.correlation_id,
                         proposal.causation_id,
+                        proposal.experiment_id,
+                        proposal.variant,
                     ),
                 )
             return True
@@ -223,6 +252,8 @@ class NotificationStore:
         resolve_dlq_id: str | None = None,
         correlation_id: str | None = None,
         causation_id: str | None = None,
+        experiment_id: str | None = None,
+        variant: str | None = None,
     ) -> None:
         with self.connection:
             cursor = self.connection.cursor()
@@ -251,8 +282,8 @@ class NotificationStore:
                     """
                     INSERT INTO notification_proposals (
                         proposal_id, learner_id, channel, category, created_at, status,
-                        correlation_id, causation_id
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        correlation_id, causation_id, experiment_id, variant
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         proposal_id,
@@ -263,6 +294,8 @@ class NotificationStore:
                         NotificationStatus.DISPATCHED.value,
                         correlation_id,
                         causation_id,
+                        experiment_id,
+                        variant,
                     ),
                 )
             if release_proposal_id:
@@ -288,6 +321,8 @@ class NotificationStore:
         release_proposal_id: str | None = None,
         correlation_id: str | None = None,
         causation_id: str | None = None,
+        experiment_id: str | None = None,
+        variant: str | None = None,
     ) -> None:
         with self.connection:
             cursor = self.connection.cursor()
@@ -316,8 +351,8 @@ class NotificationStore:
                     """
                     INSERT INTO notification_proposals (
                         proposal_id, learner_id, channel, category, created_at, status,
-                        correlation_id, causation_id
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        correlation_id, causation_id, experiment_id, variant
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         proposal_id,
@@ -328,6 +363,8 @@ class NotificationStore:
                         NotificationStatus.SUPPRESSED.value,
                         correlation_id,
                         causation_id,
+                        experiment_id,
+                        variant,
                     ),
                 )
             if release_proposal_id:
@@ -353,6 +390,8 @@ class NotificationStore:
         release_proposal_id: str | None = None,
         correlation_id: str | None = None,
         causation_id: str | None = None,
+        experiment_id: str | None = None,
+        variant: str | None = None,
     ) -> None:
         with self.connection:
             cursor = self.connection.cursor()
@@ -360,8 +399,9 @@ class NotificationStore:
                 """
                 INSERT INTO notification_dlq (
                     dlq_id, proposal_id, learner_id, channel, category, failed_at, reason, attempts, payload_json, resolved,
-                    created_at, template_id, ttl_seconds, correlation_id, causation_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)
+                    created_at, template_id, ttl_seconds, correlation_id, causation_id,
+                    experiment_id, variant
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     dlq_id,
@@ -378,6 +418,8 @@ class NotificationStore:
                     ttl_seconds if ttl_seconds is not None else 86400,
                     correlation_id,
                     causation_id,
+                    experiment_id,
+                    variant,
                 ),
             )
             cursor.execute(
@@ -389,8 +431,8 @@ class NotificationStore:
                     """
                     INSERT INTO notification_proposals (
                         proposal_id, learner_id, channel, category, created_at, status,
-                        correlation_id, causation_id
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        correlation_id, causation_id, experiment_id, variant
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         proposal_id,
@@ -401,6 +443,8 @@ class NotificationStore:
                         NotificationStatus.FAILED.value,
                         correlation_id,
                         causation_id,
+                        experiment_id,
+                        variant,
                     ),
                 )
             if release_proposal_id:
@@ -422,7 +466,8 @@ class NotificationStore:
         cursor.execute(
             """
             SELECT dlq_id, proposal_id, learner_id, channel, category, failed_at, reason, attempts, payload_json, resolved,
-                   created_at, template_id, ttl_seconds, correlation_id, causation_id
+                   created_at, template_id, ttl_seconds, correlation_id, causation_id,
+                   experiment_id, variant
             FROM notification_dlq
             WHERE dlq_id = ?
             """,
@@ -447,6 +492,8 @@ class NotificationStore:
             "ttl_seconds": row[12] if row[12] is not None else 86400,
             "correlation_id": row[13],
             "causation_id": row[14],
+            "experiment_id": row[15],
+            "variant": row[16],
         }
 
     def record_rescheduled(
@@ -462,6 +509,8 @@ class NotificationStore:
         ttl_seconds: int = 86400,
         correlation_id: str | None = None,
         causation_id: str | None = None,
+        experiment_id: str | None = None,
+        variant: str | None = None,
     ) -> None:
         with self.connection:
             cursor = self.connection.cursor()
@@ -469,8 +518,8 @@ class NotificationStore:
                 """
                 INSERT INTO notification_rescheduled (
                     proposal_id, learner_id, channel, category, rescheduled_for, created_at, payload_json, released,
-                    template_id, ttl_seconds, correlation_id, causation_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
+                    template_id, ttl_seconds, correlation_id, causation_id, experiment_id, variant
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(proposal_id) DO UPDATE SET
                     rescheduled_for = excluded.rescheduled_for,
                     template_id = excluded.template_id,
@@ -488,6 +537,8 @@ class NotificationStore:
                     ttl_seconds if ttl_seconds is not None else 86400,
                     correlation_id,
                     causation_id,
+                    experiment_id,
+                    variant,
                 ),
             )
             cursor.execute(
@@ -499,8 +550,8 @@ class NotificationStore:
                     """
                     INSERT INTO notification_proposals (
                         proposal_id, learner_id, channel, category, created_at, status,
-                        correlation_id, causation_id
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        correlation_id, causation_id, experiment_id, variant
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         proposal_id,
@@ -511,6 +562,8 @@ class NotificationStore:
                         NotificationStatus.QUEUED.value,
                         correlation_id,
                         causation_id,
+                        experiment_id,
+                        variant,
                     ),
                 )
 
@@ -520,7 +573,7 @@ class NotificationStore:
         cursor.execute(
             """
             SELECT proposal_id, learner_id, channel, category, rescheduled_for, created_at, payload_json, released,
-                   template_id, ttl_seconds, correlation_id, causation_id
+                   template_id, ttl_seconds, correlation_id, causation_id, experiment_id, variant
             FROM notification_rescheduled
             WHERE proposal_id = ?
             """,
@@ -542,6 +595,8 @@ class NotificationStore:
             "ttl_seconds": row[9] if row[9] is not None else 86400,
             "correlation_id": row[10],
             "causation_id": row[11],
+            "experiment_id": row[12],
+            "variant": row[13],
         }
 
     def get_suppression_entries(self, proposal_id: str | None = None) -> list[dict[str, Any]]:
@@ -575,7 +630,7 @@ class NotificationStore:
         cursor.execute(
             """
             SELECT proposal_id, learner_id, channel, category, rescheduled_for, created_at, payload_json,
-                   template_id, ttl_seconds, correlation_id, causation_id
+                   template_id, ttl_seconds, correlation_id, causation_id, experiment_id, variant
             FROM notification_rescheduled
             WHERE released = 0 AND rescheduled_for <= ?
             ORDER BY rescheduled_for ASC
@@ -595,6 +650,8 @@ class NotificationStore:
                 "ttl_seconds": row[8] if row[8] is not None else 86400,
                 "correlation_id": row[9],
                 "causation_id": row[10],
+                "experiment_id": row[11],
+                "variant": row[12],
             }
             for row in cursor.fetchall()
         ]
@@ -669,7 +726,7 @@ class NotificationStore:
         cursor = self.connection.cursor()
         query = (
             "SELECT dlq_id, proposal_id, learner_id, channel, category, failed_at, reason, attempts, payload_json, resolved, "
-            "created_at, template_id, ttl_seconds, correlation_id, causation_id "
+            "created_at, template_id, ttl_seconds, correlation_id, causation_id, experiment_id, variant "
             "FROM notification_dlq"
         )
         params: list[Any] = []
@@ -694,9 +751,68 @@ class NotificationStore:
                 "ttl_seconds": row[12] if row[12] is not None else 86400,
                 "correlation_id": row[13],
                 "causation_id": row[14],
+                "experiment_id": row[15],
+                "variant": row[16],
             }
             for row in cursor.fetchall()
         ]
+
+    def record_guardrail_violation(
+        self,
+        violation_id: str,
+        experiment_id: str,
+        variant: str | None,
+        learner_id: str,
+        proposal_id: str,
+        reason: str,
+        occurred_at: str,
+    ) -> bool:
+        """Records a guardrail violation; returns False if (proposal_id, reason) was already recorded."""
+        with self.connection:
+            cursor = self.connection.cursor()
+            cursor.execute(
+                """
+                INSERT OR IGNORE INTO notification_guardrail_violations (
+                    violation_id, experiment_id, variant, learner_id, proposal_id, reason, occurred_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (violation_id, experiment_id, variant, learner_id, proposal_id, reason, occurred_at),
+            )
+            return cursor.rowcount > 0
+
+    def list_guardrail_violations(
+        self, experiment_id: str | None = None, variant: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Lists violations, optionally filtered by experiment and/or variant."""
+        query = (
+            "SELECT violation_id, experiment_id, variant, learner_id, proposal_id, reason, occurred_at "
+            "FROM notification_guardrail_violations"
+        )
+        clauses: list[str] = []
+        params: list[Any] = []
+        if experiment_id is not None:
+            clauses.append("experiment_id = ?")
+            params.append(experiment_id)
+        if variant is not None:
+            clauses.append("variant = ?")
+            params.append(variant)
+        if clauses:
+            query += " WHERE " + " AND ".join(clauses)
+        query += " ORDER BY occurred_at ASC, violation_id ASC"
+        cursor = self.connection.cursor()
+        cursor.execute(query, tuple(params))
+        keys = ("violation_id", "experiment_id", "variant", "learner_id", "proposal_id", "reason", "occurred_at")
+        return [dict(zip(keys, row)) for row in cursor.fetchall()]
+
+    def violation_counts_by_variant(self, experiment_id: str) -> dict[str | None, int]:
+        """Counts violations of one experiment grouped by variant."""
+        cursor = self.connection.cursor()
+        cursor.execute(
+            "SELECT variant, COUNT(*) FROM notification_guardrail_violations "
+            "WHERE experiment_id = ? GROUP BY variant",
+            (experiment_id,),
+        )
+        return {row[0]: row[1] for row in cursor.fetchall()}
 
     def close(self) -> None:
         self.connection.close()

@@ -42,6 +42,8 @@ class NotificationProposal:
     ttl_seconds: int = 86400  # Default 24h TTL
     correlation_id: str | None = None
     causation_id: str | None = None
+    experiment_id: str | None = None
+    variant: str | None = None
 
 
 @dataclass(frozen=True)
