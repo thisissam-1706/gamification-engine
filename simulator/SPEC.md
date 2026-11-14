@@ -3,10 +3,6 @@
 **Status:** partially implemented (pilot v1: population, common random numbers, pipeline streams, analysis)
 
 ### Not implemented
-- `run_sensitivity_sweep`
-- `apply_notification_perturbation`
-- `generate_baseline_stream`
-- `export_event_stream`
 
 ### Limits
 - Exposure only affects an attempt if it precedes the learner's would-be attempt time (drawn independently of exposure).

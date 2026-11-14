@@ -75,6 +75,19 @@ and exposure are logged as five separate events. Both groups use the same consen
 and fatigue rules. Results come from synthetic data and do not demonstrate
 real-world causality.
 
+## Real-log experiment pipeline (M7)
+
+`run_experiment` (`src/experiments/runner.py`) reports exp_007 from the stored logs only. It reads no clock, writes nothing, and requires an explicit `as_of` cutoff.
+
+* **Assignment and eligibility.** Every learner is assigned through the existing assignment, and one eligibility row per learner is persisted for both arms: the stored variant, `eligible`, a reason (`excluded_tenure` for under 3 days at assignment, `excluded_opted_out` for a push or streak_risk opt-out, `missing_preferences`), a snapshot of the preferences used (the two opt-outs and the timezone) and the tenure in days. The first record wins, so re-running or changing preferences later does not change a stored row. The runner reads eligibility from these rows and does not recompute it.
+* **Completions.** Checkpoint inputs come from the stored events: one completion is derived per `CheckpointAttempted` event, with the same attempt, learner, assessment id and version, `passed` copied as stored, and the attempt's own timestamp. No new event type is written. Attempts for other assessments are left out and counted. The primary metric is then computed per arm over eligible learners.
+* **Exposure diagnostic.** Among eligible learners per arm, a learner counts as exposed with at least one `ExperimentExposed` at or before `as_of`. The treatment rate is exposed over eligible. The control rate is not available, with a note, because the exposure rules give `variant_b` no treatment surface. It is a diagnostic and does not feed the metric.
+* **Cap breaches.** Each guardrail-violation row of the experiment counts as a breach (the notification dispatcher records these with reason `daily_cap_exceeded` when the daily cap suppresses a message). The arm comes from the learner's assignment, not the row's variant. Rows after `as_of` and rows of ineligible learners are ignored. Breaches are counted per learner per UTC day; each arm reports breach learner-days, distinct breached learners, and that count over eligible learners.
+* **Gaming share.** `cohort_gaming_report` runs once per ISO week (UTC), from the week of the first assignment through the week of `as_of`, with the variant as the group key and only eligible learners in the cohorts. The threshold is the default abuse-rules value. XP awards are supplied by the caller; awards after `as_of` are dropped.
+* **Sample ratio.** `srm_check` (chi-square against 50/50, alpha 0.001) runs on the assigned counts and on the eligible counts.
+* **Invalid reasons.** The run is valid only when this list is empty: `cap_breach_treatment` (any treatment-arm breach; a control-only breach is reported but does not invalidate), `gaming_share_breach` (a breach in either arm in any week), `srm_assigned`, `srm_eligible`, `missing_eligibility_records` (a learner assigned in the log has no eligibility row) and `no_eligible_learners`. An invalid run still returns every arm's numbers.
+* **Reproduction.** `verify_engine_reproduction` runs the pipeline twice on fresh objects over the same database file and compares the SHA-256 of each run's sorted-key JSON.
+
 ## 5.6 System-Performance & Reliability Metrics
 
 This framework maps directly to the required milestones (M1–M8) to prove the system handles scale, recovery, and strict consistency.
