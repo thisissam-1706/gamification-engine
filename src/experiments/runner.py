@@ -4,16 +4,18 @@ Everything is read from stored data and the arguments; nothing reads a clock, th
 random source, and nothing is written.
 """
 
-from collections.abc import Collection, Iterable
+from collections.abc import Collection, Iterable, Mapping
 from dataclasses import asdict, dataclass, is_dataclass
 from datetime import datetime, timedelta, timezone
 
 from src.abuse.guardrail import AwardLike, CohortGamingReport, cohort_gaming_report, iso_week_key
 from src.abuse.service import AbuseDetectionService
+from src.experiments.fatigue import in_window, max_in_rolling_24h, observation_window, wald_interval, window_days
 from src.experiments.inputs import EventScan, build_mastery_inputs, scan_events
 from src.experiments.metrics import MasteryReport, mastery_report
 from src.experiments.srm import srm_check
 from src.experiments.store import ExperimentStore
+from src.notifications.models import ChannelType, LearnerPreferences, NotificationCategory
 from src.notifications.store import NotificationStore
 from src.state_machine.learner import LearnerApplication
 
@@ -90,6 +92,13 @@ SRM_ELIGIBLE = "srm_eligible"
 MISSING_ELIGIBILITY_RECORDS = "missing_eligibility_records"
 NO_ELIGIBLE_LEARNERS = "no_eligible_learners"
 MIXED_ASSESSMENT_VERSIONS = "mixed_assessment_versions"
+DELIVERED_OVER_CAP_TREATMENT = "delivered_over_cap_treatment"
+
+# exp_007 fatigue cap: at most this many messages in any rolling 24 hours (exp_007.yaml: fatigue_cap).
+DEFAULT_FATIGUE_CAP = 5
+NOTE_PREFS_NOT_SUPPLIED = (
+    "current preferences were not supplied: opt_outs is not computed (None)"
+)
 
 # Only guardrail-violation rows with this reason count as notification-cap breaches.
 CAP_VIOLATION_REASON = "daily_cap_exceeded"
@@ -105,6 +114,14 @@ class ArmResult:
     breach_learner_days: int
     breach_learners: int
     breach_learner_rate: float | None  # distinct breached eligible learners / eligible
+    # Fatigue (messages = notification_dispatches rows of eligible learners inside their window):
+    messages_total: int
+    messages_streak_risk: int
+    learner_days_observed: float
+    messages_per_learner_per_day: float | None
+    max_delivered_in_24h: int
+    delivered_cap_breach_learners: int
+    opt_outs: int | None  # None when current_prefs was not supplied
 
 
 @dataclass(frozen=True)
@@ -136,6 +153,8 @@ class ExperimentRunResult:
     srm_assigned: dict
     srm_eligible: dict
     gaming: GamingResult
+    contrast: dict
+    notes: list[str]
 
     def to_dict(self) -> dict:
         """Plain JSON types, keys sorted at every level; reports come from ``dataclasses.asdict``."""
@@ -179,6 +198,8 @@ def run_experiment(
     assessment_id: str,
     assessment_version: int | None = None,
     as_of: datetime,
+    fatigue_cap: int = DEFAULT_FATIGUE_CAP,
+    current_prefs: Mapping[str, LearnerPreferences] | None = None,
 ) -> ExperimentRunResult:
     """Reports the experiment's primary metric, exposure and guardrails; never raises on bad data.
 
@@ -186,7 +207,9 @@ def run_experiment(
     still fully reported: ``valid`` is False and ``invalid_reasons`` says why. ``as_of`` is required
     (None or naive raises ValueError). With ``assessment_version`` only that version's attempts count
     (others are ignored and counted); without it, counted attempts spanning more than one version
-    invalidate the run (``mixed_assessment_versions``).
+    invalidate the run (``mixed_assessment_versions``). Fatigue: messages are the dispatch rows of eligible
+    learners inside ``[assigned_at, min(assigned_at + 14 days, as_of))``; more than ``fatigue_cap`` in a rolling
+    24 h breaches the cap, and a treatment breach invalidates the run. ``opt_outs`` needs ``current_prefs``.
     """
     if as_of is None:
         raise ValueError("as_of is required: declare the data cutoff")
@@ -223,6 +246,26 @@ def run_experiment(
             if learner_id in members:
                 breaches[name].add((learner_id, occurred.date()))
 
+    dispatch_times: dict[str, list[tuple[datetime, str]]] = {}
+    for row in notification_store.list_dispatches():
+        if row["learner_id"] in eligible_ids:
+            dispatch_times.setdefault(row["learner_id"], []).append(
+                (_utc(row["dispatched_at"]), row["category"])
+            )
+
+    def _opted_out_since_snapshot(learner_id: str) -> bool:
+        snapshot = stored[learner_id]
+        prefs = (current_prefs or {}).get(learner_id)
+        return (
+            snapshot["opted_out_push"] == 0
+            and snapshot["opted_out_streak_risk"] == 0
+            and prefs is not None
+            and (
+                ChannelType.PUSH in prefs.opted_out_channels
+                or NotificationCategory.STREAK_RISK in prefs.opted_out_categories
+            )
+        )
+
     arms: dict[str, ArmResult] = {}
     for name, variant in ARM_VARIANTS.items():
         members = arm_of[name]
@@ -234,6 +277,24 @@ def run_experiment(
             as_of=as_of,
         )
         breached_learners = {learner for learner, _ in breaches[name]}
+
+        messages = streak_messages = 0
+        learner_days = 0.0
+        max_24h = 0
+        cap_breachers = 0
+        for learner_id in sorted(members):
+            window = observation_window(_utc(assignments[learner_id]), as_of)
+            learner_days += window_days(window)
+            inside = [
+                (at, category)
+                for at, category in dispatch_times.get(learner_id, [])
+                if in_window([at], window)
+            ]
+            messages += len(inside)
+            streak_messages += sum(1 for _, category in inside if category == NotificationCategory.STREAK_RISK.value)
+            peak = max_in_rolling_24h(at for at, _ in inside)
+            max_24h = max(max_24h, peak)
+            cap_breachers += peak > fatigue_cap
         arms[name] = ArmResult(
             eligible=len(members),
             mastery=report,
@@ -241,6 +302,15 @@ def run_experiment(
             breach_learner_days=len(breaches[name]),
             breach_learners=len(breached_learners),
             breach_learner_rate=len(breached_learners) / len(members) if members else None,
+            messages_total=messages,
+            messages_streak_risk=streak_messages,
+            learner_days_observed=learner_days,
+            messages_per_learner_per_day=messages / learner_days if learner_days > 0 else None,
+            max_delivered_in_24h=max_24h,
+            delivered_cap_breach_learners=cap_breachers,
+            opt_outs=(
+                None if current_prefs is None else sum(1 for i in members if _opted_out_since_snapshot(i))
+            ),
         )
 
     counts = {v: sum(1 for x in variants.values() if x == v) for v in ARM_VARIANTS.values()}
@@ -273,6 +343,30 @@ def run_experiment(
         reasons.append(NO_ELIGIBLE_LEARNERS)
     if len({a["assessment_version"] for a in inputs.attempts}) > 1:
         reasons.append(MIXED_ASSESSMENT_VERSIONS)
+    if arms["treatment"].delivered_cap_breach_learners:
+        reasons.append(DELIVERED_OVER_CAP_TREATMENT)
+
+    treatment_mastery, control_mastery = arms["treatment"].mastery, arms["control"].mastery
+    rates_known = treatment_mastery.rate is not None and control_mastery.rate is not None
+    rate_pair = (treatment_mastery.rate, control_mastery.rate)
+    per_day = (
+        arms["treatment"].messages_per_learner_per_day,
+        arms["control"].messages_per_learner_per_day,
+    )
+    contrast = {
+        "mastery_rate_difference": rate_pair[0] - rate_pair[1] if rates_known else None,
+        "mastery_ci95": (
+            wald_interval(
+                rate_pair[0], treatment_mastery.denominator, rate_pair[1], control_mastery.denominator
+            )
+            if rates_known
+            else None
+        ),
+        "messages_per_learner_per_day_difference": (
+            per_day[0] - per_day[1] if None not in per_day else None
+        ),
+    }
+    notes = [NOTE_PREFS_NOT_SUPPLIED] if current_prefs is None else []
     return ExperimentRunResult(
         exp_id=exp_id,
         as_of=as_of,
@@ -282,4 +376,6 @@ def run_experiment(
         srm_assigned=srm_assigned,
         srm_eligible=srm_eligible,
         gaming=gaming,
+        contrast=contrast,
+        notes=notes,
     )

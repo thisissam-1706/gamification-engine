@@ -780,6 +780,23 @@ class NotificationStore:
             )
             return cursor.rowcount > 0
 
+    def list_dispatches(self, until_iso: str | None = None) -> list[dict[str, Any]]:
+        """Read-only: dispatch rows (learner_id, category, channel, dispatched_at), by learner then time.
+
+        With ``until_iso``, only rows whose stored ``dispatched_at`` text sorts before it (a plain
+        string comparison, so it is only exact for timestamps stored in one format).
+        """
+        query = "SELECT learner_id, category, channel, dispatched_at FROM notification_dispatches"
+        params: tuple[Any, ...] = ()
+        if until_iso is not None:
+            query += " WHERE dispatched_at < ?"
+            params = (until_iso,)
+        query += " ORDER BY learner_id ASC, dispatched_at ASC, dispatch_id ASC"
+        cursor = self.connection.cursor()
+        cursor.execute(query, params)
+        keys = ("learner_id", "category", "channel", "dispatched_at")
+        return [dict(zip(keys, row)) for row in cursor.fetchall()]
+
     def list_guardrail_violations(
         self, experiment_id: str | None = None, variant: str | None = None
     ) -> list[dict[str, Any]]:
