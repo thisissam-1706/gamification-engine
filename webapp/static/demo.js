@@ -23,12 +23,17 @@
   }
   function formatClock(value) {
     var date = new Date(value);
-    return isNaN(date.getTime()) ? value : date.toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+    return isNaN(date.getTime()) ? value : new Intl.DateTimeFormat("en-GB", {
+      day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit",
+      timeZone: "UTC", hour12: false
+    }).format(date) + " UTC";
   }
   function updateURL() {
     var url = new URL(window.location.href);
     url.searchParams.set("learner", state.learnerId);
     window.history.replaceState({}, "", url);
+    var link = $("admin-link");
+    if (link) link.href = "admin.html?learner=" + encodeURIComponent(state.learnerId);
   }
   function frameURL(page) {
     return page + "?embed=1&learner=" + encodeURIComponent(state.learnerId);
@@ -73,7 +78,10 @@
     }).catch(setError).finally(function () { state.requestInFlight = false; });
   }
   function init() {
-    return requestJSON("/api/learners").then(function (learners) {
+    return requestJSON("/api/demo/personas").then(function (personas) {
+      var learners = personas.map(function (p) {
+        return { id: p.learner_id, display_name: p.display_name + " - " + p.role };
+      });
       var requested = new URLSearchParams(window.location.search).get("learner");
       state.learnerId = learners.some(function (learner) { return learner.id === requested; }) ? requested :
         (learners.some(function (learner) { return learner.id === PRIYA_ID; }) ? PRIYA_ID : learners[0].id);

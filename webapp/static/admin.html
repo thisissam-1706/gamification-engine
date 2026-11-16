@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Streakwise - Admin</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&amp;display=swap">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="admin.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="admin.html" aria-label="Streakwise admin">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="#fff"><path d="M13.2 2 4.5 13.4c-.4.5 0 1.1.6 1.1H10l-1.2 7.1c-.1.7.8 1 1.2.5l8.7-11.4c.4-.5 0-1.1-.6-1.1H14l1.200-7.100c.1-.7-.8-1-1.2-.5z"/></svg>
+      </span>
+      <span class="brand-name">Streakwise Admin</span>
+    </a>
+    <nav class="nav" aria-label="Demo pages">
+      <a class="pill" href="demo.html">Demo split view</a>
+      <a class="pill" href="index.html">Learner home</a>
+      <a class="pill" href="lesson.html">Lesson</a>
+    </nav>
+  </header>
+
+  <div class="adm-page">
+    <section class="adm-card adm-controls" aria-label="Demo controls">
+      <label for="adm-learner" class="sr-only">Choose learner</label>
+      <select id="adm-learner" class="learner-select adm-learner-select"></select>
+      <span class="adm-chip" id="adm-clock" aria-live="polite">Loading clock...</span>
+      <button class="btn-small" id="adm-plus1" type="button">+1 hour</button>
+      <button class="btn-small" id="adm-plus6" type="button">+6 hours</button>
+      <button class="btn-small" id="adm-night" type="button">Tonight 23:00 (quiet hours)</button>
+      <button class="btn-small" id="adm-morning" type="button">Next day 09:00</button>
+      <button class="btn-small" id="adm-reset" type="button">Reset demo</button>
+      <button class="btn-small" id="adm-tick" type="button">Run engine tick</button>
+      <input type="datetime-local" id="adm-dt" aria-label="Set demo clock (UTC)">
+      <button class="btn-small" id="adm-dt-set" type="button">Set (UTC)</button>
+    </section>
+
+    <div class="adm-tabs" role="tablist" id="adm-tabs">
+      <button type="button" role="tab" class="adm-tab" data-tab="events">Events (M1/M2)</button>
+      <button type="button" role="tab" class="adm-tab" data-tab="cohorts">Cohorts (M3)</button>
+      <button type="button" role="tab" class="adm-tab" data-tab="policy">Policy (M4)</button>
+      <button type="button" role="tab" class="adm-tab" data-tab="notifications">Notifications (M5)</button>
+      <button type="button" role="tab" class="adm-tab" data-tab="abuse">Abuse (M6)</button>
+      <button type="button" role="tab" class="adm-tab" data-tab="experiments">Experiments (M7)</button>
+      <button type="button" role="tab" class="adm-tab" data-tab="recovery">Recovery (M8)</button>
+    </div>
+
+    <section id="tab-events" class="adm-section" hidden>
+      <h2>Events (M1/M2)</h2>
+      <p class="muted">Canonical events, idempotency, deterministic rebuild.</p>
+      <div class="adm-body"></div>
+    </section>
+    <section id="tab-cohorts" class="adm-section" hidden>
+      <h2>Cohorts (M3)</h2>
+      <p class="muted">Cohorts, leaderboards, latency and consistency.</p>
+      <div class="adm-body"></div>
+    </section>
+    <section id="tab-policy" class="adm-section" hidden>
+      <h2>Policy (M4)</h2>
+      <p class="muted">Remediation quest policy and frequency guardrails.</p>
+      <div class="adm-body"></div>
+    </section>
+    <section id="tab-notifications" class="adm-section" hidden>
+      <h2>Notifications (M5)</h2>
+      <p class="muted">Channels, preferences, quiet hours, dedup, retry, dead letters.</p>
+      <div class="adm-body"></div>
+    </section>
+    <section id="tab-abuse" class="adm-section" hidden>
+      <h2>Abuse (M6)</h2>
+      <p class="muted">Flag-only abuse detection with evidence.</p>
+      <div class="adm-body"></div>
+    </section>
+    <section id="tab-experiments" class="adm-section" hidden>
+      <h2>Experiments (M7)</h2>
+      <p class="muted">Deterministic assignment, exposure, learning-progress metric, guardrails.</p>
+      <div class="adm-body"></div>
+    </section>
+    <section id="tab-recovery" class="adm-section" hidden>
+      <h2>Recovery (M8)</h2>
+      <p class="muted">Rebuild, scale benchmarks, failure recovery.</p>
+      <div class="adm-body"></div>
+    </section>
+  </div>
+  <dialog id="adm-tick-dialog" class="adm-dialog" aria-label="Engine tick result"></dialog>
+  <div class="adm-toasts" id="adm-toasts" aria-live="polite"></div>
+
+  <script src="admin.js"></script>
+  <script src="admin-events.js"></script>
+  <script src="admin-cohorts.js"></script>
+  <script src="admin-policy.js"></script>
+  <script src="admin-notifications.js"></script>
+  <script src="admin-abuse.js"></script>
+  <script src="admin-experiments.js"></script>
+  <script src="admin-recovery.js"></script>
+</body>
+</html>

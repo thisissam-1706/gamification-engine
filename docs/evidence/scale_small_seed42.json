@@ -1,0 +1,138 @@
+{
+  "timestamp": "2026-11-15T10:53:32.678529+00:00",
+  "profile": {
+    "population_size": 20,
+    "cohort_count": 2,
+    "events_per_learner": 15,
+    "duplicate_rate": 0.05,
+    "late_rate": 0.05,
+    "seed": 42,
+    "epoch": "2026-W42",
+    "base_start_iso": "2026-10-12T08:00:00Z"
+  },
+  "hardware": {
+    "os_system": "Linux",
+    "os_release": "6.8.0-149-generic",
+    "os_version": "#149-Ubuntu SMP PREEMPT_DYNAMIC Fri Oct 23 13:21:10 UTC 2026",
+    "machine": "x86_64",
+    "processor": "x86_64",
+    "logical_cpus": 12,
+    "python_version": "3.14.6",
+    "python_executable": "/home/sampadram/Sampadram/IITH/SEM 7/DATGC/project/gamification-engine/.venv/bin/python",
+    "sqlite_version": "3.53.2",
+    "memory_total_bytes": 24908525568
+  },
+  "rebuild": {
+    "total_learners": 20,
+    "total_events": 1329,
+    "domain_event_count": 1329,
+    "rebuild_duration_sec": 0.6893691999994189,
+    "throughput_events_per_sec": 1927.849402034672,
+    "bit_identical": true,
+    "pre_checksum": "032c03d076e2cc85e9f52b7c7018739114392ca7053e994d2bf242470b90eca7",
+    "post_checksum": "032c03d076e2cc85e9f52b7c7018739114392ca7053e994d2bf242470b90eca7",
+    "mismatches": []
+  },
+  "latency": {
+    "thresholds": {
+      "update_p50_ms": 5.0,
+      "update_p95_ms": 20.0,
+      "update_p99_ms": 50.0,
+      "topk_p50_ms": 5.0,
+      "topk_p95_ms": 20.0,
+      "topk_p99_ms": 50.0,
+      "surrounding_p50_ms": 5.0,
+      "surrounding_p95_ms": 20.0,
+      "surrounding_p99_ms": 50.0,
+      "rank_p50_ms": 5.0,
+      "rank_p95_ms": 20.0,
+      "rank_p99_ms": 50.0
+    },
+    "update_latency": {
+      "p50": 0.5076249999547144,
+      "p95": 0.5685140004061395,
+      "p99": 1.3153519994375529,
+      "min_ms": 0.4934559983666986,
+      "max_ms": 1.3153519994375529,
+      "count": 30
+    },
+    "topk_latency": {
+      "p50": 0.01620199873286765,
+      "p95": 0.02476599911460653,
+      "p99": 0.05654099913954269,
+      "min_ms": 0.01577500006533228,
+      "max_ms": 0.05654099913954269,
+      "count": 30
+    },
+    "surrounding_latency": {
+      "p50": 0.023950999093358405,
+      "p95": 0.036282999644754454,
+      "p99": 0.1436870006727986,
+      "min_ms": 0.023268999939318746,
+      "max_ms": 0.1436870006727986,
+      "count": 30
+    },
+    "rank_latency": {
+      "p50": 0.009863999366643839,
+      "p95": 0.010816000212798826,
+      "p99": 0.010969000868499279,
+      "min_ms": 0.009714998668641783,
+      "max_ms": 0.010969000868499279,
+      "count": 30
+    },
+    "passed": true,
+    "violations": []
+  },
+  "outage_recovery": {
+    "proposals_dispatched": 30,
+    "dlq_routed_count": 30,
+    "dlq_capture_rate": 1.0,
+    "recovery_drained_count": 30,
+    "recovery_drain_duration_sec": 0.018858757999623776,
+    "drain_throughput_msgs_per_sec": 1590.7728388369205,
+    "duplicate_deliveries_count": 0,
+    "passed": true,
+    "violations": []
+  },
+  "experiment_repro": {
+    "population_size": 20,
+    "total_attempts": 17,
+    "total_completions": 17,
+    "as_of": "2026-10-21T00:00:00Z",
+    "mastery_report_first": {
+      "rate": 0.5,
+      "mastered": 10,
+      "denominator": 20,
+      "assigned": 20,
+      "immature": 0,
+      "missing_outcome": 3,
+      "failed": 7,
+      "invalid_ordering": 0,
+      "conflicting": 0
+    },
+    "mastery_report_second": {
+      "rate": 0.5,
+      "mastered": 10,
+      "denominator": 20,
+      "assigned": 20,
+      "immature": 0,
+      "missing_outcome": 3,
+      "failed": 7,
+      "invalid_ordering": 0,
+      "conflicting": 0
+    },
+    "bit_identical": true,
+    "checksum_first": "a1162d97c54fa445d5a1f41b3e00dc337b43f27191aeff0ef02e6e689d942d3e",
+    "checksum_second": "a1162d97c54fa445d5a1f41b3e00dc337b43f27191aeff0ef02e6e689d942d3e"
+  },
+  "engine_repro": {
+    "bit_identical": true,
+    "checksum_first": "7e587a850998da4a7c7f4b7a9a11f7af7eeea861376ab59e7347779c3bd17663",
+    "checksum_second": "7e587a850998da4a7c7f4b7a9a11f7af7eeea861376ab59e7347779c3bd17663",
+    "population_size": 20,
+    "total_attempts": 17,
+    "log_learners": 20,
+    "log_attempts": 17
+  },
+  "overall_passed": true
+}

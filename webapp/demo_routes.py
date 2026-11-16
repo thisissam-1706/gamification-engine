@@ -17,6 +17,9 @@ class ClockRequest(BaseModel):
 class LessonRequest(BaseModel):
     lesson_id: str
     completion_kind: str = "lesson"
+    event_id: str | None = None
+    occurred_at: str | None = None
+    completion_id: str | None = None
 
 
 class CheckpointRequest(BaseModel):
@@ -63,6 +66,9 @@ def create_demo_router(sandbox: Sandbox) -> APIRouter:
                 learner_id,
                 request.lesson_id,
                 completion_kind=request.completion_kind,
+                event_id=request.event_id,
+                occurred_at=request.occurred_at,
+                completion_id=request.completion_id,
             )
         )
 

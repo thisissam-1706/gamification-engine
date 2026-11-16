@@ -100,7 +100,16 @@ def _open_events(data_dir: Path):
 def _open_leaderboard(data_dir: Path):
     """SQLiteLeaderboardStore.__init__ creates tables, so it cannot open a read-only file.
     Attach a read-only connection to an uninitialised instance (recon, item 4)."""
-    connection = sqlite3.connect(_ro_uri(data_dir / "leaderboard.db") + "?mode=ro", uri=True)
+    path = data_dir / "leaderboard.db"
+    if not path.exists():
+        # No read model (for example right after a demo wipe): behave as an empty leaderboard.
+        empty = SQLiteLeaderboardStore(":memory:")
+        try:
+            yield LeaderboardService(empty)
+        finally:
+            empty.close()
+        return
+    connection = sqlite3.connect(_ro_uri(path) + "?mode=ro", uri=True)
     store = SQLiteLeaderboardStore.__new__(SQLiteLeaderboardStore)
     store.connection = connection
     store._transaction_depth = 0
@@ -201,11 +210,14 @@ def learner_rule_version(learner) -> str:
 
 
 def _rows(service, scope_type, scope_id, epoch, me: str, names: dict) -> list[dict]:
-    ranked = service.get_top_k(scope_type, scope_id, epoch, LEADERBOARD_ROWS)
-    if me not in {r.subject_id for r in ranked}:
-        mine = service.get_learner_rank(scope_type, scope_id, epoch, me)
-        if mine:
-            ranked = [*ranked, mine]
+    try:
+        ranked = service.get_top_k(scope_type, scope_id, epoch, LEADERBOARD_ROWS)
+        if me not in {r.subject_id for r in ranked}:
+            mine = service.get_learner_rank(scope_type, scope_id, epoch, me)
+            if mine:
+                ranked = [*ranked, mine]
+    except sqlite3.OperationalError:
+        return []  # read model has no tables yet: an empty leaderboard, not an error
     return [
         {"rank": r.rank, "learner_id": r.subject_id,
          "display_name": names.get(r.subject_id, "Learner " + r.subject_id[:8]),

@@ -84,6 +84,10 @@ if DEMO_MODE:
     from webapp.demo_routes import create_demo_router
 
     app.include_router(create_demo_router(demo_sandbox))
+
+    from webapp.demo_admin import create_admin_router
+
+    app.include_router(create_admin_router(demo_sandbox))
 else:
     @app.post("/api/demo/{path:path}")
     def demo_routes_disabled(path: str):

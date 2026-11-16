@@ -1,0 +1,138 @@
+{
+  "timestamp": "2026-11-14T12:07:18.335316+00:00",
+  "profile": {
+    "population_size": 1000,
+    "cohort_count": 2,
+    "events_per_learner": 30,
+    "duplicate_rate": 0.05,
+    "late_rate": 0.05,
+    "seed": 42,
+    "epoch": "2026-W42",
+    "base_start_iso": "2026-10-12T08:00:00Z"
+  },
+  "hardware": {
+    "os_system": "Linux",
+    "os_release": "6.8.0-149-generic",
+    "os_version": "#149-Ubuntu SMP PREEMPT_DYNAMIC Fri Oct 23 13:21:10 UTC 2026",
+    "machine": "x86_64",
+    "processor": "x86_64",
+    "logical_cpus": 12,
+    "python_version": "3.14.6",
+    "python_executable": "/home/sampadram/Sampadram/IITH/SEM 7/DATGC/project/gamification-engine/.venv/bin/python",
+    "sqlite_version": "3.53.2",
+    "memory_total_bytes": 24908537856
+  },
+  "rebuild": {
+    "total_learners": 1000,
+    "total_events": 114974,
+    "domain_event_count": 114974,
+    "rebuild_duration_sec": 435.3435371070009,
+    "throughput_events_per_sec": 264.0994759312141,
+    "bit_identical": true,
+    "pre_checksum": "ae5f41ec2564b1132abcc05de143fca6a14af28615b377adc9d9be960ebbbf79",
+    "post_checksum": "ae5f41ec2564b1132abcc05de143fca6a14af28615b377adc9d9be960ebbbf79",
+    "mismatches": []
+  },
+  "latency": {
+    "thresholds": {
+      "update_p50_ms": 5.0,
+      "update_p95_ms": 20.0,
+      "update_p99_ms": 50.0,
+      "topk_p50_ms": 5.0,
+      "topk_p95_ms": 20.0,
+      "topk_p99_ms": 50.0,
+      "surrounding_p50_ms": 5.0,
+      "surrounding_p95_ms": 20.0,
+      "surrounding_p99_ms": 50.0,
+      "rank_p50_ms": 5.0,
+      "rank_p95_ms": 20.0,
+      "rank_p99_ms": 50.0
+    },
+    "update_latency": {
+      "p50": 3.853905000141822,
+      "p95": 4.300405998947099,
+      "p99": 7.639538998773787,
+      "min_ms": 3.4574199962662533,
+      "max_ms": 14.910851001332048,
+      "count": 500
+    },
+    "topk_latency": {
+      "p50": 0.06352600030368194,
+      "p95": 0.07002399797784165,
+      "p99": 0.09443500312045217,
+      "min_ms": 0.06170300184749067,
+      "max_ms": 0.18509999790694565,
+      "count": 500
+    },
+    "surrounding_latency": {
+      "p50": 0.13282800500746816,
+      "p95": 0.14207999629434198,
+      "p99": 0.16786400374257937,
+      "min_ms": 0.1250589994015172,
+      "max_ms": 0.30084099853411317,
+      "count": 500
+    },
+    "rank_latency": {
+      "p50": 0.01834800059441477,
+      "p95": 0.020385996322147548,
+      "p99": 0.030966999474912882,
+      "min_ms": 0.01649700425332412,
+      "max_ms": 0.03320399991935119,
+      "count": 500
+    },
+    "passed": true,
+    "violations": []
+  },
+  "outage_recovery": {
+    "proposals_dispatched": 500,
+    "dlq_routed_count": 500,
+    "dlq_capture_rate": 1.0,
+    "recovery_drained_count": 500,
+    "recovery_drain_duration_sec": 2.0258246820012573,
+    "drain_throughput_msgs_per_sec": 246.8130655344092,
+    "duplicate_deliveries_count": 0,
+    "passed": true,
+    "violations": []
+  },
+  "experiment_repro": {
+    "population_size": 1000,
+    "total_attempts": 799,
+    "total_completions": 729,
+    "as_of": "2026-10-21T00:00:00Z",
+    "mastery_report_first": {
+      "rate": 0.5616438356164384,
+      "mastered": 41,
+      "denominator": 73,
+      "assigned": 1000,
+      "immature": 927,
+      "missing_outcome": 18,
+      "failed": 14,
+      "invalid_ordering": 0,
+      "conflicting": 0
+    },
+    "mastery_report_second": {
+      "rate": 0.5616438356164384,
+      "mastered": 41,
+      "denominator": 73,
+      "assigned": 1000,
+      "immature": 927,
+      "missing_outcome": 18,
+      "failed": 14,
+      "invalid_ordering": 0,
+      "conflicting": 0
+    },
+    "bit_identical": true,
+    "checksum_first": "3d68d3dab4a454ce69eabc70a784ad147d388132e3336bd4e56d1fb850e72684",
+    "checksum_second": "3d68d3dab4a454ce69eabc70a784ad147d388132e3336bd4e56d1fb850e72684"
+  },
+  "engine_repro": {
+    "bit_identical": true,
+    "checksum_first": "2cfd49511160c1be1f1196bde84d83ccf143a85d1b41a41992c0002495ec3d24",
+    "checksum_second": "2cfd49511160c1be1f1196bde84d83ccf143a85d1b41a41992c0002495ec3d24",
+    "population_size": 1000,
+    "total_attempts": 717,
+    "log_learners": 1000,
+    "log_attempts": 717
+  },
+  "overall_passed": true
+}

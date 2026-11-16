@@ -28,3 +28,6 @@
   .demo-layout { padding: 16px; }
   .demo-error { margin-left: 16px; margin-right: 16px; }
 }
+
+.demo-controls .btn-small { text-decoration: none; color: var(--text); }
+#demo-learner { max-width: 260px; }

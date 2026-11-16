@@ -11,6 +11,7 @@ from pathlib import Path
 import shutil
 import sqlite3
 import threading
+import time
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -26,9 +27,15 @@ from src.notifications.dispatcher import NotificationDispatcher
 from src.notifications.models import ChannelType, LearnerPreferences
 from src.notifications.store import NotificationStore
 from src.scale_and_recovery.rebuild import read_all_notifications
+from src.state_machine.rules import RULESETS, register_decay_rulesets
 from src.state_machine.learner import LearnerApplication
+from webapp import demo_notify
 from webapp.seed import AS_OF, seed
 from webapp.views import learner_rule_version
+
+# Opt in to the packaged decay rule set (v2) so the admin rule-version demo has a second
+# version to switch to. Default behaviour is unchanged: new events still use v1.
+register_decay_rulesets()
 
 _submit_lock = threading.Lock()
 _VERSION_FILENAME = "demo_version"
@@ -65,6 +72,30 @@ def _copy_golden_to_live(golden_dir: Path, live_dir: Path) -> None:
             shutil.copy2(item, live_dir / item.name)
 
 
+def _ensure_demo_tables(db_path: Path) -> None:
+    """Creates the admin demo tables in demo_state.db (idempotent)."""
+    con = sqlite3.connect(str(db_path))
+    try:
+        con.execute(
+            """
+            CREATE TABLE IF NOT EXISTS demo_sent_events (
+                seq INTEGER PRIMARY KEY AUTOINCREMENT,
+                learner_id TEXT,
+                kind TEXT,
+                event_id TEXT,
+                envelope_json TEXT
+            )
+            """
+        )
+        con.execute(
+            "CREATE TABLE IF NOT EXISTS learner_ruleset (learner_id TEXT PRIMARY KEY, version TEXT)"
+        )
+        con.execute("CREATE TABLE IF NOT EXISTS demo_flags (key TEXT PRIMARY KEY, value TEXT)")
+        con.commit()
+    finally:
+        con.close()
+
+
 def _init_demo_state(demo_state_path: Path, last_offset: int = 0) -> None:
     con = sqlite3.connect(str(demo_state_path))
     try:
@@ -96,6 +127,7 @@ def _init_demo_state(demo_state_path: Path, last_offset: int = 0) -> None:
         con.commit()
     finally:
         con.close()
+    _ensure_demo_tables(demo_state_path)
 
 
 def _get_last_offset(demo_state_path: Path) -> int:
@@ -242,6 +274,141 @@ class Sandbox:
             if previous != dt:
                 _bump_version(self.root)
 
+    # ---- admin demo helpers (additive)
+
+    def _store_sent_event(self, learner_id: str, kind: str, event_id: str, envelope: dict) -> None:
+        db_path = self.live_dir / "demo_state.db"
+        _ensure_demo_tables(db_path)
+        con = sqlite3.connect(str(db_path))
+        try:
+            con.execute(
+                "INSERT INTO demo_sent_events (learner_id, kind, event_id, envelope_json) "
+                "VALUES (?, ?, ?, ?)",
+                (learner_id, kind, event_id, json.dumps(envelope, sort_keys=True)),
+            )
+            con.commit()
+        finally:
+            con.close()
+
+    def _effective_rule_version(self, learner: Any, learner_id: str) -> str:
+        override = self._read_ruleset_override(str(learner_id))
+        return override if override is not None else learner_rule_version(learner)
+
+    def _read_ruleset_override(self, learner_id: str) -> str | None:
+        db_path = self.live_dir / "demo_state.db"
+        _ensure_demo_tables(db_path)
+        con = sqlite3.connect(str(db_path))
+        try:
+            row = con.execute(
+                "SELECT version FROM learner_ruleset WHERE learner_id = ?", (learner_id,)
+            ).fetchone()
+            return row[0] if row else None
+        finally:
+            con.close()
+
+    def get_ruleset_override(self, learner_id: str) -> str | None:
+        return self._read_ruleset_override(str(learner_id))
+
+    def set_ruleset_override(self, learner_id: str, version: str | None) -> None:
+        """Sets (or with None clears) the rule version used for the learner's new events."""
+        if version is not None and version not in RULESETS:
+            raise ValueError(f"Unknown rule version: {version}")
+        db_path = self.live_dir / "demo_state.db"
+        with _submit_lock:
+            previous = self._read_ruleset_override(str(learner_id))
+            con = sqlite3.connect(str(db_path))
+            try:
+                if version is None:
+                    con.execute("DELETE FROM learner_ruleset WHERE learner_id = ?", (str(learner_id),))
+                else:
+                    con.execute(
+                        "INSERT INTO learner_ruleset (learner_id, version) VALUES (?, ?) "
+                        "ON CONFLICT(learner_id) DO UPDATE SET version = excluded.version",
+                        (str(learner_id), version),
+                    )
+                con.commit()
+            finally:
+                con.close()
+            if previous != version:
+                _bump_version(self.root)
+
+    def _stored_envelope(self, learner_id: str, event_id: str | None) -> dict | None:
+        db_path = self.live_dir / "demo_state.db"
+        _ensure_demo_tables(db_path)
+        con = sqlite3.connect(str(db_path))
+        try:
+            if event_id is None:
+                row = con.execute(
+                    "SELECT envelope_json FROM demo_sent_events WHERE learner_id = ? AND kind = 'lesson' "
+                    "ORDER BY seq DESC LIMIT 1",
+                    (str(learner_id),),
+                ).fetchone()
+            else:
+                row = con.execute(
+                    "SELECT envelope_json FROM demo_sent_events WHERE learner_id = ? AND event_id = ? "
+                    "ORDER BY seq DESC LIMIT 1",
+                    (str(learner_id), str(event_id)),
+                ).fetchone()
+            return json.loads(row[0]) if row else None
+        finally:
+            con.close()
+
+    def sent_event_count(self, learner_id: str) -> int:
+        db_path = self.live_dir / "demo_state.db"
+        _ensure_demo_tables(db_path)
+        con = sqlite3.connect(str(db_path))
+        try:
+            return con.execute(
+                "SELECT COUNT(*) FROM demo_sent_events WHERE learner_id = ?", (str(learner_id),)
+            ).fetchone()[0]
+        finally:
+            con.close()
+
+    def resubmit_event(self, learner_id: str, event_id: str) -> dict[str, Any]:
+        """Re-ingests the stored envelope of a previously sent lesson event, unchanged."""
+        return self._resubmit(str(learner_id), str(event_id))
+
+    def resubmit_last_lesson(self, learner_id: str) -> dict[str, Any]:
+        """Re-ingests the newest stored lesson envelope for the learner, unchanged."""
+        return self._resubmit(str(learner_id), None)
+
+    def _resubmit(self, learner_id: str, event_id: str | None) -> dict[str, Any]:
+        with _submit_lock:
+            envelope = self._stored_envelope(learner_id, event_id)
+            if envelope is None:
+                return {"status": "rejected", "reason": "no_event_to_resubmit", "event_id": event_id}
+            try:
+                learner_uuid = UUID(learner_id)
+            except (ValueError, TypeError, AttributeError):
+                return {"status": "rejected", "reason": "learner_not_found", "event_id": event_id}
+            app = LearnerApplication(
+                env={
+                    "PERSISTENCE_MODULE": "eventsourcing.sqlite",
+                    "SQLITE_DBNAME": str(self.live_dir / "events.db"),
+                }
+            )
+            evidence = EvidenceStore(str(self.live_dir / "evidence.db"))
+            try:
+                try:
+                    learner = app.repository.get(learner_uuid)
+                except AggregateNotFoundError:
+                    return {"status": "rejected", "reason": "learner_not_found", "event_id": event_id}
+                demo_clock = self.get_clock(learner_id)
+                rule_version = self._effective_rule_version(learner, learner_id)
+                config = IngestConfig(rule_version=rule_version, clock=lambda: demo_clock)
+                res = ingest_lesson_completed(
+                    app, evidence, envelope, authenticated_producer="learning-svc", config=config
+                )
+                if res.status == "accepted":
+                    _project_new_notifications(
+                        app, self.live_dir / "leaderboard.db", self.live_dir / "demo_state.db"
+                    )
+                    _bump_version(self.root)
+                return {"status": res.status, "reason": res.reason, "event_id": envelope["event_id"]}
+            finally:
+                evidence.close()
+                app.close()
+
     def submit_lesson_completed(
         self,
         learner_id: str,
@@ -249,6 +416,8 @@ class Sandbox:
         completion_kind: str = "lesson",
         event_id: str | None = None,
         occurred_at: datetime | str | None = None,
+        completion_id: str | None = None,
+        correlation_id: str | None = None,
     ) -> dict[str, Any]:
         """Submits a lesson completion envelope to ingestion inside a process-wide lock."""
         with _submit_lock:
@@ -273,7 +442,7 @@ class Sandbox:
                     return {"status": "rejected", "reason": "learner_not_found"}
 
                 # 3. Resolve rule version, clocks, and timezone
-                rule_version = learner_rule_version(learner)
+                rule_version = self._effective_rule_version(learner, learner_id)
                 demo_clock = self.get_clock(str(learner_id))
                 occurred_dt = _parse_iso_utc(occurred_at) if occurred_at is not None else demo_clock
 
@@ -288,7 +457,7 @@ class Sandbox:
                 # 4. Construct envelope
                 evt_id = str(event_id) if event_id is not None else str(uuid4())
                 payload: dict[str, Any] = {
-                    "completion_id": f"cmp_{evt_id}",
+                    "completion_id": str(completion_id) if completion_id is not None else f"cmp_{evt_id}",
                     "lesson_id": str(lesson_id),
                     "timezone": tz,
                 }
@@ -303,7 +472,7 @@ class Sandbox:
                     "ingested_at": ingested_iso,
                     "subject_id": str(learner_id),
                     "producer": "learning-svc",
-                    "correlation_id": str(uuid4()),
+                    "correlation_id": str(correlation_id) if correlation_id is not None else str(uuid4()),
                     "causation_id": None,
                     "dedup_key": expected_dedup_key(evt_id, rule_version),
                     "payload": payload,
@@ -312,6 +481,7 @@ class Sandbox:
 
                 # 5. Ingest event
                 config = IngestConfig(rule_version=rule_version, clock=lambda: demo_clock)
+                t_ingest = time.perf_counter()
                 res = ingest_lesson_completed(
                     app,
                     evidence,
@@ -319,17 +489,28 @@ class Sandbox:
                     authenticated_producer="learning-svc",
                     config=config,
                 )
+                ingest_ms = (time.perf_counter() - t_ingest) * 1000.0
+                project_ms = 0.0
+                # Keep the exact envelope so it can be resubmitted byte for byte.
+                self._store_sent_event(str(learner_id), "lesson", evt_id, envelope)
 
                 # 6. Synchronous leaderboard projection reaction on accept
                 if res.status == "accepted":
+                    t_project = time.perf_counter()
                     _project_new_notifications(
                         app,
                         self.live_dir / "leaderboard.db",
                         self.live_dir / "demo_state.db",
                     )
+                    project_ms = (time.perf_counter() - t_project) * 1000.0
                     _bump_version(self.root)
 
-                return {"status": res.status, "reason": res.reason}
+                return {
+                    "status": res.status,
+                    "reason": res.reason,
+                    "event_id": evt_id,
+                    "timings_ms": {"ingest": round(ingest_ms, 2), "project": round(project_ms, 2)},
+                }
             finally:
                 evidence.close()
                 app.close()
@@ -365,7 +546,7 @@ class Sandbox:
                     return {"status": "rejected", "reason": "learner_not_found"}
 
                 # 3. Resolve rule version, clocks, and timezone
-                rule_version = learner_rule_version(learner)
+                rule_version = self._effective_rule_version(learner, learner_id)
                 demo_clock = self.get_clock(str(learner_id))
                 occurred_dt = _parse_iso_utc(occurred_at) if occurred_at is not None else demo_clock
 
@@ -415,18 +596,12 @@ class Sandbox:
 
                 if res.status == "accepted":
                     # 6. Remediation reaction (checkpoint attempts only)
-                    profile_data = json.loads((self.live_dir / "ui_profile.json").read_text())
-                    learner_info = profile_data.get("learners", {}).get(str(learner_id), {})
-                    push_enabled = learner_info.get("push_enabled", True)
-                    opted_out = set() if push_enabled else {ChannelType.PUSH}
-                    prefs = LearnerPreferences(
-                        learner_id=str(learner_id),
-                        timezone=tz,
-                        opted_out_channels=opted_out,
-                    )
+                    prefs = demo_notify.prefs_for(self.live_dir, str(learner_id), tz)
                     notif_store = NotificationStore(str(self.live_dir / "notifications.db"))
                     try:
-                        dispatcher = NotificationDispatcher(notif_store, clock=lambda: demo_clock)
+                        dispatcher = demo_notify.build_dispatcher(
+                            self.live_dir, notif_store, lambda: demo_clock
+                        )
                         run_remediation_with_notification(
                             app,
                             str(learner_id),

@@ -114,7 +114,10 @@
   }
   function formatClock(value) {
     var date = new Date(value);
-    return isNaN(date.getTime()) ? value : date.toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+    return isNaN(date.getTime()) ? value : new Intl.DateTimeFormat("en-GB", {
+      day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit",
+      timeZone: "UTC", hour12: false
+    }).format(date) + " UTC";
   }
 
   function refreshClock() {

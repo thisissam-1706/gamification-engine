@@ -1,0 +1,416 @@
+{
+  "summary": "59 passed, 0 failed, 59 checks",
+  "checks": [
+    {
+      "section": "intro",
+      "name": "personas_endpoint_returns_12",
+      "ok": true,
+      "detail": "status 200"
+    },
+    {
+      "section": "intro",
+      "name": "priya_home_200",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "section": "intro",
+      "name": "priya_lesson_accepted_xp_up",
+      "ok": true,
+      "detail": "{'status': 'accepted', 'reason': None, 'event_id': '13a7ae5d-cdcd-4845-8538-43e432dd17a8', 'timings_ms': {'ingest': 6.88, 'project': 6.53}} {'xp_total': 1000, 'streak': 4, 'freezes': 1, 'active_days': 7, 'ruleset': 'v1'} {'xp_total': 1100, 'streak': 4, 'freezes': 1, 'active_days': 7, 'ruleset': 'v1'}"
+    },
+    {
+      "section": "intro",
+      "name": "priya_streak_per_engine",
+      "ok": true,
+      "detail": "4 -> 4"
+    },
+    {
+      "section": "M1/M2",
+      "name": "events_show_ids",
+      "ok": true,
+      "detail": "no correlation or source event ids"
+    },
+    {
+      "section": "M1/M2",
+      "name": "fresh_lesson_accepted",
+      "ok": true,
+      "detail": "{'status': 'accepted', 'reason': None, 'event_id': '3af3ec55-a4a6-4de5-bd84-c359a6a37471', 'timings_ms': {'ingest': 6.35, 'project': 7.26}}"
+    },
+    {
+      "section": "M1/M2",
+      "name": "duplicate_rejected_no_xp_change",
+      "ok": true,
+      "detail": "{'status': 'duplicate', 'reason': 'duplicate_event_id', 'event_id': '3af3ec55-a4a6-4de5-bd84-c359a6a37471'}"
+    },
+    {
+      "section": "M1/M2",
+      "name": "late_24h_accepted",
+      "ok": true,
+      "detail": "{'status': 'accepted', 'reason': None, 'event_id': '60c8cad2-e263-4e8f-9b66-52b6276ffb87', 'timings_ms': {'ingest': 6.76, 'project': 6.4}}"
+    },
+    {
+      "section": "M1/M2",
+      "name": "late_100h_rejected",
+      "ok": true,
+      "detail": "{'status': 'rejected', 'reason': 'outside_late_window', 'event_id': 'a1026a1c-d638-4bf6-8e95-3ef311fc8a65', 'timings_ms': {'ingest': 2.48, 'project': 0.0}}"
+    },
+    {
+      "section": "M1/M2",
+      "name": "rebuild_compare_identical",
+      "ok": true,
+      "detail": "{'rows': [{'field': 'xp_total', 'live': 1600, 'rebuilt': 1600, 'match': True}, {'field': 'new_streak', 'live': 4, 'rebuilt': 4, 'match': True}, {'field': 'freezes_remaining', 'live': 0, 'rebuilt': 0, 'match': True}, {'field': 'activity_dates', 'live': ['2026-10-05', '2026-10-06', '2026-10-07', '2026-10-08', '2026-10-13', '2026-10-14', '2026-10-15', '2026-10-16'], 'rebuilt': ['2026-10-05', '2026-10-06', '2026-10-07', '2026-10-08', '2026-10-13', '2026-10-14', '2026-10-15', '2026-10-16'], 'match': True}, {'field': 'completed_quests', 'live': ['lesson_starter_v1'], 'rebuilt': ['lesson_starter_v1'], 'match': True}, {'field': 'badges', 'live': [], 'rebuilt': [], 'match': True}], 'identical': True, 'events_replayed': 55}"
+    },
+    {
+      "section": "M1/M2",
+      "name": "ruleset_switch_only_new_events",
+      "ok": true,
+      "detail": "['v2', 'v1', 'v1', 'v1', 'v1', 'v1', 'v1', 'v1', 'v1']"
+    },
+    {
+      "section": "M3",
+      "name": "cohorts_have_members",
+      "ok": true,
+      "detail": "{'epoch': '2026-W42', 'cohorts': [{'cohort_id': 'cohort_act_2026-W42_casual_000__cohort_mod_2026-W42_math_101_000', 'name': 'Cohort A', 'member_count': 2, 'members': [{'display_name': 'Aarav Mehta', '"
+    },
+    {
+      "section": "M3",
+      "name": "consistency_lag_zero",
+      "ok": true,
+      "detail": "{'projection_offset': 617, 'log_head': 617, 'lag': 0, 'mode': 'synchronous in demo', 'semantics': ['Rank order: highest XP this week first. A tie goes to the learner who reached that XP first, then to the lower learner id, so the order is always the same for the same events.', 'A write is visible on the next read in this demo: after each accepted event the leaderboard is updated straight away, in the same request. Production targets p99 under 2 s from ingestion to visibility.', 'Every update and its offset commit in one transaction, and a repeated delivery of the same event is ignored, so replaying events never double-counts XP.', 'After a crash the projection resumes from its last committed offset and applies the log entries after it; entries it already applied are skipped.', 'A rebuild replays the whole event log into an empty leaderboard and gives the same ranks and scores, because the log is the source of truth and the leaderboard is derived.']}"
+    },
+    {
+      "section": "M3",
+      "name": "latency_probe_numbers",
+      "ok": true,
+      "detail": "{'queries': 400, 'rank_ms': {'p50': 0.01, 'p95': 0.015, 'p99': 0.029, 'max': 0.251}, 'top_ms': {'p50': 0.022, 'p95': 0.024, 'p99': 0.03, 'max': 0.043}}"
+    },
+    {
+      "section": "M3",
+      "name": "measure_update_timings_and_xp",
+      "ok": true,
+      "detail": "{'result': {'status': 'accepted', 'reason': None, 'event_id': 'e1ba5a93-d52a-468c-8cd2-1def21866494', 'timings_ms': {'ingest': 7.2, 'project': 6.57}}, 'timings_ms': {'ingest': 7.2, 'project': 6.57}, 'before': {'cohort_rank': 2, 'cohort_score': 800, 'global_rank': 11, 'global_score': 800, 'first_reached_at': '2026-10-16T18:00:00Z', 'xp_total': 1100}, 'after': {'cohort_rank': 2, 'cohort_score': 900, 'global_rank': 10, 'global_score': 900, 'first_reached_at': '2026-10-16T18:00:00Z', 'xp_total': 1200}}"
+    },
+    {
+      "section": "M4",
+      "name": "fail_checkpoint_assigns_quest",
+      "ok": true,
+      "detail": "{'result': {'status': 'accepted', 'reason': None}, 'attempt_id': 'att_1794825657212_b593b5', 'latest_decision': {'decision_id': 'remediation:att_1794825657212_b593b5', 'attempt_id': 'att_1794825657212_b593b5', 'assessment_id': 'fractions_checkpoint_1', 'decision': 'assign', 'reason': None, 'assignment_id': 'remediation_quest:att_1794825657212_b593b5', 'decided_at': '2026-10-16T18:00:00+00:00', 'deadline_at': '2026-10-23T18:00:00+00:00'}, 'snapshot': {'xp_total': 1200, 'streak': 5, 'freezes': 0, 'active_days': 8, 'ruleset': 'v1'}}"
+    },
+    {
+      "section": "M4",
+      "name": "decision_and_quest_recorded",
+      "ok": true,
+      "detail": "{'attempts': [{'attempt_id': 'att_1794825657212_b593b5', 'assessment_id': 'fractions_checkpoint_1', 'passed': False, 'occurred_at': '2026-10-16T18:00:00Z'}], 'decisions': [{'decision_id': 'remediation"
+    },
+    {
+      "section": "M4",
+      "name": "second_fail_same_assessment_not_first_attempt",
+      "ok": true,
+      "detail": "{'decision_id': 'remediation:att_1794825657253_178bd3', 'attempt_id': 'att_1794825657253_178bd3', 'assessment_id': 'fractions_checkpoint_1', 'decision': 'no_action', 'reason': 'not_first_attempt', 'assignment_id': None, 'decided_at': '2026-10-16T18:00:00+00:00', 'deadline_at': None}"
+    },
+    {
+      "section": "M4",
+      "name": "other_assessment_frequency_guardrail",
+      "ok": true,
+      "detail": "{'decision_id': 'remediation:att_1794825657282_862723', 'attempt_id': 'att_1794825657282_862723', 'assessment_id': 'fractions_checkpoint_2', 'decision': 'no_action', 'reason': 'remediated_within_window', 'assignment_id': None, 'decided_at': '2026-10-16T18:00:00+00:00', 'deadline_at': None}"
+    },
+    {
+      "section": "M4",
+      "name": "complete_remediation_accepted",
+      "ok": true,
+      "detail": "{'result': {'status': 'accepted', 'reason': None, 'event_id': '15e54a4a-7445-451b-b468-1fa02f330ea6', 'timings_ms': {'ingest': 7.19, 'project': 7.75}}, 'snapshot': {'xp_total': 1300, 'streak': 5, 'freezes': 0, 'active_days': 8, 'ruleset': 'v1'}}"
+    },
+    {
+      "section": "M4",
+      "name": "vikram_has_pending_remediation",
+      "ok": true,
+      "detail": "[{'assignment_id': 'remediation_quest:attempt:4', 'quest_id': 'remediation_v1', 'status': 'assigned', 'assigned_at': '2026-10-15T10:05:00+00:00', 'deadline_at': '2026-10-22T10:05:00+00:00', 'completed_at': None, 'progress': 0}]"
+    },
+    {
+      "section": "M4",
+      "name": "expiry_sweep_200",
+      "ok": true,
+      "detail": "{\"now\":\"2026-10-16T18:00:00+00:00\",\"learners_swept\":12,\"learners_with_expiry\":0,\"expired_count\":0,\"expired_quest_ids\":[],\"by_learner\":{}}"
+    },
+    {
+      "section": "M5",
+      "name": "in_app_delivered",
+      "ok": true,
+      "detail": "[{'status': 'dispatched', 'reason': None, 'channel': 'in_app', 'proposal_id': 'demo:6c306d6500', 'attempt_count': 1, 'rescheduled_for': None}]"
+    },
+    {
+      "section": "M5",
+      "name": "dedup_second_suppressed",
+      "ok": true,
+      "detail": "[{'status': 'dispatched', 'reason': None, 'channel': 'in_app', 'proposal_id': 'demo:a0257f033f', 'attempt_count': 1, 'rescheduled_for': None}, {'status': 'suppressed', 'reason': 'duplicate_proposal', 'channel': 'in_app', 'proposal_id': 'demo:a0257f033f', 'attempt_count': 1, 'rescheduled_for': None}]"
+    },
+    {
+      "section": "M5",
+      "name": "daily_cap_suppression",
+      "ok": true,
+      "detail": "[{'status': 'dispatched', 'reason': None, 'channel': 'push', 'proposal_id': 'demo:47bfef5338', 'attempt_count': 1, 'rescheduled_for': None}, {'status': 'dispatched', 'reason': None, 'channel': 'push', 'proposal_id': 'demo:21e8791c1e', 'attempt_count': 1, 'rescheduled_for': None}, {'status': 'suppressed', 'reason': 'daily_cap_exceeded', 'channel': 'push', 'proposal_id': 'demo:f39dc5ade8', 'attempt_count': 1, 'rescheduled_for': None}, {'status': 'suppressed', 'reason': 'daily_cap_exceeded', 'channel': 'push', 'proposal_id': 'demo:aa7b9bdbf5', 'attempt_count': 1, 'rescheduled_for': None}, {'status': 'suppressed', 'reason': 'daily_cap_exceeded', 'channel': 'push', 'proposal_id': 'demo:dc36c2ca8d', 'attempt_count': 1, 'rescheduled_for': None}, {'status': 'suppressed', 'reason': 'daily_cap_exceeded', 'channel': 'push', 'proposal_id': 'demo:9e0711ceed', 'attempt_count': 1, 'rescheduled_for': None}, {'status': 'suppressed', 'reason': 'daily_cap_exceeded', 'channel': 'push', 'proposal_id': 'demo:ca22fde6b3', 'attempt_count': 1, 'rescheduled_for': None}]"
+    },
+    {
+      "section": "M5",
+      "name": "consent_suppression_push_opted_out",
+      "ok": true,
+      "detail": "[{'status': 'suppressed', 'reason': 'opt_out', 'channel': 'push', 'proposal_id': 'demo:6fcee62fa9', 'attempt_count': 1, 'rescheduled_for': None}]"
+    },
+    {
+      "section": "M5",
+      "name": "email_delivered",
+      "ok": true,
+      "detail": "[{'status': 'dispatched', 'reason': None, 'channel': 'email', 'proposal_id': 'demo:dbdd170b0e', 'attempt_count': 1, 'rescheduled_for': None}]"
+    },
+    {
+      "section": "M5",
+      "name": "outage_then_dead_letter",
+      "ok": true,
+      "detail": "[{'status': 'failed', 'reason': 'provider_exhausted: Simulated push provider outage (503 Service Unavailable)', 'channel': 'push', 'proposal_id': 'demo:72d662bea7', 'attempt_count': 3, 'rescheduled_for': None}]"
+    },
+    {
+      "section": "M5",
+      "name": "replay_resolves_dead_letter",
+      "ok": true,
+      "detail": "[{'dlq_id': 'dlq_87fe68bc1b42', 'status': 'dispatched', 'reason': None}]"
+    },
+    {
+      "section": "M5",
+      "name": "quiet_hours_deferred",
+      "ok": true,
+      "detail": "[{'status': 'queued', 'reason': 'quiet_hours_rescheduled', 'channel': 'push', 'proposal_id': 'demo:c3e2575ae7', 'attempt_count': 1, 'rescheduled_for': '2026-10-21T08:00:00Z'}]"
+    },
+    {
+      "section": "M5",
+      "name": "utc_send_time_shows_2300_on_ist_machine",
+      "ok": true,
+      "detail": "Oct 20, 23:00:00"
+    },
+    {
+      "section": "M5",
+      "name": "utc_deferred_until_0800",
+      "ok": true,
+      "detail": "Oct 21, 08:00:00 UTC"
+    },
+    {
+      "section": "M5",
+      "name": "short_strips_prefix_distinct",
+      "ok": true,
+      "detail": "['aaaaaaaa', 'bbbbbbbb', '4871b5d7']"
+    },
+    {
+      "section": "M5",
+      "name": "release_deferred_delivered",
+      "ok": true,
+      "detail": "[{'proposal_id': 'demo:c3e2575ae7', 'status': 'dispatched', 'reason': None}]"
+    },
+    {
+      "section": "M6",
+      "name": "impossible_timing_flagged_kabir",
+      "ok": true,
+      "detail": "found ['impossible_timing']"
+    },
+    {
+      "section": "M6",
+      "name": "scan_impossible_timing_scores_unchanged",
+      "ok": true,
+      "detail": "{'summary': {'counts_by_type': {'impossible_timing': 1}, 'learners_scanned': 1, 'events_read': 650, 'new_signals': 1, 'existing_signals': 0, 'rules_version': 'v2'}, 'scores_changed': False, 'event_log"
+    },
+    {
+      "section": "M6",
+      "name": "scripted_farming_flagged_kabir",
+      "ok": true,
+      "detail": "found ['impossible_timing', 'scripted_farming']"
+    },
+    {
+      "section": "M6",
+      "name": "scan_scripted_farming_scores_unchanged",
+      "ok": true,
+      "detail": "{'summary': {'counts_by_type': {'impossible_timing': 1, 'scripted_farming': 1}, 'learners_scanned': 1, 'events_read': 692, 'new_signals': 1, 'existing_signals': 1, 'rules_version': 'v2'}, 'scores_chan"
+    },
+    {
+      "section": "M6",
+      "name": "replay_flagged_meera",
+      "ok": true,
+      "detail": "found ['replay']"
+    },
+    {
+      "section": "M6",
+      "name": "scan_replay_scores_unchanged",
+      "ok": true,
+      "detail": "{'summary': {'counts_by_type': {'replay': 1}, 'learners_scanned': 1, 'events_read': 710, 'new_signals': 1, 'existing_signals': 0, 'rules_version': 'v2'}, 'scores_changed': False, 'event_log_before': 7"
+    },
+    {
+      "section": "M6",
+      "name": "duplicate_exploit_flagged_meera",
+      "ok": true,
+      "detail": "found ['duplicate_exploit', 'replay']"
+    },
+    {
+      "section": "M6",
+      "name": "scan_duplicate_exploit_scores_unchanged",
+      "ok": true,
+      "detail": "{'summary': {'counts_by_type': {'duplicate_exploit': 1, 'replay': 1}, 'learners_scanned': 1, 'events_read': 722, 'new_signals': 1, 'existing_signals': 1, 'rules_version': 'v2'}, 'scores_changed': Fals"
+    },
+    {
+      "section": "M6",
+      "name": "four_signal_types_present",
+      "ok": true,
+      "detail": "{'impossible_timing', 'scripted_farming', 'replay', 'duplicate_exploit'}"
+    },
+    {
+      "section": "M6",
+      "name": "signals_have_evidence",
+      "ok": true,
+      "detail": "no resolved evidence"
+    },
+    {
+      "section": "M7",
+      "name": "assign_counts_add_to_12",
+      "ok": true,
+      "detail": "{'newly_assigned': 12, 'already_assigned': 0, 'eligible': 9, 'excluded': 3}"
+    },
+    {
+      "section": "M7",
+      "name": "assign_again_changes_nothing",
+      "ok": true,
+      "detail": "{'newly_assigned': 0, 'already_assigned': 12, 'eligible': 9, 'excluded': 3}"
+    },
+    {
+      "section": "M7",
+      "name": "assignments_12_rows_with_arms",
+      "ok": true,
+      "detail": "{'rows': [{'display_name': 'Aarav Mehta', 'learner_id': 'c6bb39cc-7ede-5881-83ca-1f84ebd502c1', 'variant': 'variant_a', 'arm': 'treatment', 'eligible': True, 'exclusion_reason': None, 'first_exposure'"
+    },
+    {
+      "section": "M7",
+      "name": "sweep_for_tara",
+      "ok": true,
+      "detail": "{'learner_id': 'a4b67f76-95be-50c1-8157-55022bf4e70d', 'reason': None, 'fact_status': 'dispatched'}"
+    },
+    {
+      "section": "M7",
+      "name": "report_valid_with_arms",
+      "ok": true,
+      "detail": "{'arms': {'control': {'breach_learner_days': 0, 'breach_learner_rate': 0.0, 'breach_learners': 0, 'delivered_cap_breach_learners': 0, 'eligible': 4, 'exposure': {'eligible': 4, 'exposed': 0, 'note': '"
+    },
+    {
+      "section": "M7",
+      "name": "reference_report_ok",
+      "ok": true,
+      "detail": "200"
+    },
+    {
+      "section": "M7",
+      "name": "reference_report_matured_mastery_ci_hash",
+      "ok": true,
+      "detail": "{'report': {'arms': {'control': {'breach_learner_days': 0, 'breach_learner_rate': 0.0, 'breach_learners': 0, 'delivered_cap_breach_learners': 0, 'eligible': 8, 'exposure': {'eligible': 8, 'exposed': 0, 'note': 'no exposure rate: the exposure rules give variant_b no treatment surface, so a control le"
+    },
+    {
+      "section": "M7",
+      "name": "reference_report_deterministic_and_live_untouched",
+      "ok": true,
+      "detail": "hash changed"
+    },
+    {
+      "section": "M7",
+      "name": "reproduce_identical",
+      "ok": true,
+      "detail": "{'hash_1': '29058b117f7c071f5c0ddf9b5f43d8e5a1345e7f881d108129aaf24df35e9e5b', 'hash_2': '29058b117f7c071f5c0ddf9b5f43d8e5a1345e7f881d108129aaf24df35e9e5b', 'identical': True, 'valid': True}"
+    },
+    {
+      "section": "M8",
+      "name": "wipe_and_rebuild_identical",
+      "ok": true,
+      "detail": "{'wipe': {'before': {'hash': '3d61104067b6ff031787f9f90dc6cc35c18f2a927b6020e2d3212a167ea608d0', 'tables': {'leaderboard_applied_events': 204, 'leaderboard_checkpoints': 6, 'leaderboard_cohort_definitions': 5, 'leaderboard_completion_times': 204, 'leaderboard_entries': 35, 'leaderboard_pending_award"
+    },
+    {
+      "section": "M8",
+      "name": "dead_letter_counts",
+      "ok": true,
+      "detail": "{'open': 0, 'resolved': 1, 'entries': [{'learner': 'Arjun Reddy', 'channel': 'push', 'reason': 'provider_exhausted: Simulated push provider outage (503 Service Unavailable)', 'attempts': 3, 'failed_at': '2026-10-18T12:00:00Z', 'resolved': True}]}"
+    },
+    {
+      "section": "M8",
+      "name": "small_benchmark_passed",
+      "ok": true,
+      "detail": "{'timestamp': '2026-11-16T10:41:01.707290+00:00', 'profile': {'population_size': 20, 'cohort_count': 2, 'events_per_learner': 15, 'duplicate_rate': 0.05, 'late_rate': 0.05, 'seed': 42, 'epoch': '2026-"
+    },
+    {
+      "section": "tick",
+      "name": "engine_tick_eight_steps",
+      "ok": true,
+      "detail": "[('weekly_cycle', True), ('assign', True), ('poll', True), ('quest_expiry', True), ('remediation', True), ('streak_risk', True), ('abuse', True), ('reconcile', True)]"
+    },
+    {
+      "section": "tick",
+      "name": "engine_tick_idempotent",
+      "ok": true,
+      "detail": "{'new_decisions': 0, 'new_signals': 0, 'new_notifications': 0}"
+    },
+    {
+      "section": "tick",
+      "name": "priya_home_after_tick",
+      "ok": true,
+      "detail": ""
+    }
+  ],
+  "numbers": {
+    "personas_endpoint_returns_12": "12 personas",
+    "priya_lesson_accepted_xp_up": "XP 1000 -> 1100 (+100)",
+    "priya_streak_per_engine": "streak 4 -> 4 (she already practised on the demo day, so it holds)",
+    "events_show_ids": "52 events; newest QuestCompleted has correlation id 09b4b33f",
+    "fresh_lesson_accepted": "accepted, XP 1400 -> 1500",
+    "duplicate_rejected_no_xp_change": "reason duplicate_event_id, XP unchanged at 1500",
+    "late_24h_accepted": "accepted, XP 1500 -> 1600",
+    "late_100h_rejected": "reason outside_late_window, XP unchanged at 1600",
+    "rebuild_compare_identical": "identical, 55 events replayed",
+    "ruleset_switch_only_new_events": "newest reward v2, older rewards keep v1",
+    "cohorts_have_members": "5 cohorts for 2026-W42, 12 learners",
+    "consistency_lag_zero": "projection offset 617 = log head 617, lag 0",
+    "latency_probe_numbers": "p95 rank 0.015 ms, p95 top-N 0.024 ms",
+    "measure_update_timings_and_xp": "ingest 7.2 ms + projection 6.57 ms; cohort rank 2 -> 2, global rank 11 -> 10, XP +100",
+    "fail_checkpoint_assigns_quest": "decision assign, quest deadline 2026-10-23",
+    "decision_and_quest_recorded": "1 decision, 1 remediation quest (assigned)",
+    "second_fail_same_assessment_not_first_attempt": "no_action, reason not_first_attempt",
+    "other_assessment_frequency_guardrail": "no_action, reason remediated_within_window (14-day window)",
+    "complete_remediation_accepted": "accepted, remediation quest completed",
+    "vikram_has_pending_remediation": "open remediation quest (assigned) from the seed",
+    "expiry_sweep_200": "swept 12 learners, 0 expired at the seed clock",
+    "in_app_delivered": "in-app message delivered",
+    "dedup_second_suppressed": "second copy suppressed: duplicate_proposal",
+    "daily_cap_suppression": "7 push sends: 2 delivered, 5 suppressed daily_cap_exceeded",
+    "consent_suppression_push_opted_out": "Ananya (push off): suppressed opt_out",
+    "email_delivered": "Diya: email delivered",
+    "outage_then_dead_letter": "3 attempts failed, dead_letter_open 1",
+    "replay_resolves_dead_letter": "replayed 1, dead_letter_resolved 1",
+    "quiet_hours_deferred": "deferred until 2026-10-21T08:00:00Z",
+    "utc_send_time_shows_2300_on_ist_machine": "23:00 UTC send shows Oct 20, 23:00:00 (TZ=Asia/Kolkata)",
+    "utc_deferred_until_0800": "deferred shows 'until Oct 21, 08:00:00 UTC'",
+    "short_strips_prefix_distinct": "attempt ids shorten to aaaaaaaa / bbbbbbbb",
+    "release_deferred_delivered": "released and delivered at 09:00",
+    "impossible_timing_flagged_kabir": "6 events sent, 6 accepted, rejected: none; signal impossible_timing",
+    "scan_impossible_timing_scores_unchanged": "scores_changed false, event log 650/650",
+    "scripted_farming_flagged_kabir": "14 events sent, 14 accepted, rejected: none; signal scripted_farming",
+    "scan_scripted_farming_scores_unchanged": "scores_changed false, event log 692/692",
+    "replay_flagged_meera": "12 events sent, 6 accepted, rejected: duplicate_event_id 6; signal replay",
+    "scan_replay_scores_unchanged": "scores_changed false, event log 710/710",
+    "duplicate_exploit_flagged_meera": "8 events sent, 4 accepted, rejected: duplicate_completion_id 4; signal duplicate_exploit",
+    "scan_duplicate_exploit_scores_unchanged": "scores_changed false, event log 722/722",
+    "four_signal_types_present": "replay, impossible_timing, scripted_farming, duplicate_exploit",
+    "signals_have_evidence": "4 signals with resolved evidence",
+    "assign_counts_add_to_12": "12 assigned, 9 eligible, 3 excluded",
+    "assign_again_changes_nothing": "second run: 0 newly assigned",
+    "assignments_12_rows_with_arms": "treatment 6, control 6",
+    "sweep_for_tara": "Tara is treatment: reminder dispatched at 20:00 UTC on a day she has not practised",
+    "report_valid_with_arms": "valid, treatment eligible 5, control eligible 4, hash 29058b117f7c",
+    "reference_report_matured_mastery_ci_hash": "reference run valid: mastery treatment 0.333 vs control 0.625, difference -0.292, 95% CI [-0.720, 0.137], hash 8bd5769bbbd1",
+    "reproduce_identical": "identical, 29058b117f7c = 29058b117f7c",
+    "wipe_and_rebuild_identical": "734 events replayed in 365.99 ms, checksum 3d61104067b6 identical",
+    "dead_letter_counts": "open 0, resolved 1",
+    "small_benchmark_passed": "overall_passed true in 2.4 s",
+    "engine_tick_eight_steps": "8 steps ok: weekly_cycle, assign, poll, quest_expiry, remediation, streak_risk, abuse, reconcile",
+    "engine_tick_idempotent": "second tick summary {'new_decisions': 0, 'new_signals': 0, 'new_notifications': 0}"
+  }
+}

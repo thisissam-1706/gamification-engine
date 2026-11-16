@@ -62,6 +62,7 @@ DISPLAY_NAMES = [
 # UI-only cohort names ("Cohort A", "Cohort B", ...) are given to the cohorts the builder
 # produces, in cohort id order; see _cohort_names().
 
+LEARNER_CREATED_AT = datetime(2026, 10, 1, 9, 0, tzinfo=timezone.utc)
 WEEKLY_QUEST_ASSIGNED_AT = "2026-10-15T00:00:00Z"  # engine default deadline: +7 days
 FREEZE_LEARNER = 1      # has a freeze; its 2026-10-14 is skipped, so the day is frozen
 MISSED_LEARNER = 2      # no freeze; its 2026-10-15 is skipped, so the day is missed
@@ -112,7 +113,11 @@ def seed(data_dir: Path | str = DATA_DIR) -> dict:
         # 1. Learners: stable ids, weekly quest, and the scripted freeze.
         for lid in workload.learner_ids:
             i = index_of[lid]
-            learner = Learner._create(Learner.Created, id=learner_uuid(i))
+            # Created on the simulated timeline (not wall clock): the exp_007 tenure rule needs
+            # a learner to be at least 3 days old at the demo clock.
+            learner = Learner._create(
+                Learner.Created, id=learner_uuid(i), timestamp=LEARNER_CREATED_AT
+            )
             learner.assign_quest(
                 "lesson_starter_v1",
                 assignment_id="weekly:2026-W42",
