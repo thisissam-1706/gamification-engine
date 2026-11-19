@@ -2,13 +2,35 @@
 (function () {
   "use strict";
 
-  var LESSON_QUESTIONS = [
-    { prompt: "Which fraction is equal to one half?", answers: ["1/2", "1/3", "2/3", "3/4"], correct: 0, explanation: "One half means one of two equal parts: 1/2." },
-    { prompt: "Which fraction is larger?", answers: ["1/4", "3/4", "1/2", "2/8"], correct: 1, explanation: "Three fourths is larger than one half and one quarter." },
-    { prompt: "What is 1/4 + 1/4?", answers: ["1/8", "1/2", "2/8", "1"], correct: 1, explanation: "Two fourths make one half, so 1/4 + 1/4 = 1/2." },
-    { prompt: "Which fraction is already in simplest form?", answers: ["2/4", "3/6", "4/8", "3/5"], correct: 3, explanation: "Three and five have no common factor greater than one." },
-    { prompt: "A pizza has 8 equal slices. You eat 3. What fraction is left?", answers: ["3/8", "5/8", "1/2", "8/5"], correct: 1, explanation: "Eight slices minus three eaten leaves five of eight slices." }
+  // Five one-question lessons. Each is submitted as its own lesson_completed event.
+  var LESSONS = [
+    { id: "fractions_basics_1", prompt: "Which fraction is equal to one half?", answers: ["1/2", "1/3", "2/3", "3/4"], correct: 0, explanation: "One half means one of two equal parts: 1/2." },
+    { id: "fractions_basics_2", prompt: "Which fraction is larger?", answers: ["1/4", "3/4", "1/2", "2/8"], correct: 1, explanation: "Three fourths is larger than one half and one quarter." },
+    { id: "fractions_basics_3", prompt: "What is 1/4 + 1/4?", answers: ["1/8", "1/2", "2/8", "1"], correct: 1, explanation: "Two fourths make one half, so 1/4 + 1/4 = 1/2." },
+    { id: "fractions_basics_4", prompt: "Which fraction is already in simplest form?", answers: ["2/4", "3/6", "4/8", "3/5"], correct: 3, explanation: "Three and five have no common factor greater than one." },
+    { id: "fractions_basics_5", prompt: "A pizza has 8 equal slices. You eat 3. What fraction is left?", answers: ["3/8", "5/8", "1/2", "8/5"], correct: 1, explanation: "Eight slices minus three eaten leaves five of eight slices." }
   ];
+  function setCheckpointVisible(visible) {
+    var button = document.getElementById("checkpoint-button");
+    if (button) button.hidden = !visible;
+  }
+  var LESSON_KEY = "demoLessonIndex:";
+  function getLessonIndex(id) {
+    try {
+      var v = parseInt(window.localStorage.getItem(LESSON_KEY + id), 10);
+      return v >= 0 && v < LESSONS.length ? v : 0;
+    } catch (e) { return 0; }
+  }
+  function setLessonIndex(id, index) {
+    try { window.localStorage.setItem(LESSON_KEY + id, String(index)); } catch (e) {}
+  }
+  function clearLessonIndexes() {
+    try {
+      Object.keys(window.localStorage).forEach(function (key) {
+        if (key.indexOf(LESSON_KEY) === 0) window.localStorage.removeItem(key);
+      });
+    } catch (e) {}
+  }
 
   var CHECKPOINT_QUESTIONS = [
     { prompt: "Which fraction is greater than 1/2?", answers: ["2/5", "3/5", "1/4", "4/8"], correct: 1, explanation: "Three fifths is greater than one half." },
@@ -35,7 +57,9 @@
 
   var state = {
     section: "lesson",
-    questions: LESSON_QUESTIONS,
+    questions: [LESSONS[0]],
+    lessonIndex: 0,
+    summaryMode: "submit-lesson",
     index: 0,
     score: 0,
     answered: false,
@@ -146,6 +170,8 @@
     return currentClock().then(function (clock) {
       adjust(clock);
       return setDemoClock(clock);
+    }).then(function () {
+      startLesson(getLessonIndex(state.learnerId));
     }).catch(function (error) {
       showRequestError(error, retryAction);
     }).finally(function () {
@@ -172,6 +198,7 @@
     clearRequestError();
     setRequestBusy(true);
     return requestJSON("/api/demo/reset", { method: "POST" }).then(function () {
+      clearLessonIndexes();
       window.location.reload();
     }).catch(function (error) {
       showRequestError(error, resetDemo);
@@ -191,7 +218,7 @@
       $("demo-clock").textContent = "Demo clock: " + formatClock(clock.now_utc);
       $("lesson-card").hidden = false;
       clearSetupError();
-      renderQuestion();
+      startLesson(getLessonIndex(learnerId));
     }).catch(function (error) {
       if (error.status === 404) {
         setSetupError("Demo routes are unavailable. Start the server with DEMO_MODE=1 and DEMO_SANDBOX_PATH set.");
@@ -237,7 +264,8 @@
   function updateProgress() {
     var total = state.questions.length;
     var current = state.index + 1;
-    $("section-label").textContent = state.section === "lesson" ? "Lesson" : "Checkpoint";
+    $("section-label").textContent = state.section === "lesson" ?
+      "Lesson " + (state.lessonIndex + 1) + " of " + LESSONS.length : "Checkpoint";
     $("question-count").textContent = "Question " + current + " of " + total;
     $("progress-fill").style.width = (current / total) * 100 + "%";
     $("lesson-progress").setAttribute("aria-valuemax", String(total));
@@ -249,6 +277,7 @@
     updateProgress();
     $("question-screen").hidden = false;
     $("summary-screen").hidden = true;
+    setCheckpointVisible(false);
     $("question-prompt").textContent = question.prompt;
     $("feedback").hidden = true;
     $("feedback").classList.remove("is-wrong");
@@ -300,7 +329,9 @@
     $("lesson-progress").setAttribute("aria-valuenow", String(total));
     $("summary-title").textContent = isLesson ? "Nice work!" : "Checkpoint results";
     $("summary-score").textContent = state.score + " of " + total + " correct";
-    $("summary-message").textContent = isLesson ? "You are ready to try the checkpoint quiz." :
+    state.summaryMode = isLesson ? "submit-lesson" : "submit-checkpoint";
+    setCheckpointVisible(false);
+    $("summary-message").textContent = isLesson ? "Finish the lesson to earn XP." :
       (state.score >= 2 ? "You passed the checkpoint." : "You need 2 correct answers to pass.");
     $("summary-button").textContent = isLesson ? "Finish lesson" : "Submit checkpoint";
     $("summary-button").disabled = false;
@@ -405,11 +436,17 @@
       return requestJSON("/api/demo/learners/" + encodeURIComponent(id) + "/lesson-complete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ lesson_id: "fractions_basics_1", completion_kind: "lesson" })
+        body: JSON.stringify({ lesson_id: LESSONS[state.lessonIndex].id, completion_kind: "lesson" })
       }).then(function (result) {
         return getJSON("/api/learners/" + encodeURIComponent(id) + "/home").then(function (after) {
           renderChanges(before, after, result);
-          startCheckpoint();
+          if (result.status === "accepted") setLessonIndex(id, (state.lessonIndex + 1) % LESSONS.length);
+          state.summaryMode = "next-lesson";
+          $("summary-button").textContent = "Next lesson";
+          $("summary-message").textContent = result.status === "accepted" ?
+            "Lesson saved. Start the next lesson or try the checkpoint." :
+            "This lesson was not saved. See what changed below.";
+          setCheckpointVisible(true);
         });
       });
     }).catch(function (error) {
@@ -431,6 +468,8 @@
       }).then(function (result) {
         return getJSON("/api/learners/" + encodeURIComponent(id) + "/home").then(function (after) {
           renderChanges(before, after, result);
+          state.summaryMode = "back-to-lessons";
+          $("summary-button").textContent = "Back to lessons";
         });
       });
     }).catch(function (error) {
@@ -448,7 +487,18 @@
       showSummary();
     }
   }
+  function startLesson(index) {
+    state.section = "lesson";
+    state.lessonIndex = index;
+    state.questions = [LESSONS[index]];
+    state.index = 0;
+    state.score = 0;
+    clearRequestError();
+    $("changes-panel").hidden = true;
+    renderQuestion();
+  }
   function startCheckpoint() {
+    $("changes-panel").hidden = true;
     state.section = "checkpoint";
     state.questions = CHECKPOINT_QUESTIONS;
     state.index = 0;
@@ -465,9 +515,12 @@
   });
   $("continue-button").addEventListener("click", continueQuestion);
   $("summary-button").addEventListener("click", function () {
-    if (state.section === "lesson") submitLesson();
-    else submitCheckpoint();
+    if (state.summaryMode === "submit-lesson") submitLesson();
+    else if (state.summaryMode === "submit-checkpoint") submitCheckpoint();
+    else startLesson(getLessonIndex(state.learnerId));
   });
+  var checkpointButton = document.getElementById("checkpoint-button");
+  if (checkpointButton) checkpointButton.addEventListener("click", startCheckpoint);
   $("same-day-button").addEventListener("click", setSameDayEvening);
   $("next-day-button").addEventListener("click", setNextDay);
   $("skip-day-button").addEventListener("click", setSkipDay);

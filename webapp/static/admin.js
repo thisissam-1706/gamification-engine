@@ -120,13 +120,24 @@
   }
 
   // ---- clock
+  function paintClock() {
+    if (!state.clockBase) return;
+    var now = new Date(state.clockBase.getTime() + (state.clockFrozen ? 0 : Date.now() - state.clockFetchedAt));
+    $("adm-clock").textContent = "Demo clock: " + now.toISOString().slice(0, 19).replace("T", " ") + " UTC" +
+      (state.clockFrozen ? " (frozen)" : " (live)");
+    var freeze = $("adm-freeze");
+    if (freeze) freeze.textContent = state.clockFrozen ? "Resume clock" : "Freeze clock";
+  }
   function refreshClock() {
     if (!state.learnerId) return Promise.resolve();
     return fetch("/api/demo/learners/" + encodeURIComponent(state.learnerId) + "/clock")
       .then(function (r) { return r.json(); })
       .then(function (data) {
         state.clock = new Date(data.now_utc);
-        $("adm-clock").textContent = "Demo clock: " + data.now_utc.replace("T", " ").replace("Z", " UTC");
+        state.clockBase = new Date(data.now_utc);
+        state.clockFetchedAt = Date.now();
+        state.clockFrozen = !!data.frozen;
+        paintClock();
         var dt = $("adm-dt");
         if (dt && document.activeElement !== dt) dt.value = data.now_utc.slice(0, 16);
       })
@@ -238,6 +249,11 @@
     showTab(tabFromHash());
 
     $("adm-learner").addEventListener("change", function (e) { setLearner(e.target.value, true); });
+    $("adm-freeze").addEventListener("click", function () {
+      api("POST", "/api/demo/learners/" + encodeURIComponent(state.learnerId) + "/clock/freeze",
+        { frozen: !state.clockFrozen }).then(refreshClock).catch(function (e) { toast(e.message, "bad"); });
+    });
+    window.setInterval(paintClock, 1000);
     $("adm-plus1").addEventListener("click", function () {
       moveClock(function (c) { c.setUTCHours(c.getUTCHours() + 1); });
     });

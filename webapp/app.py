@@ -36,6 +36,15 @@ if DEMO_MODE:
 
 app = FastAPI(title="Learner home API")
 
+
+@app.middleware("http")
+async def no_cache_for_static(request, call_next):
+    """Demo server: never let the browser reuse an old copy of the HTML/JS/CSS."""
+    response = await call_next(request)
+    if not request.url.path.startswith("/api"):
+        response.headers["Cache-Control"] = "no-store"
+    return response
+
 # CORS for localhost origins only, any port.
 app.add_middleware(
     CORSMiddleware,

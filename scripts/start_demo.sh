@@ -6,6 +6,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 export DEMO_SANDBOX_PATH="${DEMO_SANDBOX_PATH:-/tmp/gamification-demo-sandbox}"
 export DEMO_MODE=1
+# Learner clocks tick in real time (use the Freeze button for repeatable runs). Set to 0 for a frozen clock.
+export DEMO_LIVE_CLOCK="${DEMO_LIVE_CLOCK:-1}"
 
 if [[ "${1:-}" == "--fresh" ]]; then
   rm -rf "$DEMO_SANDBOX_PATH"

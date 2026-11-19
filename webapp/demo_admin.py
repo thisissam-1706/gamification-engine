@@ -84,17 +84,17 @@ def iso_z(value: datetime) -> str:
 
 
 def global_clock(sandbox) -> datetime:
-    """Maximum learner clock in demo_state.db, or seed AS_OF when none is set."""
+    """Latest learner clock (running clocks included), or seed AS_OF when none is set."""
     con = sqlite3.connect(str(sandbox.live_dir / "demo_state.db"))
     try:
-        rows = [r[0] for r in con.execute("SELECT now_utc FROM learner_clock")]
+        ids = [r[0] for r in con.execute("SELECT learner_id FROM learner_clock")]
     except sqlite3.OperationalError:
-        rows = []
+        ids = []
     finally:
         con.close()
-    if not rows:
+    if not ids:
         return demo_backend._parse_iso_utc(AS_OF)
-    return max(demo_backend._parse_iso_utc(r) for r in rows)
+    return max(sandbox.get_clock(learner_id) for learner_id in ids)
 
 
 def create_admin_router(sandbox) -> APIRouter:

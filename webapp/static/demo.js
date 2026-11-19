@@ -2,7 +2,7 @@
   "use strict";
 
   var PRIYA_ID = "4871b5d7-1673-5416-8a37-48353d80e6a4";
-  var state = { learnerId: null, requestInFlight: false };
+  var state = { learnerId: null, requestInFlight: false, clockBase: null, clockFetchedAt: 0, frozen: false };
 
   function $(id) { return document.getElementById(id); }
   function requestJSON(url, options) {
@@ -25,7 +25,7 @@
     var date = new Date(value);
     return isNaN(date.getTime()) ? value : new Intl.DateTimeFormat("en-GB", {
       day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit",
-      timeZone: "UTC", hour12: false
+      second: "2-digit", timeZone: "UTC", hour12: false
     }).format(date) + " UTC";
   }
   function updateURL() {
@@ -42,12 +42,35 @@
     $("lesson-frame").src = frameURL("lesson.html");
     $("home-frame").src = frameURL("index.html");
   }
+  function currentClockDate() {
+    if (state.clockBase === null) return null;
+    return new Date(state.clockBase.getTime() + (state.frozen ? 0 : Date.now() - state.clockFetchedAt));
+  }
+  function paintClock() {
+    var now = currentClockDate();
+    if (!now) return;
+    $("demo-clock").textContent = "Demo clock: " + formatClock(now.toISOString()) +
+      (state.frozen ? " (frozen)" : " (live)");
+    $("freeze-clock").textContent = state.frozen ? "Resume clock" : "Freeze clock";
+  }
   function refreshClock() {
     return requestJSON("/api/demo/learners/" + encodeURIComponent(state.learnerId) + "/clock")
       .then(function (clock) {
-        $("demo-clock").textContent = "Demo clock: " + formatClock(clock.now_utc);
+        state.clockBase = new Date(clock.now_utc);
+        state.clockFetchedAt = Date.now();
+        state.frozen = !!clock.frozen;
+        paintClock();
         return new Date(clock.now_utc);
       });
+  }
+  function toggleFreeze() {
+    if (state.requestInFlight) return;
+    state.requestInFlight = true;
+    return requestJSON("/api/demo/learners/" + encodeURIComponent(state.learnerId) + "/clock/freeze", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ frozen: !state.frozen })
+    }).then(refreshClock).catch(setError).finally(function () { state.requestInFlight = false; });
   }
   function moveClock(adjust) {
     if (state.requestInFlight) return;
@@ -62,7 +85,9 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ now_utc: clock.toISOString() })
       });
-    }).then(refreshClock).catch(setError).finally(function () {
+    }).then(refreshClock).then(function () {
+      $("lesson-frame").src = frameURL("lesson.html");
+    }).catch(setError).finally(function () {
       state.requestInFlight = false;
       Array.prototype.forEach.call(document.querySelectorAll(".demo-controls button, .demo-controls select"), function (control) {
         control.disabled = false;
@@ -73,6 +98,11 @@
     if (state.requestInFlight) return;
     state.requestInFlight = true;
     return requestJSON("/api/demo/reset", { method: "POST" }).then(function () {
+      try {
+        Object.keys(window.localStorage).forEach(function (key) {
+          if (key.indexOf("demoLessonIndex:") === 0) window.localStorage.removeItem(key);
+        });
+      } catch (e) {}
       reloadFrames();
       return refreshClock();
     }).catch(setError).finally(function () { state.requestInFlight = false; });
@@ -115,5 +145,7 @@
     moveClock(function (clock) { clock.setUTCDate(clock.getUTCDate() + 2); });
   });
   $("reset-demo").addEventListener("click", resetDemo);
+  $("freeze-clock").addEventListener("click", toggleFreeze);
+  window.setInterval(paintClock, 1000);
   init();
 })();

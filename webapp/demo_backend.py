@@ -5,8 +5,9 @@ Provides:
 - Sandbox: reset(), set_clock(), get_clock(), submit_lesson_completed(), submit_checkpoint()
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import json
+import os
 from pathlib import Path
 import shutil
 import sqlite3
@@ -39,6 +40,10 @@ register_decay_rulesets()
 
 _submit_lock = threading.Lock()
 _VERSION_FILENAME = "demo_version"
+_CLOCK_RUN_DDL = (
+    "CREATE TABLE IF NOT EXISTS learner_clock_run ("
+    "learner_id TEXT PRIMARY KEY, anchored_at REAL NOT NULL, frozen INTEGER NOT NULL DEFAULT 0)"
+)
 
 
 def _parse_iso_utc(value: datetime | str) -> datetime:
@@ -212,6 +217,9 @@ class Sandbox:
         self.golden_dir = self.root / "golden"
         self.live_dir = self.root / "live"
         self.path = self.live_dir
+        # Demo server (scripts/start_demo.sh) sets DEMO_LIVE_CLOCK=1 so learner clocks tick in
+        # real time by default. Everything else (tests, library use) keeps the frozen clock.
+        self.live_default = os.environ.get("DEMO_LIVE_CLOCK") == "1"
 
     @property
     def version(self) -> int:
@@ -233,23 +241,80 @@ class Sandbox:
             _init_demo_state(self.live_dir / "demo_state.db", last_offset=seeded_offset)
             _bump_version(self.root)
 
-    def get_clock(self, learner_id: str) -> datetime:
-        """Returns the simulated clock for the learner, or webapp.seed.AS_OF if unset."""
+    def _read_clock(self, learner_id: str) -> tuple[datetime, bool]:
+        """Returns (now, frozen) for the learner.
+
+        The clock is stored as a base instant plus the wall-clock moment it was anchored. While
+        running (not frozen) it ticks forward in real time from the base; while frozen it stays
+        at the base. A learner with no stored clock starts at webapp.seed.AS_OF (running only when DEMO_LIVE_CLOCK=1).
+        """
         db_path = self.live_dir / "demo_state.db"
         if not db_path.exists():
-            return _parse_iso_utc(AS_OF)
-        con = sqlite3.connect(str(db_path))
+            return _parse_iso_utc(AS_OF), True
+        con = sqlite3.connect(str(db_path), timeout=10)
         try:
-            cur = con.execute(
-                "SELECT now_utc FROM learner_clock WHERE learner_id = ?",
+            con.execute(_CLOCK_RUN_DDL)
+            row = con.execute(
+                "SELECT now_utc FROM learner_clock WHERE learner_id = ?", (str(learner_id),)
+            ).fetchone()
+            base = _parse_iso_utc(row[0]) if row is not None else _parse_iso_utc(AS_OF)
+            run = con.execute(
+                "SELECT anchored_at, frozen FROM learner_clock_run WHERE learner_id = ?",
                 (str(learner_id),),
-            )
-            row = cur.fetchone()
-            if row is not None:
-                return _parse_iso_utc(row[0])
-            return _parse_iso_utc(AS_OF)
+            ).fetchone()
+            if run is None:
+                con.execute(
+                    "INSERT OR IGNORE INTO learner_clock_run (learner_id, anchored_at, frozen) "
+                    "VALUES (?, ?, ?)",
+                    (str(learner_id), time.time(), 0 if self.live_default else 1),
+                )
+                con.commit()
+                run = con.execute(
+                    "SELECT anchored_at, frozen FROM learner_clock_run WHERE learner_id = ?",
+                    (str(learner_id),),
+                ).fetchone()
+            anchored_at, frozen = float(run[0]), bool(run[1])
         finally:
             con.close()
+        if frozen:
+            return base, True
+        return base + timedelta(seconds=max(0.0, time.time() - anchored_at)), False
+
+    def get_clock(self, learner_id: str) -> datetime:
+        """Returns the learner's simulated clock (running in real time unless frozen)."""
+        return self._read_clock(learner_id)[0]
+
+    def get_clock_state(self, learner_id: str) -> dict[str, Any]:
+        now, frozen = self._read_clock(learner_id)
+        return {"now_utc": now.isoformat().replace("+00:00", "Z"), "frozen": frozen}
+
+    def set_frozen(self, learner_id: str, frozen: bool) -> None:
+        """Freezes the clock at its current instant, or resumes it ticking from there."""
+        with _submit_lock:
+            now, _ = self._read_clock(learner_id)
+            iso_str = now.isoformat().replace("+00:00", "Z")
+            con = sqlite3.connect(str(self.live_dir / "demo_state.db"), timeout=10)
+            try:
+                con.execute(_CLOCK_RUN_DDL)
+                con.execute(
+                    """
+                    INSERT INTO learner_clock (learner_id, now_utc) VALUES (?, ?)
+                    ON CONFLICT(learner_id) DO UPDATE SET now_utc = excluded.now_utc
+                    """,
+                    (str(learner_id), iso_str),
+                )
+                con.execute(
+                    """
+                    INSERT INTO learner_clock_run (learner_id, anchored_at, frozen) VALUES (?, ?, ?)
+                    ON CONFLICT(learner_id) DO UPDATE SET
+                        anchored_at = excluded.anchored_at, frozen = excluded.frozen
+                    """,
+                    (str(learner_id), time.time(), 1 if frozen else 0),
+                )
+                con.commit()
+            finally:
+                con.close()
+            _bump_version(self.root)
 
     def set_clock(self, learner_id: str, now_utc: datetime | str) -> None:
         """Stores the simulated clock for a learner in demo_state.db."""
@@ -260,6 +325,7 @@ class Sandbox:
             previous = self.get_clock(learner_id)
             con = sqlite3.connect(str(db_path))
             try:
+                con.execute(_CLOCK_RUN_DDL)
                 con.execute(
                     """
                     INSERT INTO learner_clock (learner_id, now_utc)
@@ -267,6 +333,14 @@ class Sandbox:
                     ON CONFLICT(learner_id) DO UPDATE SET now_utc = excluded.now_utc
                     """,
                     (str(learner_id), iso_str),
+                )
+                # Re-anchor to now, keeping the frozen/running state the learner already had.
+                con.execute(
+                    """
+                    INSERT INTO learner_clock_run (learner_id, anchored_at, frozen) VALUES (?, ?, ?)
+                    ON CONFLICT(learner_id) DO UPDATE SET anchored_at = excluded.anchored_at
+                    """,
+                    (str(learner_id), time.time(), 0 if self.live_default else 1),
                 )
                 con.commit()
             finally:
