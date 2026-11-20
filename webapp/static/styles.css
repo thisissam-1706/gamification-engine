@@ -219,6 +219,8 @@ ol, ul { margin: 0; padding: 0; list-style: none; }
 .msg-icon { flex: none; display: grid; place-items: center; width: 36px; height: 36px; border-radius: 10px; background: #fff; color: var(--violet-dark); }
 .msg.danger .msg-icon { color: var(--danger); }
 .msg.amber .msg-icon { color: var(--amber-text); }
+.msg > div { flex: 1; min-width: 0; }
+.msg > .live-new-tag { flex: none; align-self: flex-start; }
 .msg-title { font-weight: 700; }
 .msg-body { font-size: 14px; color: var(--muted); }
 .empty { margin-top: 14px; color: var(--muted); }

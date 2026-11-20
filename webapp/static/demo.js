@@ -135,6 +135,12 @@
     reloadFrames();
     refreshClock().catch(setError);
   });
+  $("plus-1h").addEventListener("click", function () {
+    moveClock(function (clock) { clock.setTime(clock.getTime() + 60 * 60 * 1000); });
+  });
+  $("plus-6h").addEventListener("click", function () {
+    moveClock(function (clock) { clock.setTime(clock.getTime() + 6 * 60 * 60 * 1000); });
+  });
   $("same-day").addEventListener("click", function () {
     moveClock(function (clock) { clock.setUTCHours(20, 0, 0, 0); });
   });

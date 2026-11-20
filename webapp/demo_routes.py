@@ -11,7 +11,7 @@ import threading
 import time
 
 from webapp.demo_backend import Sandbox
-from webapp import demo_backend, demo_notify, views
+from webapp import demo_backend, demo_clock_jobs, demo_notify, views
 from src.notifications.store import NotificationStore
 
 log = logging.getLogger(__name__)
@@ -88,6 +88,16 @@ def _release_due_deferred(sandbox: Sandbox, learner_id: str) -> None:
             demo_backend._bump_version(sandbox.root)
 
 
+def _run_clock_jobs(sandbox: Sandbox, learner_id: str, quiet: bool = False) -> None:
+    """Everything the scheduler would do for this learner as of their current demo clock."""
+    for job in (_release_due_deferred, demo_clock_jobs.send_due_streak_reminders):
+        try:
+            job(sandbox, learner_id)
+        except Exception:  # one failing job must not stop the others or block the clock
+            (log.debug if quiet else log.warning)(
+                "demo: clock job %s failed", job.__name__, exc_info=True)
+
+
 def _release_loop(sandbox: Sandbox) -> None:
     """Scheduler stand-in: as running clocks pass a deferred message's time, deliver it."""
     while True:
@@ -96,7 +106,7 @@ def _release_loop(sandbox: Sandbox) -> None:
             learner_ids = list(views.load_profile(sandbox.live_dir)["learners"])
             for learner_id in learner_ids:
                 if not sandbox.get_clock_state(learner_id)["frozen"]:
-                    _release_due_deferred(sandbox, learner_id)
+                    _run_clock_jobs(sandbox, learner_id, quiet=True)
         except Exception:  # sandbox may be mid-reset; try again on the next pass
             log.debug("demo: release loop pass skipped", exc_info=True)
 
@@ -116,10 +126,7 @@ def create_demo_router(sandbox: Sandbox) -> APIRouter:
         if request.now_utc.tzinfo is None or request.now_utc.utcoffset() is None:
             raise HTTPException(status_code=422, detail="now_utc must include a timezone")
         sandbox.set_clock(learner_id, request.now_utc)
-        try:
-            _release_due_deferred(sandbox, learner_id)
-        except Exception:  # a release problem must never block moving the demo clock
-            log.exception("demo: releasing deferred notifications failed")
+        _run_clock_jobs(sandbox, learner_id)
         return sandbox.get_clock_state(learner_id)
 
     @router.get("/api/demo/learners/{learner_id}/clock")

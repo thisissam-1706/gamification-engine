@@ -319,10 +319,10 @@
       var text = el("div");
       text.appendChild(el("div", "msg-title", m.title));
       text.appendChild(el("div", "msg-body", m.body));
+      item.appendChild(text);
       if (state.highlight && state.highlight.newInbox[m.created_at + ":" + m.title]) {
         item.appendChild(el("span", "live-new-tag", "New"));
       }
-      item.appendChild(text);
       list.appendChild(item);
     });
     if (!home.inbox.length) list.appendChild(el("li", "empty", "You're all caught up."));
