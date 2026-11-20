@@ -6,6 +6,7 @@ demo_backend._submit_lock themselves), so they never hold the lock. The scan hol
 
 from datetime import timedelta
 
+from src.abuse.xp_hold import farming_hold_reason
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
@@ -45,6 +46,75 @@ PATTERNS = ("replay", "impossible_timing", "scripted_farming", "duplicate_exploi
 
 class AttackBody(BaseModel):
     pattern: str
+
+
+class RedoBody(BaseModel):
+    count: int = 1
+    spacing_seconds: int = 0  # 0: every redo at the current clock; >0: back-dated, this far apart
+
+
+def last_lesson_id(sandbox, learner_id: str) -> str | None:
+    """lesson_id of the learner's newest lesson-kind completion sent through the demo."""
+    env = sandbox._stored_envelope(str(learner_id), None)
+    if env is None:
+        return None
+    return env.get("payload", {}).get("lesson_id")
+
+
+def live_progress(sandbox, learner_id: str) -> dict:
+    """How close the learner is to each timing/farming rule right now (demo clock).
+
+    Read-only: counts the same stored facts the detectors read, over each rule's window ending
+    at the learner's demo clock. The flag itself is still raised only by the detection pass.
+    """
+    rules = get_abuse_rules(DEFAULT_ABUSE_RULES_VERSION)
+    now = sandbox.get_clock(learner_id)
+    evidence = EvidenceStore(str(sandbox.live_dir / "evidence.db"))
+    signals = AbuseSignalStore(str(sandbox.live_dir / "abuse.db"))
+    try:
+        with demo_admin.open_app(sandbox) as app:
+            facts, _, _ = AbuseDetectionService(app, evidence, signals).completion_facts()
+        flags = signals.list(learner_id)
+    finally:
+        signals.close()
+        evidence.close()
+    mine = sorted(
+        (f for f in facts if f.learner_id == str(learner_id) and f.occurred_at <= now),
+        key=lambda f: (f.occurred_at, f.log_position or 0),
+    )
+    lessons = [f for f in mine if f.completion_kind in ("lesson", None)]
+
+    rep = rules.scripted_farming.repeat
+    since = now - timedelta(hours=rep.window_hours)
+    repeats = [f for f in lessons if f.repeat_index and f.repeat_index >= 1 and f.occurred_at > since]
+
+    it = rules.impossible_timing
+    gap_since = now - timedelta(minutes=it.short_gap_window_minutes)
+    short = 0
+    for a, b in zip(mine, mine[1:]):
+        if b.occurred_at >= gap_since and (b.occurred_at - a.occurred_at).total_seconds() < it.min_gap_for(b.completion_kind):
+            short += 1
+    burst_since = now - timedelta(minutes=it.burst.window_minutes)
+    in_burst = sum(1 for f in mine if f.occurred_at >= burst_since)
+
+    by_lesson: dict[str, int] = {}
+    for f in repeats:
+        by_lesson[f.lesson_id] = by_lesson.get(f.lesson_id, 0) + 1
+    return json_safe({
+        "clock": now,
+        "rules_version": rules.version,
+        "repeats": {"count": len(repeats), "threshold": rep.min_repeat_completions,
+                    "window_hours": rep.window_hours, "by_lesson": by_lesson},
+        "short_gaps": {"count": short, "threshold": it.short_gaps_required,
+                       "window_minutes": it.short_gap_window_minutes,
+                       "min_gap_seconds": it.min_gap_for("lesson")},
+        "burst": {"count": in_burst, "threshold": it.burst.max_completions + 1,
+                  "window_minutes": it.burst.window_minutes},
+        "flags": {"total": len(flags),
+                  "by_rule": {r: sum(1 for x in flags if x.rule_id == r) for r in sorted({x.rule_id for x in flags})}},
+        "last_lesson_id": last_lesson_id(sandbox, learner_id),
+        "xp_hold": farming_hold_reason(flags, now) is not None,
+    })
 
 
 class ScanBody(BaseModel):
@@ -113,6 +183,40 @@ def create_abuse_router(sandbox) -> APIRouter:
             "after": demo_admin.learner_snapshot(sandbox, learner_id),
         }
 
+    @router.get("/api/demo/admin/learners/{learner_id}/abuse/live")
+    def live_status(learner_id: str) -> dict:
+        demo_admin.learner_snapshot(sandbox, learner_id)  # 404 check
+        return live_progress(sandbox, learner_id)
+
+    @router.post("/api/demo/admin/learners/{learner_id}/abuse/redo")
+    def redo(learner_id: str, body: RedoBody) -> dict:
+        """Redo the learner's last lesson: the same lesson_id again as a new completion.
+
+        Each redo is an ordinary accepted completion with a higher repeat count, so it counts
+        toward the scripted-farming repeat rule (and, under rule set v2, earns decayed XP).
+        """
+        before = demo_admin.learner_snapshot(sandbox, learner_id)
+        lesson_id = last_lesson_id(sandbox, learner_id)
+        if lesson_id is None:
+            raise HTTPException(status_code=409, detail="Complete a lesson first; there is nothing to redo yet.")
+        count = max(1, min(int(body.count), 20))
+        spacing = max(0, int(body.spacing_seconds))
+        clock = sandbox.get_clock(learner_id)
+        results = []
+        for i in range(count):
+            if spacing:
+                # Spaced redos move the learner's demo clock forward, as if they took that long
+                # per redo. Never back-dated: back-dated facts would interleave with older ones.
+                sandbox.set_clock(learner_id, clock + timedelta(seconds=(i + 1) * spacing))
+            results.append(sandbox.submit_lesson_completed(learner_id, lesson_id))
+        accepted, rejected = _tally(results)
+        new_rules = sorted({r for res in results for r in res.get("abuse", {}).get("new_rules", [])})
+        return {
+            "lesson_id": lesson_id, "sent": count, "accepted": accepted, "rejected_by_reason": rejected,
+            "before": before, "after": demo_admin.learner_snapshot(sandbox, learner_id),
+            "new_flags": new_rules, "progress": live_progress(sandbox, learner_id),
+        }
+
     @router.post("/api/demo/admin/abuse/scan")
     def scan(body: ScanBody) -> dict:
         if body.learner_id is not None:
@@ -179,6 +283,18 @@ def create_abuse_router(sandbox) -> APIRouter:
                         item.update(resolved=True, time=fact.occurred_at, reason="accepted_completion",
                                     event_id=fact.event_id, lesson_id=fact.lesson_id)
                 items.append(item)
+            # One row per fact: a completion is referenced by both its completion id and its event
+            # id, so keep the first resolved row per event, and list them in time order.
+            seen_events: set[str] = set()
+            deduped = []
+            for item in items:
+                key = item.get("event_id")
+                if item["resolved"] and key:
+                    if key in seen_events:
+                        continue
+                    seen_events.add(key)
+                deduped.append(item)
+            items = sorted(deduped, key=lambda i: (str(i.get("time") or ""), i["ref"]))
             out.append({
                 "signal_id": rec.signal_id, "learner_id": rec.learner_id,
                 "display_name": names.get(rec.learner_id, rec.learner_id[:8]),

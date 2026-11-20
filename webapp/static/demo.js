@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  var PRIYA_ID = "4871b5d7-1673-5416-8a37-48353d80e6a4";
+  var PRIYA_ID = "a4b67f76-95be-50c1-8157-55022bf4e70d";
   var state = { learnerId: null, requestInFlight: false, clockBase: null, clockFetchedAt: 0, frozen: false };
 
   function $(id) { return document.getElementById(id); }
@@ -24,7 +24,7 @@
   function formatClock(value) {
     var date = new Date(value);
     return isNaN(date.getTime()) ? value : new Intl.DateTimeFormat("en-GB", {
-      day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit",
+      day: "numeric", month: "short", hour: "2-digit", minute: "2-digit",
       second: "2-digit", timeZone: "UTC", hour12: false
     }).format(date) + " UTC";
   }
@@ -49,8 +49,7 @@
   function paintClock() {
     var now = currentClockDate();
     if (!now) return;
-    $("demo-clock").textContent = "Demo clock: " + formatClock(now.toISOString()) +
-      (state.frozen ? " (frozen)" : " (live)");
+    $("demo-clock").textContent = formatClock(now.toISOString()) + (state.frozen ? " · frozen" : " · live");
     $("freeze-clock").textContent = state.frozen ? "Resume clock" : "Freeze clock";
   }
   function refreshClock() {
@@ -107,6 +106,64 @@
       return refreshClock();
     }).catch(setError).finally(function () { state.requestInFlight = false; });
   }
+  // Push provider health, from the learner side: take it down, let the scheduler's reminders
+  // fail into the dead-letter queue, bring it back and watch the recovery worker deliver them.
+  function paintProvider(outage) {
+    var down = !!(outage && outage.push);
+    $("push-provider").textContent = "Push provider: " + (down ? "DOWN" : "up");
+    $("push-provider").classList.toggle("is-down", down);
+    $("push-provider-note").textContent = down ?
+      "Pushes now fail, retry 3 times and wait in the dead-letter queue." : "";
+    showBadge(down ? "Push provider DOWN" : "", false);
+  }
+  var badgeTimer = null;
+  function showBadge(text, ok) {
+    var badge = $("push-badge");
+    clearTimeout(badgeTimer);
+    badge.textContent = text;
+    badge.hidden = !text;
+    badge.classList.toggle("is-ok", !!ok);
+    if (text && ok) badgeTimer = setTimeout(function () { badge.hidden = true; }, 8000);
+  }
+  // The "more" menu: opens on the dots, closes on an outside click, Escape, or after an action.
+  function setMenu(open) {
+    $("more-menu").hidden = !open;
+    $("more-toggle").setAttribute("aria-expanded", open ? "true" : "false");
+  }
+  function wireMenu() {
+    $("more-toggle").addEventListener("click", function (event) {
+      event.stopPropagation();
+      setMenu($("more-menu").hidden);
+    });
+    $("push-badge").addEventListener("click", function (event) { event.stopPropagation(); setMenu(true); });
+    $("more-menu").addEventListener("click", function (event) {
+      event.stopPropagation();
+      // Keep it open after toggling the provider so the explanation under it stays visible.
+      if (event.target.closest(".demo-menu-item") && event.target.id !== "push-provider") setMenu(false);
+    });
+    document.addEventListener("click", function () { setMenu(false); });
+    document.addEventListener("keydown", function (event) {
+      if (event.key === "Escape" && !$("more-menu").hidden) { setMenu(false); $("more-toggle").focus(); }
+    });
+  }
+  function refreshProvider() {
+    return requestJSON("/api/demo/admin/learners/" + encodeURIComponent(state.learnerId) + "/notifications")
+      .then(function (d) { paintProvider(d.outage); });
+  }
+  function toggleProvider() {
+    var down = $("push-provider").classList.contains("is-down");
+    return requestJSON("/api/demo/admin/learners/" + encodeURIComponent(state.learnerId) + "/notifications/outage", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ channel: "push", active: !down })
+    }).then(function (d) {
+      paintProvider(d);
+      if (down && d.recovered) {
+        $("push-provider-note").textContent = "Provider back: the recovery worker re-sent " + d.recovered +
+          " dead-lettered push" + (d.recovered === 1 ? "" : "es") + ".";
+        showBadge("Push back: re-sent " + d.recovered, true);
+      }
+    }).catch(setError);
+  }
   function init() {
     return requestJSON("/api/demo/personas").then(function (personas) {
       var learners = personas.map(function (p) {
@@ -125,6 +182,8 @@
       });
       updateURL();
       reloadFrames();
+      window.StreakwisePush.start(function () { return state.learnerId; }, $("push-permission"));
+      refreshProvider().catch(function () {});
       return refreshClock();
     }).catch(setError);
   }
@@ -150,8 +209,17 @@
   $("skip-day").addEventListener("click", function () {
     moveClock(function (clock) { clock.setUTCDate(clock.getUTCDate() + 2); });
   });
-  $("reset-demo").addEventListener("click", resetDemo);
+  $("tonight-23").addEventListener("click", function () {
+    moveClock(function (clock) { clock.setUTCHours(23, 0, 0, 0); });
+  });
+  $("push-provider").addEventListener("click", toggleProvider);
+  $("reset-demo").addEventListener("click", function () {
+    window.StreakwisePush.reset();
+    resetDemo();
+    window.setTimeout(function () { refreshProvider().catch(function () {}); }, 1500);
+  });
   $("freeze-clock").addEventListener("click", toggleFreeze);
+  wireMenu();
   window.setInterval(paintClock, 1000);
   init();
 })();

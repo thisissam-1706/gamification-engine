@@ -64,9 +64,10 @@ def test_both_versions_coexist_and_are_immutable():
         get_abuse_rules("v2").receive_burst.max_completions = 1  # type: ignore[misc]
 
 
-def test_default_version_is_v2_and_defined_once():
-    assert DEFAULT_ABUSE_RULES_VERSION == "v2"
-    assert get_abuse_rules().version == "v2"
+def test_default_version_is_v3_and_defined_once():
+    # v3 (scripted-farming repeat threshold 4) replaced v2 as the default; v2 is unchanged.
+    assert DEFAULT_ABUSE_RULES_VERSION == "v3"
+    assert get_abuse_rules().version == "v3"
     from src.abuse import guardrail, service
 
     assert rules_module.get_abuse_rules.__defaults__ == (DEFAULT_ABUSE_RULES_VERSION,)

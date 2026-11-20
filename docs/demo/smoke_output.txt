@@ -45,7 +45,9 @@ PASS signals_have_evidence
 PASS assign_counts_add_to_12
 PASS assign_again_changes_nothing
 PASS assignments_12_rows_with_arms
-PASS sweep_for_tara
+PASS priya_treatment_tara_control
+PASS sweep_for_priya
+PASS tara_control_gets_nothing
 PASS report_valid_with_arms
 PASS reference_report_ok
 PASS reference_report_matured_mastery_ci_hash
@@ -57,4 +59,12 @@ PASS small_benchmark_passed
 PASS engine_tick_eight_steps
 PASS engine_tick_idempotent
 PASS priya_home_after_tick
-59 passed, 0 failed, 59 checks
+PASS daily_cap_resets_at_local_midnight
+PASS event_log_uses_demo_clock
+PASS quest_update_suppressed_when_quest_done
+PASS quests_endpoint_lists_weekly
+PASS frozen_clock_lessons_flag_live_once
+PASS second_episode_flagged_again
+PASS redo_x4_flags_scripted_farming
+PASS push_lands_in_outbox
+69 passed, 0 failed, 69 checks

@@ -381,3 +381,40 @@ def test_signal_is_frozen_and_never_confirmed():
         signal.status = "confirmed"  # type: ignore[misc]
     assert isinstance(signal, Signal) and signal.status == "suspected"
     assert signal.detected_window[0] <= signal.detected_window[1]
+
+
+# -- episodes: a later, separate burst is flagged again; one long burst stays one flag ---------
+
+
+def test_timing_flags_a_second_separate_episode():
+    first = [comp(i, i * 5) for i in range(4)]  # 3 short gaps
+    later = [comp(10 + i, 6 * 3600 + i * 5) for i in range(4)]  # same again six hours later
+    signals = detect_impossible_timing(RULES, first + later)
+    assert [s.rule_id for s in signals] == ["impossible_timing.short_gaps"] * 2
+    windows = sorted(s.detected_window[0] for s in signals)
+    assert windows == [at(0).isoformat(), at(6 * 3600).isoformat()]
+    # the first episode's signal is the one an earliest-only scan reported (same id)
+    [alone] = detect_impossible_timing(RULES, first)
+    assert alone.signal_id in {s.signal_id for s in signals}
+
+
+def test_timing_one_sustained_episode_is_one_flag():
+    burst = [comp(i, i * 5) for i in range(15)]  # 14 short gaps in a row, all inside 10 min
+    assert [s.rule_id for s in detect_impossible_timing(RULES, burst)] == ["impossible_timing.short_gaps"]
+
+
+def test_farming_repeat_flags_each_separate_day():
+    need = RULES.scripted_farming.repeat.min_repeat_completions
+    day1 = [comp(i, i * 600, lesson="L", repeat=i + 1) for i in range(need)]
+    day3 = [comp(100 + i, 2 * 86400 + i * 600, lesson="L", repeat=need + i + 1) for i in range(need)]
+    rules = [s.rule_id for s in detect_scripted_farming(RULES, day1 + day3)]
+    assert rules.count("scripted_farming.repeat") == 2
+
+
+def test_same_time_ties_break_by_log_position_so_a_new_arrival_keeps_the_signal_id():
+    """Frozen-clock submissions share one occurred_at; arrival order must decide, not the id."""
+    same = [replace(comp(i, 0), completion_id=f"z{9 - i}", log_position=i) for i in range(4)]
+    [first] = detect_impossible_timing(RULES, same)
+    later = replace(comp(9, 0), completion_id="a000", log_position=99)  # sorts first by id alone
+    [again] = detect_impossible_timing(RULES, same + [later])
+    assert again.signal_id == first.signal_id

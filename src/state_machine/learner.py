@@ -117,8 +117,13 @@ class Learner(Aggregate):
         correlation_id: str | None = None,
         causation_id: str | None = None,
         completion_kind: str | None = None,
+        xp_withheld_reason: str | None = None,
     ) -> bool:
         """Accepts one completion and emits its one durable XP reward.
+
+        ``xp_withheld_reason`` (e.g. a scripted-farming hold) makes the reward of a lesson-kind
+        completion 0 XP and stores the reason on the XPAwarded fact; the completion itself,
+        its streak and quest effects are unchanged.
 
         A reward identity derives only from the stable business action identity,
         not from the transport event ID or rule version. Therefore retries and
@@ -140,7 +145,10 @@ class Learner(Aggregate):
         # review/remediation have no repeat position, so they record 0 and earn the base amount.
         eligible = completion_kind is None or completion_kind in DECAYING_KINDS
         repeat_index = self.eligible_lesson_counts.get(lesson_id, 0) if eligible else 0
-        if xp_amount is None:
+        withheld = xp_withheld_reason if eligible else None
+        if withheld is not None:
+            xp_amount = 0
+        elif xp_amount is None:
             xp_amount = xp_for_completion(rule_version, repeat_index)
         self._record_lesson_completion(
             completion_id,
@@ -161,6 +169,7 @@ class Learner(Aggregate):
             completion_kind,
             correlation_id=correlation_id,
             causation_id=source_event_id,
+            withheld_reason=withheld,
         )
         if activity_date is not None:
             ruleset = get_ruleset(rule_version)
@@ -678,6 +687,9 @@ class Learner(Aggregate):
         # before M1, which replay with these defaults.
         correlation_id: str | None = None,
         causation_id: str | None = None,
+        # Why the amount was decided as 0 (e.g. scripted_farming_hold). Absent (None) on
+        # events stored before the hold existed and on normal awards.
+        withheld_reason: str | None = None,
     ) -> None:
         """Applies an already-decided XP award; it never evaluates a rule."""
         lesson_id = self.completion_lessons.get(completion_id)

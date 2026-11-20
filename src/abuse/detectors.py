@@ -37,6 +37,9 @@ class CompletionFact:
     xp_amount: int
     # Trusted server receive time (IngestConfig.clock); None when unknown.
     received_at: datetime | None = None
+    # Position of the LessonCompleted fact in the event log; breaks ties between completions
+    # with the same occurred_at by arrival order, so a later arrival never reorders earlier ones.
+    log_position: int | None = None
 
 
 @dataclass(frozen=True)
@@ -132,7 +135,42 @@ def _completion_refs(completions: Iterable[CompletionFact]) -> list[str]:
 
 
 def _by_time(completions: Iterable[CompletionFact]) -> list[CompletionFact]:
-    return sorted(completions, key=lambda c: (_utc(c.occurred_at), c.completion_id))
+    return sorted(
+        completions,
+        key=lambda c: (
+            _utc(c.occurred_at),
+            c.log_position if c.log_position is not None else -1,
+            c.completion_id,
+        ),
+    )
+
+
+def _non_overlapping_windows(
+    rows: Sequence[T],
+    size: int,
+    fits: Callable[[Sequence[T]], bool],
+) -> list[Sequence[T]]:
+    """One run of ``size`` rows per episode: the first run that ``fits`` in each episode.
+
+    An episode starts at the first run of ``size`` consecutive rows that ``fits`` and lasts as
+    long as the run ending at each next row still fits (the rule stays violated). The scan then
+    resumes after the episode, so a later, separate episode is reported too. The reported run
+    is the episode's first run, which is exactly what an earliest-only scan returned before, so
+    existing signal ids do not change.
+    """
+    groups: list[Sequence[T]] = []
+    start = 0
+    while size > 0 and start + size <= len(rows):
+        group = rows[start : start + size]
+        if not fits(group):
+            start += 1
+            continue
+        groups.append(group)
+        end = start + size  # exclusive; extend while the violation continues
+        while end < len(rows) and fits(rows[end - size + 1 : end + 1]):
+            end += 1
+        start = end
+    return groups
 
 
 def _first_evidence_per_event(rows: Iterable[EvidenceFact]) -> list[EvidenceFact]:
@@ -148,15 +186,13 @@ def _first_evidence_per_event(rows: Iterable[EvidenceFact]) -> list[EvidenceFact
     return distinct
 
 
-def _earliest_window(
+def _evidence_windows(
     rows: Sequence[EvidenceFact], count: int, window: timedelta
-) -> Sequence[EvidenceFact] | None:
-    """First ``count`` rows that fit in ``window`` (inclusive), earliest start first."""
-    for start in range(len(rows) - count + 1):
-        group = rows[start : start + count]
-        if _utc(group[-1].received_at) - _utc(group[0].received_at) <= window:
-            return group
-    return None
+) -> list[Sequence[EvidenceFact]]:
+    """Every non-overlapping run of ``count`` rows that fits in ``window`` (inclusive)."""
+    return _non_overlapping_windows(
+        rows, count, lambda g: _utc(g[-1].received_at) - _utc(g[0].received_at) <= window
+    )
 
 
 def _evidence_signals(
@@ -174,12 +210,11 @@ def _evidence_signals(
     signals: list[Signal] = []
     relevant = [row for row in evidence if row.reason in (reason, any_reason)]
     for learner_id, rows in _group(relevant, lambda r: r.learner_id).items():
-        group = _earliest_window(
+        for group in _evidence_windows(
             _first_evidence_per_event([r for r in rows if r.reason == reason]),
             minimum,
             timedelta(minutes=window_minutes),
-        )
-        if group is not None:
+        ):
             signals.append(
                 _make_signal(
                     rules,
@@ -278,38 +313,40 @@ def detect_impossible_timing(
             < cfg.min_gap_for(later.completion_kind)
         ]
         window = timedelta(minutes=cfg.short_gap_window_minutes)
-        for start in range(len(short) - cfg.short_gaps_required + 1):
-            group = short[start : start + cfg.short_gaps_required]
+        for group in _non_overlapping_windows(
+            short,
+            cfg.short_gaps_required,
+            lambda g: _utc(g[-1][1].occurred_at) - _utc(g[0][0].occurred_at) <= window,
+        ):
             first, last = group[0][0], group[-1][1]
-            if _utc(last.occurred_at) - _utc(first.occurred_at) <= window:
-                signals.append(
-                    _make_signal(
-                        rules,
-                        learner_id,
-                        "impossible_timing",
-                        "impossible_timing.short_gaps",
-                        _completion_refs(c for pair in group for c in pair),
-                        first.occurred_at,
-                        last.occurred_at,
-                    )
+            signals.append(
+                _make_signal(
+                    rules,
+                    learner_id,
+                    "impossible_timing",
+                    "impossible_timing.short_gaps",
+                    _completion_refs(c for pair in group for c in pair),
+                    first.occurred_at,
+                    last.occurred_at,
                 )
-                break
+            )
         burst_window = timedelta(minutes=cfg.burst.window_minutes)
-        for start in range(len(ordered) - cfg.burst.max_completions):
-            group_c = ordered[start : start + cfg.burst.max_completions + 1]
-            if _utc(group_c[-1].occurred_at) - _utc(group_c[0].occurred_at) <= burst_window:
-                signals.append(
-                    _make_signal(
-                        rules,
-                        learner_id,
-                        "impossible_timing",
-                        "impossible_timing.burst",
-                        _completion_refs(group_c),
-                        group_c[0].occurred_at,
-                        group_c[-1].occurred_at,
-                    )
+        for group_c in _non_overlapping_windows(
+            ordered,
+            cfg.burst.max_completions + 1,
+            lambda g: _utc(g[-1].occurred_at) - _utc(g[0].occurred_at) <= burst_window,
+        ):
+            signals.append(
+                _make_signal(
+                    rules,
+                    learner_id,
+                    "impossible_timing",
+                    "impossible_timing.burst",
+                    _completion_refs(group_c),
+                    group_c[0].occurred_at,
+                    group_c[-1].occurred_at,
                 )
-                break
+            )
     return _sorted_signals(signals)
 
 
@@ -329,45 +366,45 @@ def detect_scripted_farming(
         repeats = [c for c in ordered if c.repeat_index is not None and c.repeat_index >= 1]
         window = timedelta(hours=cfg.repeat.window_hours)
         need = cfg.repeat.min_repeat_completions
-        for start in range(len(repeats) - need + 1):
-            group = repeats[start : start + need]
-            if _utc(group[-1].occurred_at) - _utc(group[0].occurred_at) <= window:
-                signals.append(
-                    _make_signal(
-                        rules,
-                        learner_id,
-                        "scripted_farming",
-                        "scripted_farming.repeat",
-                        _completion_refs(group),
-                        group[0].occurred_at,
-                        group[-1].occurred_at,
-                    )
+        for group in _non_overlapping_windows(
+            repeats,
+            need,
+            lambda g: _utc(g[-1].occurred_at) - _utc(g[0].occurred_at) <= window,
+        ):
+            signals.append(
+                _make_signal(
+                    rules,
+                    learner_id,
+                    "scripted_farming",
+                    "scripted_farming.repeat",
+                    _completion_refs(group),
+                    group[0].occurred_at,
+                    group[-1].occurred_at,
                 )
-                break
+            )
 
-        size = cfg.metronome.min_events
-        for start in range(len(ordered) - size + 1):
-            group = ordered[start : start + size]
+        def machine_regular(group: Sequence[CompletionFact]) -> bool:
             gaps = [
                 (_utc(b.occurred_at) - _utc(a.occurred_at)).total_seconds()
                 for a, b in zip(group, group[1:])
             ]
             mean = statistics.fmean(gaps)
             if mean < cfg.metronome.min_mean_gap_seconds:
-                continue
-            if statistics.pstdev(gaps) / mean <= cfg.metronome.max_cv:
-                signals.append(
-                    _make_signal(
-                        rules,
-                        learner_id,
-                        "scripted_farming",
-                        "scripted_farming.metronome",
-                        _completion_refs(group),
-                        group[0].occurred_at,
-                        group[-1].occurred_at,
-                    )
+                return False
+            return statistics.pstdev(gaps) / mean <= cfg.metronome.max_cv
+
+        for group in _non_overlapping_windows(ordered, cfg.metronome.min_events, machine_regular):
+            signals.append(
+                _make_signal(
+                    rules,
+                    learner_id,
+                    "scripted_farming",
+                    "scripted_farming.metronome",
+                    _completion_refs(group),
+                    group[0].occurred_at,
+                    group[-1].occurred_at,
                 )
-                break
+            )
     return _sorted_signals(signals)
 
 
@@ -386,24 +423,31 @@ def detect_receive_timing(
     received = [c for c in completions if c.received_at is not None]
     for learner_id, rows in _group(received, lambda c: c.learner_id).items():
         if burst is not None:
-            ordered = sorted(rows, key=lambda c: (_utc(c.received_at), c.completion_id))
-            size = burst.max_completions + 1
+            ordered = sorted(
+                rows,
+                key=lambda c: (
+                    _utc(c.received_at),
+                    c.log_position if c.log_position is not None else -1,
+                    c.completion_id,
+                ),
+            )
             window = timedelta(minutes=burst.window_minutes)
-            for start in range(len(ordered) - size + 1):
-                group = ordered[start : start + size]
-                if _utc(group[-1].received_at) - _utc(group[0].received_at) <= window:
-                    signals.append(
-                        _make_signal(
-                            rules,
-                            learner_id,
-                            "impossible_timing",
-                            "impossible_timing.receive_burst",
-                            _completion_refs(group),
-                            group[0].received_at,
-                            group[-1].received_at,
-                        )
+            for group in _non_overlapping_windows(
+                ordered,
+                burst.max_completions + 1,
+                lambda g: _utc(g[-1].received_at) - _utc(g[0].received_at) <= window,
+            ):
+                signals.append(
+                    _make_signal(
+                        rules,
+                        learner_id,
+                        "impossible_timing",
+                        "impossible_timing.receive_burst",
+                        _completion_refs(group),
+                        group[0].received_at,
+                        group[-1].received_at,
                     )
-                    break
+                )
         if future is not None:
             tolerance = timedelta(minutes=future.tolerance_minutes)
             ahead = _by_time(
@@ -477,21 +521,22 @@ def detect_review_misuse(
         for lesson_rows in _group(
             [r for r in ordered if r.completion_kind in EXEMPT_KINDS], lambda c: c.lesson_id
         ).values():
-            for start in range(len(lesson_rows) - size + 1):
-                group = lesson_rows[start : start + size]
-                if _utc(group[-1].occurred_at) - _utc(group[0].occurred_at) <= window:
-                    signals.append(
-                        _make_signal(
-                            rules,
-                            learner_id,
-                            "scripted_farming",
-                            "scripted_farming.review_repeat",
-                            _completion_refs(group),
-                            group[0].occurred_at,
-                            group[-1].occurred_at,
-                        )
+            for group in _non_overlapping_windows(
+                lesson_rows,
+                size,
+                lambda g: _utc(g[-1].occurred_at) - _utc(g[0].occurred_at) <= window,
+            ):
+                signals.append(
+                    _make_signal(
+                        rules,
+                        learner_id,
+                        "scripted_farming",
+                        "scripted_farming.review_repeat",
+                        _completion_refs(group),
+                        group[0].occurred_at,
+                        group[-1].occurred_at,
                     )
-                    break
+                )
     return _sorted_signals(signals)
 
 

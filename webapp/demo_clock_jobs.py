@@ -1,18 +1,18 @@
 """Clock-driven jobs for the demo: what the cron scheduler would do as time passes.
 
-``send_due_streak_reminders`` sends the exp_007 streak-risk push reminders (learner-local
+``send_due_streak_reminders`` sends the exp_007 streak-risk reminders (learner-local
 REMINDER_TIMES_LOCAL in src/notifications/streak_risk.py: 20:00, 21:00, 21:30, 21:45) as a
-learner's demo clock passes each time. It reuses the engine's own planner and sweep; the only
+learner's demo clock passes each time. Each reminder goes out on all three channels: in-app,
+push and email (the engine's sweep does this). Every channel has its own daily cap of 5, and
+consent still applies per channel, so an opted-out channel is suppressed, not sent. It reuses the engine's own planner and sweep; the only
 demo-specific part is deciding *when* to call them. Each reminder slot fires once per learner
 (remembered in demo_flags, which Reset demo clears).
 """
 
-from dataclasses import replace
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from src.experiments.store import ExperimentStore
-from src.notifications.models import ChannelType
 from src.notifications.store import NotificationStore
 from src.notifications.streak_risk import (
     REMINDER_TIMES_LOCAL,
@@ -27,20 +27,6 @@ EXP_ID = "exp_007"
 
 def _slot_flag(learner_id: str) -> str:
     return f"streak_slot:{learner_id}"
-
-
-def _in_app_copy(push):
-    """The in-app twin of a push reminder, so it shows in the learner's inbox on the home page."""
-    streak = push.payload.get("streak_count", 0)
-    return replace(
-        push,
-        proposal_id=push.proposal_id + ":in_app",
-        channel=ChannelType.IN_APP,
-        payload={**push.payload, "title": f"Your {streak}-day streak is at risk",
-                 "body": "Finish one quick lesson today to keep it going."},
-        experiment_id=None,
-        variant=None,
-    )
 
 
 def send_due_streak_reminders(sandbox, learner_id: str) -> bool:
@@ -80,9 +66,8 @@ def send_due_streak_reminders(sandbox, learner_id: str) -> bool:
                 notif = NotificationStore(str(live / "notifications.db"))
                 opened.append(notif.close)
                 dispatcher = demo_notify.build_dispatcher(live, notif, lambda: now)
-                # In-app first: it is the copy the learner sees, and the push goes through the
-                # same 5-per-24h cap afterwards.
-                dispatcher.dispatch(_in_app_copy(due[-1]), prefs=prefs, now_utc=now)
+                # The engine's sweep sends the reminder on in-app, push and email at once
+                # (src/notifications/streak_risk.py), each channel with its own daily cap of 5.
                 run_streak_risk_sweep(
                     app, dispatcher, [learner_id], {learner_id: prefs},
                     now_utc=now, experiment_id=EXP_ID, store=experiments,
@@ -101,3 +86,41 @@ def send_due_streak_reminders(sandbox, learner_id: str) -> bool:
                 )
             demo_backend._bump_version(sandbox.root)
     return sent
+
+
+def recover_dead_letters(sandbox, learner_id: str | None = None) -> int:
+    """Recovery worker: re-sends open dead letters whose provider is healthy again.
+
+    A real system runs this as a background job that watches provider health; in the demo it
+    runs with the other clock jobs and right after an outage is switched off. Each entry is
+    replayed through the dispatcher under its original proposal id, so it is delivered at most
+    once; entries for a provider that is still down stay in the queue. Returns how many were
+    delivered.
+    """
+    live = sandbox.live_dir
+    delivered = 0
+    with demo_backend._submit_lock:
+        store = NotificationStore(str(live / "notifications.db"))
+        try:
+            entries = [
+                e for e in store.get_dlq_entries(resolved=False)
+                if (learner_id is None or e["learner_id"] == str(learner_id))
+                and e["channel"] in ("push", "email")
+                and not demo_notify.get_flag(live, f"outage_{e['channel']}")
+            ]
+            for entry in entries:
+                lid = entry["learner_id"]
+                now = sandbox.get_clock(lid)
+                dispatcher = demo_notify.build_dispatcher(live, store, lambda now=now: now)
+                try:
+                    fact = dispatcher.replay_dlq(
+                        entry["dlq_id"], prefs=demo_notify.prefs_for(live, lid), now_utc=now
+                    )
+                except ValueError:
+                    continue
+                delivered += fact.status.value == "dispatched"
+        finally:
+            store.close()
+        if entries:
+            demo_backend._bump_version(sandbox.root)
+    return delivered

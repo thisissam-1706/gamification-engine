@@ -71,7 +71,7 @@ Two optional fields are stored on the `XPAwarded` fact (see [xp_awarded.schema.j
 | `repeat_index` | `N` at decision time: prior accepted `lesson`/absent-kind completions of the same `lesson_id` by the same learner. Recorded as `0` for `review` and `remediation` completions, which have no repeat position. |
 | `completion_kind` | The kind of the rewarded completion (`lesson`, `review`, `remediation`), or absent. |
 
-The amount is decided once, in `Learner.complete_lesson`. Under a decay rule set it is `E` for `N = 0` and `max(0, E * first_repeat_percent // 100 - step_xp * (N - 1))` for `N >= 1` (v2: 100, 50, 30, 10, 0). Replay and the leaderboard read the stored `xp_amount`; neither recomputes it.
+The amount is decided once, in `Learner.complete_lesson`. Under a decay rule set it is `E` for `N = 0` and `max(floor_xp, E * first_repeat_percent // 100 - step_xp * (N - 1))` for `N >= 1`, with `floor_xp` 0 when the rule set does not set it (v2: 100, 50, 30, 10, 0; v3, `floor_xp: 5`: 100, 50, 30, 10, 5, 5, ...). Replay and the leaderboard read the stored `xp_amount`; neither recomputes it.
 
 ### Late-event window
 

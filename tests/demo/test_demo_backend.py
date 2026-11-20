@@ -350,7 +350,9 @@ def test_unknown_learner_id_returns_rejected_dict(tmp_path: Path) -> None:
 def test_priya_demo_overlay_preserves_streak_and_freeze_on_reset(tmp_path: Path) -> None:
     """P1: Priya's demo overlay adds one available freeze without changing her streak."""
     box = create_sandbox(tmp_path)
-    learner_id = "4871b5d7-1673-5416-8a37-48353d80e6a4"
+    from webapp.seed import learner_uuid
+
+    learner_id = str(learner_uuid(1))  # Priya Nair
 
     def read_state() -> tuple[int, int]:
         app = LearnerApplication(

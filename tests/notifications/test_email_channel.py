@@ -72,10 +72,12 @@ def test_default_dispatcher_delivers_an_email(tmp_path):
     (ChannelType.EMAIL, ChannelType.PUSH, 5, 0),
 ])
 def test_cap_is_shared_between_push_and_email(tmp_path, first, second, extra_first, extra_second):
+    """With the combined option (cap_per_channel=False) push and email share one cap of 5."""
     store = NotificationStore(str(tmp_path / "email_cap.db"))
     push, email = SimulatedPushAdapter(), SimulatedEmailAdapter()
     dispatcher = NotificationDispatcher(
         store=store, adapters={ChannelType.PUSH: push, ChannelType.EMAIL: email}, fatigue_cap=5,
+        cap_per_channel=False,
     )
     prefs = LearnerPreferences(learner_id="L1")
 
@@ -214,11 +216,13 @@ def test_email_without_a_recipient_is_a_permanent_failure(tmp_path):
 
 
 def test_cap_boundary_with_mixed_channels_fifth_email_delivered_sixth_suppressed(tmp_path):
+    """The default cap is per channel: pushes and in-app messages do not use up the email cap."""
     store = NotificationStore(str(tmp_path / "email_boundary.db"))
     dispatcher = NotificationDispatcher(store=store)  # default adapters: in_app, push, email
     prefs = LearnerPreferences(learner_id="L1")
 
-    prior = [ChannelType.PUSH, ChannelType.IN_APP, ChannelType.EMAIL, ChannelType.PUSH]
+    prior = [ChannelType.PUSH, ChannelType.IN_APP, ChannelType.EMAIL, ChannelType.PUSH,
+             ChannelType.EMAIL, ChannelType.EMAIL, ChannelType.EMAIL, ChannelType.PUSH]
     for minute, channel in enumerate(prior, start=1):
         res = dispatcher.dispatch(_proposal(f"p_prior_{minute}", channel), prefs=prefs, now_utc=_at(minute))
         assert res.status == NotificationStatus.DISPATCHED
@@ -229,20 +233,21 @@ def test_cap_boundary_with_mixed_channels_fifth_email_delivered_sixth_suppressed
     assert sixth.status == NotificationStatus.SUPPRESSED
     assert sixth.reason == "daily_cap_exceeded"
     assert [m["proposal_id"] for m in dispatcher.adapters[ChannelType.EMAIL].delivered_messages] == [
-        "p_prior_3", "p_email_5",
+        "p_prior_3", "p_prior_5", "p_prior_6", "p_prior_7", "p_email_5",
     ]
     store.close()
 
 
-def test_cap_window_edge_a_dispatch_exactly_24h_old_still_counts(tmp_path):
-    """check_fatigue_cap counts timestamps >= now - 24h (inclusive), and so does the store query:
-    a dispatch exactly 24h old counts towards the cap, one 24h + 1s old does not."""
+def test_cap_window_edge_a_dispatch_at_local_midnight_counts(tmp_path):
+    """The daily cap counts dispatches from the learner's local midnight (inclusive): a dispatch
+    at exactly 00:00:00 today counts towards the cap, one at 23:59:59 yesterday does not."""
     store = NotificationStore(str(tmp_path / "email_window.db"))
-    dispatcher = NotificationDispatcher(store=store)
+    # Quiet hours moved out of the way so the midnight dispatches are delivered, not deferred.
+    dispatcher = NotificationDispatcher(store=store, quiet_start_hour=3, quiet_end_hour=4)
     now = "2026-10-13T12:00:00Z"
     cases = {
-        "L_exact": "2026-10-12T12:00:00Z",       # exactly 24h before now: inside the window
-        "L_just_outside": "2026-10-12T11:59:59Z",  # 24h + 1s before now: outside the window
+        "L_exact": "2026-10-13T00:00:00Z",       # exactly local (UTC) midnight today: inside the day
+        "L_just_outside": "2026-10-12T23:59:59Z",  # one second before midnight: previous day
     }
     for learner, old_time in cases.items():
         prefs = LearnerPreferences(learner_id=learner)
@@ -259,15 +264,16 @@ def test_cap_window_edge_a_dispatch_exactly_24h_old_still_counts(tmp_path):
             )
             assert res.status == NotificationStatus.DISPATCHED
 
+    # The probe is on the same channel as the five pushes, since the cap is per channel.
     exact = dispatcher.dispatch(
-        _proposal("exact_email", ChannelType.EMAIL, learner_id="L_exact", created_at=now),
+        _proposal("exact_email", ChannelType.PUSH, learner_id="L_exact", created_at=now),
         prefs=LearnerPreferences(learner_id="L_exact"), now_utc=now,
     )
     assert exact.status == NotificationStatus.SUPPRESSED
     assert exact.reason == "daily_cap_exceeded"
 
     outside = dispatcher.dispatch(
-        _proposal("outside_email", ChannelType.EMAIL, learner_id="L_just_outside", created_at=now),
+        _proposal("outside_email", ChannelType.PUSH, learner_id="L_just_outside", created_at=now),
         prefs=LearnerPreferences(learner_id="L_just_outside"), now_utc=now,
     )
     assert outside.status == NotificationStatus.DISPATCHED
@@ -311,22 +317,23 @@ def test_release_of_a_queued_email_rechecks_the_cap(tmp_path):
     assert res.status == NotificationStatus.QUEUED
     assert res.rescheduled_for == "2026-10-13T02:30:00Z"
 
-    # Morning: five pushes use up the cap before the release job runs (08:00 IST is outside quiet hours).
+    # Morning: five other emails use up the email cap before the release job runs (08:00 IST is
+    # outside quiet hours). Pushes would not: the cap is per channel.
     for i in range(5):
         pushed = dispatcher.dispatch(
-            _proposal(f"p_push_{i}", ChannelType.PUSH, created_at="2026-10-13T02:30:00Z"),
+            _proposal(f"p_morning_email_{i}", ChannelType.EMAIL, created_at="2026-10-13T02:30:00Z"),
             prefs=prefs, now_utc=f"2026-10-13T02:30:0{i}Z",
         )
         assert pushed.status == NotificationStatus.DISPATCHED
 
-    # release_rescheduled re-checks the cap across all channels and suppresses (as it does for push).
+    # release_rescheduled re-checks the email cap and suppresses (as it does for push).
     facts = dispatcher.release_rescheduled(now_utc="2026-10-13T02:31:00Z", prefs_provider={"L1": prefs})
     assert len(facts) == 1
     assert facts[0].proposal_id == "p_email_q"
     assert facts[0].channel == "email"
     assert facts[0].status == NotificationStatus.SUPPRESSED
     assert facts[0].reason == "daily_cap_exceeded"
-    assert dispatcher.adapters[ChannelType.EMAIL].delivered_messages == []
+    assert "p_email_q" not in [m["proposal_id"] for m in dispatcher.adapters[ChannelType.EMAIL].delivered_messages]
     assert store.get_rescheduled_entry("p_email_q")["released"] is True
     store.close()
 
@@ -356,15 +363,19 @@ def test_replay_dlq_for_email_succeeds_once_the_adapter_works_and_respects_the_c
     resolved = {e["proposal_id"]: e["resolved"] for e in store.get_dlq_entries()}
     assert resolved == {"p_email_a": True, "p_email_b": False}
 
-    # Four pushes bring the learner to the cap of 5 (the replayed email counts as one).
+    # A push does not count towards the email cap; four more emails bring email to 5
+    # (the replayed email counts as one).
+    pushed = recovered.dispatch(_proposal("p_push_0", ChannelType.PUSH), prefs=prefs, now_utc=_at(2))
+    assert pushed.status == NotificationStatus.DISPATCHED
     for i in range(4):
-        pushed = recovered.dispatch(_proposal(f"p_push_{i}", ChannelType.PUSH), prefs=prefs, now_utc=_at(2 + i))
-        assert pushed.status == NotificationStatus.DISPATCHED
+        sent = recovered.dispatch(_proposal(f"p_email_fill_{i}", ChannelType.EMAIL), prefs=prefs, now_utc=_at(3 + i))
+        assert sent.status == NotificationStatus.DISPATCHED
 
     blocked = recovered.replay_dlq(dlq_ids["p_email_b"], prefs=prefs, now_utc=_at(10))
     assert blocked.status == NotificationStatus.SUPPRESSED
     assert blocked.reason == "daily_cap_exceeded"
-    assert len(working_email.delivered_messages) == 1
+    assert len(working_email.delivered_messages) == 5
+    assert "p_email_b" not in [m["proposal_id"] for m in working_email.delivered_messages]
     store.close()
 
 

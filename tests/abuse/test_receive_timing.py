@@ -51,9 +51,11 @@ def check(signals, facts):
 
 
 def test_received_at_is_the_last_optional_field_and_old_constructions_still_work():
-    assert [f.name for f in fields(CompletionFact)][-1] == "received_at"
+    # Optional fields are appended after received_at (log_position, the arrival-order tie-break),
+    # so constructions written before them keep working positionally.
+    assert [f.name for f in fields(CompletionFact)][-2:] == ["received_at", "log_position"]
     fact = CompletionFact("L", "c", "e", "l", "lesson", T0, 0, 100)
-    assert fact.received_at is None
+    assert fact.received_at is None and fact.log_position is None
 
 
 # -- receive_burst ------------------------------------------------------------------------

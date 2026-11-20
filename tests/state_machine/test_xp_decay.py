@@ -91,7 +91,7 @@ def test_v1_digest_unchanged_and_v2_not_in_default_registry():
 
 def test_decay_file_loads_pinned_v2():
     loaded = load_decay_rulesets()
-    assert list(loaded) == ["v2"]
+    assert list(loaded) == ["v2", "v3"]
     v2 = loaded["v2"]
     assert dict(v2.decay) == {"first_repeat_percent": 50, "step_xp": 20}
     v1 = RULESETS["v1"]
@@ -108,13 +108,15 @@ def test_decay_file_loads_pinned_v2():
 
 def test_register_decay_rulesets_is_explicit_opt_in(monkeypatch):
     monkeypatch.delitem(_REGISTRY, "v2", raising=False)
+    monkeypatch.delitem(_REGISTRY, "v3", raising=False)
     assert "v2" not in RULESETS
-    assert register_decay_rulesets() == ["v2"]
+    assert register_decay_rulesets() == ["v2", "v3"]
     try:
-        assert "v2" in RULESETS
-        assert register_decay_rulesets() == ["v2"]  # idempotent
+        assert "v2" in RULESETS and "v3" in RULESETS
+        assert register_decay_rulesets() == ["v2", "v3"]  # idempotent
     finally:
         _REGISTRY.pop("v2", None)
+        _REGISTRY.pop("v3", None)
 
 
 def _write_decay(tmp_path: Path, **overrides) -> Path:

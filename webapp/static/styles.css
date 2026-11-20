@@ -51,10 +51,9 @@ ol, ul { margin: 0; padding: 0; list-style: none; }
   background: #fff; border-bottom: 1px solid var(--border); padding: 12px 32px;
 }
 .brand { display: flex; align-items: center; gap: 10px; color: var(--text); text-decoration: none; }
-.brand-mark {
-  display: grid; place-items: center; width: 32px; height: 32px;
-  background: var(--violet); border-radius: 10px;
-}
+/* SW monogram (big S, subscript w) in the red-orange-green gradient; no tile behind it. */
+.brand-mark { display: grid; place-items: center; width: 40px; height: 32px; }
+.brand-mark svg { display: block; }
 .brand-name { font-size: 20px; font-weight: 700; }
 .nav { display: flex; flex-wrap: wrap; gap: 6px; }
 .pill {
@@ -291,3 +290,16 @@ ol, ul { margin: 0; padding: 0; list-style: none; }
   .live-new-quest { animation: none; }
   .celebration-banner { animation: none; opacity: 1; transform: translateX(-50%); }
 }
+
+/* Simulated phone push: banner stack at the top of the page (push-notify.js). */
+.push-stack { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 9999;
+  display: flex; flex-direction: column; gap: 8px; width: min(380px, calc(100vw - 32px)); pointer-events: none; }
+.push-banner { pointer-events: auto; cursor: pointer; background: rgba(28, 28, 34, .92); color: #fff;
+  border-radius: 16px; padding: 10px 14px; box-shadow: 0 10px 30px rgba(0,0,0,.25); font-size: 14px;
+  line-height: 1.35; animation: push-in .35s ease-out; transition: opacity .5s, transform .5s; }
+.push-banner-head { font-size: 12px; opacity: .7; margin-bottom: 2px; }
+.push-banner.is-leaving { opacity: 0; transform: translateY(-12px); }
+@keyframes push-in { from { opacity: 0; transform: translateY(-16px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .push-banner { animation: none; transition: none; } }
+
+.quest-start { margin-top: 10px; }

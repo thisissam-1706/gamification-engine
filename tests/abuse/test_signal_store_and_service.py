@@ -6,6 +6,7 @@ from datetime import timedelta
 
 import pytest
 
+from src.abuse.rules import DEFAULT_ABUSE_RULES_VERSION
 from src.abuse.service import AbuseDetectionService, compare_runs
 from src.abuse.store import AbuseSignalStore
 from src.leaderboard.projection import LeaderboardProjection
@@ -95,7 +96,7 @@ def test_store_rows_carry_every_field_and_a_passed_in_detected_at(harness):
     for row, signal in zip(rows, summary.signals):
         assert row.signal_id == signal.signal_id
         assert (row.learner_id, row.signal_type, row.status) == (signal.learner_id, signal.signal_type, "suspected")
-        assert (row.rule_id, row.rule_version, row.rule_digest) == (signal.rule_id, "v2", signal.rule_digest)
+        assert (row.rule_id, row.rule_version, row.rule_digest) == (signal.rule_id, DEFAULT_ABUSE_RULES_VERSION, signal.rule_digest)
         assert row.evidence_refs == signal.evidence_refs
         assert row.detected_at == "2030-01-01T00:00:00+00:00"
         assert (row.window_start, row.window_end) == signal.detected_window

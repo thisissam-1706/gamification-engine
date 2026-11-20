@@ -1,7 +1,8 @@
 """Notification preferences from a JSON file (interim source: they are not in the event log).
 
 Shape: ``{"<learner_id>": {"timezone": "Asia/Kolkata", "opted_out_channels": ["push"],
-"opted_out_categories": ["streak_risk"]}}``. Missing optional keys default to UTC and empty sets.
+"opted_out_categories": ["streak_risk"], "email": "learner@example.com"}}``. Missing optional keys
+default to UTC, empty sets and no email address (reminders then skip the email channel).
 Anything else raises ValueError that names the learner id and the problem; nothing is skipped.
 """
 
@@ -11,7 +12,7 @@ from zoneinfo import ZoneInfo
 
 from src.notifications.models import ChannelType, LearnerPreferences, NotificationCategory
 
-_KEYS = {"timezone", "opted_out_channels", "opted_out_categories"}
+_KEYS = {"timezone", "opted_out_channels", "opted_out_categories", "email"}
 
 
 def _names(learner_id: str, key: str, value: object, enum) -> set:
@@ -48,6 +49,9 @@ def _entry(learner_id: str, entry: object) -> LearnerPreferences:
         ZoneInfo(timezone_name)
     except (ValueError, OSError, KeyError):  # ZoneInfoNotFoundError is a KeyError
         raise ValueError(f"learner {learner_id}: unknown timezone {timezone_name!r}") from None
+    email = entry.get("email")
+    if email is not None and (not isinstance(email, str) or "@" not in email):
+        raise ValueError(f"learner {learner_id}: email must be an address string, got {email!r}")
     return LearnerPreferences(
         learner_id=learner_id,
         timezone=timezone_name,
@@ -57,6 +61,7 @@ def _entry(learner_id: str, entry: object) -> LearnerPreferences:
         opted_out_categories=_names(
             learner_id, "opted_out_categories", entry.get("opted_out_categories", []), NotificationCategory
         ),
+        email=email,
     )
 
 

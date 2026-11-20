@@ -8,7 +8,7 @@ PERSONAS = {
     "learner_0000": {"role": "Badge earner",
                      "blurb": "7-day streak, Week Warrior badge earned and weekly quest done; starts at 1,500 XP."},
     "learner_0001": {"role": "Streak + freeze (main persona)",
-                     "blurb": "4-day streak with Wednesday protected by a streak freeze and 1 freeze left; starts at 1,000 XP."},
+                     "blurb": "4-day streak with Wednesday protected by a streak freeze and 1 freeze left; starts at 1,000 XP. In the exp_007 reminder group: gets the streak-risk reminders (in-app, push and email)."},
     "learner_0002": {"role": "Missed a day, push off",
                      "blurb": "Missed Thursday so the streak restarted at 1; push is off; starts at 1,700 XP."},
     "learner_0003": {"role": "Remediation done",
@@ -28,7 +28,7 @@ PERSONAS = {
     "learner_0010": {"role": "Notification stress",
                      "blurb": "4-day streak, push on, 1 notification so far, 1,400 XP: used for dedup, daily-cap and provider-outage demos."},
     "learner_0011": {"role": "Experiment learner",
-                     "blurb": "5-day streak, push on, eligible for exp_007 as treatment: used for the reminder sweep (and the remediation demo)."},
+                     "blurb": "5-day streak, push on, in the exp_007 control group: never gets streak-risk reminders (the comparison group)."},
 }
 
 

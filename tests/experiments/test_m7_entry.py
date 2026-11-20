@@ -334,8 +334,10 @@ def test_sweep_runs_the_real_dispatcher_with_the_experiment_store(script, capsys
         assert decisions[world.ids["L1"]]["fact_status"] == "dispatched"
         assert {decisions[i]["outcome"] for i in (world.ids["L2"], world.ids["L3"], world.ids["L4"])} == {"skipped"}
         rows = nstore.list_dispatches()
-        assert [(r["learner_id"], r["category"], r["channel"]) for r in rows] == [
-            (world.ids["L1"], "streak_risk", "push")
+        # The reminder goes out on push and in-app at once (no email address in these prefs).
+        assert sorted((r["learner_id"], r["category"], r["channel"]) for r in rows) == [
+            (world.ids["L1"], "streak_risk", "in_app"),
+            (world.ids["L1"], "streak_risk", "push"),
         ]
     finally:
         store.close()

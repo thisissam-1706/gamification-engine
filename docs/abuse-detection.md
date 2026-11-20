@@ -31,7 +31,11 @@ ingestion ──► event store (Learner.LessonCompleted, XPAwarded)      ┐
 - `run(shadow=True)` returns signals without writing, to trial other thresholds or rule versions
   (`compare_runs` diffs two shadow runs).
 
-## Rules (`abuse_rules.json`, default version `v2`, SHA-256 pinned)
+## Rules (`abuse_rules.json`, default version `v3`, SHA-256 pinned)
+
+Abuse rules **v3** (the default since 2026-11-21) is `v2` with one change: the `scripted_farming.repeat` threshold is
+**4 repeats** in 24 h instead of 10, so the farming pattern shows up after a handful of redos. `v1` and `v2` are
+unchanged (same digests); every other v3 threshold equals v2.
 
 Windows are inclusive (a span exactly equal to the window counts). A "short" gap is strictly below the minimum.
 
@@ -43,10 +47,10 @@ Windows are inclusive (a span exactly equal to the window counts). A "short" gap
 | `duplicate_exploit` / `duplicate_exploit.reward_field` | any `reward_field_in_source_event` rejection | on, 1 row | A source event must never carry reward fields. |
 | `impossible_timing` / `impossible_timing.short_gaps` | at least 3 short gaps whose span fits in the window | min gap lesson 20 s, review 10 s, remediation 20 s (default 20 s); 3 short gaps; 10 min | Two quick taps happen; a run of sub-minimum gaps does not. The later completion's kind picks the minimum. |
 | `impossible_timing` / `impossible_timing.burst` | more than `max_completions` completions inside the window | 20 completions, 10 min | An absolute ceiling on throughput. |
-| `scripted_farming` / `scripted_farming.repeat` | at least N completions with `repeat_index >= 1` (lesson kind) inside the window | 10 repeats, 24 h | Repeating finished lessons many times a day is the farming pattern decay targets. |
+| `scripted_farming` / `scripted_farming.repeat` | at least N completions with `repeat_index >= 1` (lesson kind) inside the window | 10 repeats, 24 h (v3: 4 repeats) | Repeating finished lessons many times a day is the farming pattern decay targets. |
 | `scripted_farming` / `scripted_farming.metronome` | at least N consecutive lesson-kind completions whose gaps have coefficient of variation (pstdev/mean) <= max_cv and mean gap >= minimum | 12 events, CV <= 0.05, mean >= 1 s | Humans vary; schedulers do not. |
 
-The rules in the second table exist only in abuse rules **v2** (the default); `v1` is kept unchanged (same digest) and
+The rules in the second table exist only in abuse rules **v2** and **v3** (v3 is the default); `v1` is kept unchanged (same digest) and
 simply has no such sections, so it runs only the original rules. The XP rule set `v2` (decay) is a different, unrelated `v2`.
 
 | Signal type / rule id | Fires when | v2 thresholds | Rationale |
@@ -67,6 +71,13 @@ design). `cohort_gaming_threshold` (0.15) is used by the guardrail below.
 - `evidence_refs` are stable strings: `event:{event_id}`, `completion:{completion_id}`, `evidence:{evidence_id}`.
   A signal never has empty evidence. Where a window fires, the evidence is the first qualifying run (exactly the
   threshold count), which later data does not disturb.
+- **One signal per episode.** An episode starts at the first qualifying run and lasts while the run ending at each
+  following fact still qualifies (the rule stays violated); one sustained burst is one signal. Once the violation
+  stops, scanning resumes, so a later, separate episode (for example another burst hours later) raises its own
+  signal. Before 2026-11-20 each rule stopped at the first episode per learner, so repeat offences were never flagged.
+- **Ties.** Completions with the same `occurred_at` (a frozen demo clock, a batch upload) are ordered by their
+  position in the event log (arrival order), then by `completion_id`, so a new arrival never reorders older facts
+  and never changes an existing signal's evidence or id.
 - `Signal.to_payload()` is exactly the `abuse_signal_raised` schema payload (`signal_id`, `signal_type`, `status`,
   `evidence_refs`). Rule id, version, digest and detected window are stored beside it in `abuse_signals`.
 - `detected_at` in the store is supplied by the caller; by default it is the latest fact time scanned, never a clock.
@@ -138,7 +149,21 @@ Two bypasses were found after the first version, both closed by flagging (nothin
    but delivering 60 completions within two minutes earned 6000 XP with no signal. `detect_receive_timing` now flags
    `receive_burst` and `future_dated` using the trusted receive time (`delivery_ids.received_at`, set by the ingestion clock).
 
-Both are flag-only: signals stay `suspected`, XP is not revoked, and the original fixtures' results are unchanged. Abuse
+3. **Only the first episode was ever flagged.** Every window rule stopped at its first match per learner, so after one
+   flag a learner could repeat the same pattern later without another signal. Detectors now report one signal per
+   episode (see Signal IDs above); the first episode's signal id is unchanged.
+
+All are flag-only: signals stay `suspected`, XP is not revoked, and the original fixtures' results are unchanged.
+
+### XP hold after scripted farming (2026-11-20)
+
+Detection still never revokes XP that was already awarded and never rewrites the log. It now affects the *next*
+reward decisions: while a learner has a `scripted_farming` signal whose window ended within the last 24 hours,
+new lesson completions are accepted (streak, quests and the log are unchanged) but their reward is decided as
+**0 XP** with `withheld_reason: scripted_farming_hold` stored on the `XPAwarded` fact (`src/abuse/xp_hold.py`,
+`IngestConfig.xp_hold`). Replay reads the stored 0, so rebuilds reproduce it. Remediation and review completions are
+not held. After 24 hours with no new farming episode, lessons earn XP again. This amends ADR 0003, which made
+detection purely flag-only. Abuse
 rules `v1` still lacks these checks by design (it is immutable); the default is now `v2`.
 
 ## How to run

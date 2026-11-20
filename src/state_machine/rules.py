@@ -17,6 +17,9 @@ RULESETS_FILE = Path(__file__).with_name("rulesets.json")
 DECAY_RULESETS_FILE = Path(__file__).with_name("rulesets_decay.json")
 _CONTENT_FIELDS = ("xp_amount", "quest_targets", "badge_threshold", "badge_id")
 _DECAY_KEYS = frozenset({"first_repeat_percent", "step_xp"})
+# Optional decay keys. floor_xp is the lowest XP a repeat can decay to (absent = 0, so a rule
+# set written without it, such as v2, keeps its content and digest unchanged).
+_OPTIONAL_DECAY_KEYS = frozenset({"floor_xp"})
 
 
 class RuleConfigError(ValueError):
@@ -54,9 +57,11 @@ def _validate_content(
 def _validate_decay(decay: Any) -> None:
     if not isinstance(decay, Mapping):
         raise RuleConfigError(f"decay must be a mapping, got {type(decay).__name__}")
-    if set(decay) != _DECAY_KEYS:
+    keys = set(decay)
+    if not _DECAY_KEYS <= keys or keys - _DECAY_KEYS - _OPTIONAL_DECAY_KEYS:
         raise RuleConfigError(
-            f"decay must have exactly the keys {sorted(_DECAY_KEYS)}, got {sorted(map(str, decay))}"
+            f"decay must have the keys {sorted(_DECAY_KEYS)} and optionally "
+            f"{sorted(_OPTIONAL_DECAY_KEYS)}, got {sorted(map(str, decay))}"
         )
     percent, step = decay["first_repeat_percent"], decay["step_xp"]
     if not _is_positive_int(percent) or percent > 100:
@@ -65,6 +70,10 @@ def _validate_decay(decay: Any) -> None:
         )
     if not _is_positive_int(step):
         raise RuleConfigError(f"decay step_xp must be a positive int, got {step!r}")
+    if "floor_xp" in decay:
+        floor = decay["floor_xp"]
+        if not isinstance(floor, int) or isinstance(floor, bool) or floor < 0:
+            raise RuleConfigError(f"decay floor_xp must be a non-negative int, got {floor!r}")
 
 
 def _content_digest(
@@ -193,7 +202,7 @@ QUEST_DEFINITIONS: Mapping[str, Mapping[str, int]] = MappingProxyType(
 
 
 def register_decay_rulesets() -> list[str]:
-    """Opts in to the packaged decay rule sets (v2); idempotent. Returns their versions.
+    """Opts in to the packaged decay rule sets (v2, v3); idempotent. Returns their versions.
 
     Without this call RULESETS is exactly the contents of rulesets.json, so the
     default behaviour of every existing caller is unchanged.
@@ -250,7 +259,8 @@ def xp_for_completion(
 
     N == 0 earns the base amount E. Without a decay schedule every completion
     earns E. With one, N >= 1 earns
-    ``max(0, E * first_repeat_percent // 100 - step_xp * (N - 1))``.
+    ``max(floor_xp, E * first_repeat_percent // 100 - step_xp * (N - 1))``,
+    where ``floor_xp`` is 0 unless the schedule sets it (v2: 0, v3: 5).
     """
     if (
         not isinstance(prior_eligible_repeats, int)
@@ -265,7 +275,8 @@ def xp_for_completion(
     if ruleset.decay is None or prior_eligible_repeats == 0:
         return base
     first = base * ruleset.decay["first_repeat_percent"] // 100
-    return max(0, first - ruleset.decay["step_xp"] * (prior_eligible_repeats - 1))
+    floor = ruleset.decay.get("floor_xp", 0)
+    return max(floor, first - ruleset.decay["step_xp"] * (prior_eligible_repeats - 1))
 
 
 def badge_qualifies(

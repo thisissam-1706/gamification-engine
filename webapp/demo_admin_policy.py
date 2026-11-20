@@ -10,6 +10,8 @@ from pydantic import BaseModel
 
 from src.interventions.config import RemediationConfig
 from src.interventions.service import run_quest_expiry
+from src.leaderboard.cohorts import get_calendar_week
+from src.notifications.quest_updates import quest_states
 from webapp import demo_admin, demo_backend, views
 from webapp.demo_admin_events import json_safe
 
@@ -83,8 +85,67 @@ def _policy_view(learner) -> dict:
     })
 
 
+# How each quest works, in plain words, for the Quests card.
+QUEST_HOW = {
+    "lesson_starter_v1": "Assigned to every learner at the start of the week. Any 3 lessons completed after it "
+                         "was assigned finish it. It lasts 7 days.",
+    "remediation_v1": "Assigned by the remediation policy when a learner fails their first attempt at a checkpoint. "
+                      "One remediation lesson finishes it; normal lessons do not count. It lasts 7 days, then the "
+                      "expiry sweep marks it expired.",
+}
+
+
+def quests_view(learner, now: datetime) -> list[dict]:
+    rows = []
+    for q in quest_states(learner, now):
+        rows.append({
+            "assignment_id": q.assignment_id, "quest_id": q.quest_id, "title": q.title,
+            "status": q.status, "progress": q.progress, "target": q.target,
+            "assigned_at": q.assigned_at, "deadline_at": q.deadline_at, "completed_at": q.completed_at,
+            "counts": "remediation lessons only" if q.accepted_kinds == ("remediation",) else "any lesson",
+            "how": QUEST_HOW.get(q.quest_id, ""),
+        })
+    return json_safe(rows)
+
+
 def create_policy_router(sandbox) -> APIRouter:
     router = APIRouter()
+
+    @router.get("/api/demo/admin/learners/{learner_id}/quests")
+    def quests(learner_id: str) -> dict:
+        now = sandbox.get_clock(learner_id)
+        with demo_admin.open_app(sandbox) as app:
+            learner = demo_admin.get_learner(app, learner_id)
+            rows = quests_view(learner, now)
+        epoch = get_calendar_week(now)
+        return {"quests": rows, "clock": json_safe(now), "epoch": epoch,
+                "weekly_assigned": any(r["assignment_id"] == f"weekly:{epoch}" for r in rows)}
+
+    @router.post("/api/demo/admin/learners/{learner_id}/quests/assign-weekly")
+    def assign_weekly(learner_id: str) -> dict:
+        """Assigns this ISO week's lesson sprint (weekly:<epoch>) at the learner's clock."""
+        now = sandbox.get_clock(learner_id)
+        epoch = get_calendar_week(now)
+        with demo_backend._submit_lock:
+            with demo_admin.open_app(sandbox) as app:
+                learner = demo_admin.get_learner(app, learner_id)
+                assigned = learner.assign_quest(
+                    "lesson_starter_v1", assignment_id=f"weekly:{epoch}", assigned_at=now
+                )
+                if assigned:
+                    app.save(learner)
+            if assigned:
+                demo_admin.catch_up_projection(sandbox)
+                demo_backend._bump_version(sandbox.root)
+        return {"assigned": assigned, "assignment_id": f"weekly:{epoch}",
+                "reason": None if assigned else "already_assigned_this_week"}
+
+    @router.post("/api/demo/admin/learners/{learner_id}/quests/complete-lesson")
+    def complete_lesson(learner_id: str) -> dict:
+        demo_admin.learner_snapshot(sandbox, learner_id)
+        n = sandbox.sent_event_count(learner_id) + 1
+        result = sandbox.submit_lesson_completed(learner_id, f"quest_lesson_{n}")
+        return {"result": result, "snapshot": demo_admin.learner_snapshot(sandbox, learner_id)}
 
     @router.get("/api/demo/admin/policy/config")
     def config() -> list[dict]:

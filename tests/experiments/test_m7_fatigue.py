@@ -558,3 +558,28 @@ def test_observation_window_pure_function():
     assert observation_window(start, start - timedelta(days=1)) is None
     assert window_days(observation_window(start, start + timedelta(hours=6))) == pytest.approx(0.25)
     assert window_days(None) == 0.0
+
+
+def test_the_cap_is_per_channel_so_four_reminders_on_three_channels_is_not_a_breach(env):
+    """12 messages in a day, 4 each on in-app, push and email, is within the per-channel cap of 5."""
+    ids = _population(env)
+    learner = ids["a"][0]
+    for k in range(4):
+        for channel in (ChannelType.IN_APP, ChannelType.PUSH, ChannelType.EMAIL):
+            _dispatch(env.nstore, learner, D1 + timedelta(minutes=10 * k), channel=channel)
+    result = _run(env)
+    t = result.arms["treatment"]
+    assert t.messages_total == 12
+    assert (t.max_delivered_in_24h, t.max_delivered_in_day, t.delivered_cap_breach_learners) == (4, 4, 0)
+    assert result.valid is True
+
+
+def test_six_on_one_channel_is_a_breach_even_with_others_quiet(env):
+    ids = _population(env)
+    learner = ids["a"][0]
+    for k in range(6):
+        _dispatch(env.nstore, learner, D1 + timedelta(minutes=10 * k), channel=ChannelType.EMAIL)
+    _dispatch(env.nstore, learner, D1, channel=ChannelType.IN_APP)
+    result = _run(env)
+    assert result.arms["treatment"].delivered_cap_breach_learners == 1
+    assert list(result.invalid_reasons) == ["delivered_over_cap_treatment"]

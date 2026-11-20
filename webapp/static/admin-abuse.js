@@ -1,13 +1,7 @@
-// Abuse tab (M6): attack simulator, detection pass, flags with evidence, rules in force.
+// Abuse tab (M6): live progress toward each rule, detection pass, flags with evidence, rules in force.
 (function () {
   "use strict";
 
-  var ATTACKS = [
-    { key: "replay", label: "Replay attack", text: "6 accepted lessons, each re-sent once unchanged." },
-    { key: "impossible_timing", label: "Impossible timing", text: "6 lessons 5 seconds apart (minimum is 20 s)." },
-    { key: "scripted_farming", label: "Scripted point farming", text: "14 lessons exactly 90 seconds apart, like a script." },
-    { key: "duplicate_exploit", label: "Duplicate-event exploit", text: "4 completions re-sent under new event ids." }
-  ];
   var TYPE_KIND = { replay: "warn", impossible_timing: "bad", scripted_farming: "info", duplicate_exploit: "ok" };
 
   function tile(label, value) {
@@ -17,12 +11,10 @@
 
   Admin.registerTab("abuse", function (root) {
     var html = '<p>Detection is flag-only: it never changes XP, streaks or leaderboards. It records suspected abuse with evidence.</p>' +
-      '<div class="adm-card"><h3>Attack simulator</h3><div class="adm-grid">';
-    ATTACKS.forEach(function (a) {
-      html += '<div><button class="btn-small" type="button" data-attack="' + a.key + '">' + a.label +
-        '</button><p class="adm-hint">' + a.text + "</p></div>";
-    });
-    html += '</div><div id="ab-attack-out"></div></div>' +
+      '<p class="adm-hint">Live detection is on: after every lesson submission the demo runs the flag-only pass for that learner ' +
+      '(the stand-in for the engine tick\'s abuse step), so flags appear immediately. "Scan" below re-runs it on demand.</p>' +
+      '<div class="adm-card"><h3>Live progress toward each rule</h3><div id="ab-live"></div>' +
+      '<p class="adm-hint">Redo a finished lesson on the lesson page (Redo this lesson): 4 redos inside 24 h raise a scripted-farming flag.</p></div>' +
       '<div class="adm-card"><h3>Detection pass</h3><div class="adm-actions">' +
       '<button class="btn-small" type="button" data-scan="one">Scan selected learner</button>' +
       '<button class="btn-small" type="button" data-scan="all">Scan everyone</button></div><div id="ab-scan-out"></div></div>' +
@@ -33,6 +25,29 @@
     root.innerHTML = html;
     var token = 0;
 
+    function meter(label, m, unit) {
+      var pct = Math.min(100, Math.round(100 * m.count / Math.max(1, m.threshold)));
+      var hot = m.count >= m.threshold;
+      return '<div class="adm-meter' + (hot ? " is-hot" : "") + '"><div class="adm-meter-top"><span>' + Admin.esc(label) +
+        "</span><strong>" + m.count + " / " + m.threshold + "</strong></div>" +
+        '<div class="adm-meter-bar"><span style="width:' + pct + '%"></span></div>' +
+        '<div class="adm-hint">' + Admin.esc(unit) + "</div></div>";
+    }
+    function renderLive() {
+      return Admin.api("GET", "/api/demo/admin/learners/" + Admin.learnerId() + "/abuse/live").then(function (d) {
+        var rules = Object.keys(d.flags.by_rule);
+        root.querySelector("#ab-live").innerHTML = '<div class="adm-meters">' +
+          meter("Repeated lessons (scripted farming)", d.repeats, "redos of already-completed lessons in the last " + d.repeats.window_hours + " h") +
+          meter("Gaps under " + d.short_gaps.min_gap_seconds + " s (impossible timing)", d.short_gaps, "in the last " + d.short_gaps.window_minutes + " min") +
+          meter("Completions in a burst (impossible timing)", d.burst, "in the last " + d.burst.window_minutes + " min") +
+          "</div>" + '<p class="adm-hint">Last lesson: ' + Admin.esc(d.last_lesson_id || "none yet") + ". Flags for this learner: " +
+          (rules.length ? rules.map(function (r) { return Admin.esc(r) + " x" + d.flags.by_rule[r]; }).join(", ") : "none") +
+          ". Counted at the demo clock " + Admin.esc(Admin.fmtTime(d.clock, true)) + ".</p>" +
+          (d.xp_hold ? '<div class="adm-strip">' + Admin.badge("XP on hold", "bad") +
+            "<span>A scripted-farming flag from the last 24 h: new lessons are accepted but earn 0 XP until 24 h pass without farming.</span></div>" : "");
+      }).catch(function (e) { Admin.toast(e.message, "bad"); });
+    }
+
     function renderFlags() {
       var t = ++token;
       var filter = root.querySelector("#ab-filter").value;
@@ -40,7 +55,7 @@
       Admin.api("GET", url).then(function (d) {
         if (t !== token) return;
         var el = root.querySelector("#ab-flags");
-        if (!d.signals.length) { el.innerHTML = '<p class="muted">No flags yet. Run an attack, then a detection pass.</p>'; return; }
+        if (!d.signals.length) { el.innerHTML = '<p class="muted">No flags yet. Redo a lesson or finish lessons very quickly: flags appear here as soon as a rule is crossed.</p>'; return; }
         el.innerHTML = d.signals.map(function (s) {
           var ev = s.evidence.length ? Admin.table([
             { label: "Time", render: function (e) { return Admin.esc(e.time ? Admin.fmtTime(e.time) : "-"); } },
@@ -52,24 +67,14 @@
             Admin.badge(s.status, "warn") + " <strong>" + Admin.esc(s.display_name) + "</strong>" +
             '<p class="adm-hint">Rule ' + Admin.esc(s.rule_id) + " (" + Admin.esc(s.rule_version) + "). Window " +
             Admin.esc(Admin.fmtTime(s.window_start)) + " to " + Admin.esc(Admin.fmtTime(s.window_end)) + ". " +
-            s.evidence_refs.length + " evidence references.</p>" + ev + "</div>";
+            s.evidence.length + " completion" + (s.evidence.length === 1 ? "" : "s") +
+            " shown: the run that first crossed the rule's threshold (each completion is referenced by its completion id and its event id, " +
+            s.evidence_refs.length + " references in all). Later completions in the same episode are not added; a new episode gets its own flag.</p>" +
+            ev + "</div>";
         }).join("");
       }).catch(function (e) { Admin.toast(e.message, "bad"); });
     }
 
-    Array.prototype.forEach.call(root.querySelectorAll("button[data-attack]"), function (btn) {
-      btn.addEventListener("click", function () {
-        btn.disabled = true;
-        Admin.api("POST", "/api/demo/admin/learners/" + Admin.learnerId() + "/abuse/attack", { pattern: btn.getAttribute("data-attack") })
-          .then(function (d) {
-            var reasons = Object.keys(d.rejected_by_reason).map(function (r) { return r + " " + d.rejected_by_reason[r]; }).join(", ");
-            root.querySelector("#ab-attack-out").innerHTML = '<div class="adm-strip"><span>' + d.events_sent + " events sent, " +
-              d.accepted + " accepted" + (reasons ? ", rejected: " + Admin.esc(reasons) : "") + "</span><span>XP " +
-              d.before.xp_total + " -> " + d.after.xp_total + "</span></div>";
-          }).catch(function (e) { Admin.toast(e.message, "bad"); })
-          .then(function () { btn.disabled = false; });
-      });
-    });
     Array.prototype.forEach.call(root.querySelectorAll("button[data-scan]"), function (btn) {
       btn.addEventListener("click", function () {
         btn.disabled = true;
@@ -90,9 +95,10 @@
     }).catch(function (e) { Admin.toast(e.message, "bad"); });
 
     Admin.onLearnerChange(function () {
-      root.querySelector("#ab-attack-out").innerHTML = ""; root.querySelector("#ab-scan-out").innerHTML = ""; renderFlags();
+      root.querySelector("#ab-scan-out").innerHTML = ""; renderFlags(); renderLive();
     });
-    Admin.onChange(renderFlags);
+    Admin.onChange(function () { renderFlags(); renderLive(); });
     renderFlags();
+    renderLive();
   });
 })();

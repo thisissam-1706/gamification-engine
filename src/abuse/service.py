@@ -65,8 +65,8 @@ class AbuseDetectionService:
         self.signal_store = signal_store
         self.rules = get_abuse_rules(rules_version)
 
-    def _domain_events(self) -> Iterable[Any]:
-        """Every stored domain event, via the notification log (as the leaderboard consumes it)."""
+    def _domain_events(self) -> Iterable[tuple[int, Any]]:
+        """(log position, event) for every stored domain event, via the notification log."""
         log = self.application.notification_log
         position = 1
         while True:
@@ -74,18 +74,21 @@ class AbuseDetectionService:
             if not batch:
                 return
             for notification in batch:
-                yield self.application.mapper.to_domain_event(notification)
+                yield notification.id, self.application.mapper.to_domain_event(notification)
             position = batch[-1].id + 1
 
     def completion_facts(self) -> tuple[list[CompletionFact], int, int]:
         """Accepted completions joined with their awards: (facts, events_read, skipped)."""
         completed: dict[tuple[str, str], Any] = {}
+        positions: dict[tuple[str, str], int] = {}
         awards: dict[tuple[str, str], Any] = {}
         events_read = 0
-        for event in self._domain_events():
+        for position, event in self._domain_events():
             events_read += 1
             if isinstance(event, Learner.LessonCompleted):
-                completed[(str(event.originator_id), str(event.completion_id))] = event
+                key = (str(event.originator_id), str(event.completion_id))
+                completed[key] = event
+                positions[key] = position
             elif isinstance(event, Learner.XPAwarded):
                 awards[(str(event.originator_id), str(event.completion_id))] = event
         facts: list[CompletionFact] = []
@@ -109,6 +112,7 @@ class AbuseDetectionService:
                     repeat_index=getattr(award, "repeat_index", None),
                     xp_amount=award.xp_amount if award is not None else 0,
                     received_at=_parse_time(binding.received_at) if binding else None,
+                    log_position=positions[(learner_id, completion_id)],
                 )
             )
         return facts, events_read, skipped

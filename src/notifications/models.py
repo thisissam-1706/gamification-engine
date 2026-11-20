@@ -54,6 +54,8 @@ class LearnerPreferences:
     timezone: str = "UTC"
     opted_out_channels: set[ChannelType] = field(default_factory=set)
     opted_out_categories: set[NotificationCategory] = field(default_factory=set)
+    # Address for the email channel; without one, scheduled reminders skip email.
+    email: str | None = None
 
 
 @dataclass(frozen=True)

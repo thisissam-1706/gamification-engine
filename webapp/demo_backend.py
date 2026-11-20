@@ -17,6 +17,9 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from eventsourcing.application import AggregateNotFoundError
+from src.abuse.service import AbuseDetectionService
+from src.abuse.store import AbuseSignalStore
+from src.abuse.xp_hold import store_hold_lookup
 from src.ingestion.config import IngestConfig
 from src.ingestion.evidence import EvidenceStore
 from src.ingestion.service import ingest_checkpoint_attempted, ingest_lesson_completed
@@ -32,11 +35,14 @@ from src.state_machine.rules import RULESETS, register_decay_rulesets
 from src.state_machine.learner import LearnerApplication
 from webapp import demo_notify
 from webapp.seed import AS_OF, seed
-from webapp.views import learner_rule_version
+from webapp.seed import learner_uuid as seed_learner_uuid
 
 # Opt in to the packaged decay rule set (v2) so the admin rule-version demo has a second
 # version to switch to. Default behaviour is unchanged: new events still use v1.
 register_decay_rulesets()
+
+# New demo rewards use v3 (repeat decay with a 5 XP floor) unless a learner is switched in the admin.
+DEMO_DEFAULT_RULE_VERSION = "v3"
 
 _submit_lock = threading.Lock()
 _VERSION_FILENAME = "demo_version"
@@ -209,6 +215,28 @@ def _project_new_notifications(
         lb_store.close()
 
 
+def _live_abuse_pass(app: LearnerApplication, evidence: EvidenceStore, live_dir: Path,
+                     learner_id: str) -> dict[str, Any]:
+    """Runs the flag-only abuse pass for one learner right after a submission.
+
+    Demo stand-in for the engine tick's abuse step, so a flag appears as soon as a pattern is
+    crossed. It only reads facts and evidence and stores signals; XP, streaks and the event log
+    are never touched (ADR 0003). A failure here never affects the submission.
+    """
+    try:
+        signals = AbuseSignalStore(str(live_dir / "abuse.db"))
+        try:
+            before = {r.signal_id for r in signals.list(learner_id)}
+            summary = AbuseDetectionService(app, evidence, signals).run(learner_ids=[learner_id])
+            new = [s for s in summary.signals if s.signal_id not in before]
+        finally:
+            signals.close()
+        return {"new_signals": len(new), "new_types": sorted({s.signal_type for s in new}),
+                "new_rules": sorted({s.rule_id for s in new})}
+    except Exception as exc:  # detection must never break the demo submission
+        return {"new_signals": 0, "new_types": [], "new_rules": [], "error": str(exc)}
+
+
 class Sandbox:
     """Sandbox environment managing live state copied from golden seed data."""
 
@@ -364,9 +392,33 @@ class Sandbox:
         finally:
             con.close()
 
+    def _xp_hold(self):
+        """XP hold for lesson rewards while a recent scripted-farming flag exists (xp_hold.py)."""
+        return store_hold_lookup(lambda: AbuseSignalStore(str(self.live_dir / "abuse.db")))
+
+    @staticmethod
+    def _withheld(app: Any, learner_id: str, res: Any, envelope: dict) -> str | None:
+        """The withheld_reason stored on this submission's XP reward, if any."""
+        if res.status != "accepted":
+            return None
+        try:
+            recent = list(app.events.get(UUID(str(learner_id))))[-6:]
+        except Exception:
+            return None
+        for event in reversed(recent):
+            if type(event).__name__ == "XPAwarded":
+                return getattr(event, "withheld_reason", None)
+        return None
+
     def _effective_rule_version(self, learner: Any, learner_id: str) -> str:
+        """Rule version for this learner's next reward: the admin override, else the demo default.
+
+        The demo defaults to v3 (repeat decay: a new lesson earns 100 XP, each repeat of the same
+        lesson less, never below 5). v1 (flat 100 XP) and v2 (decay down to 0) are switchable. Rewards already stored keep the
+        version they were decided under, so switching never changes past XP.
+        """
         override = self._read_ruleset_override(str(learner_id))
-        return override if override is not None else learner_rule_version(learner)
+        return override if override is not None else DEMO_DEFAULT_RULE_VERSION
 
     def _read_ruleset_override(self, learner_id: str) -> str | None:
         db_path = self.live_dir / "demo_state.db"
@@ -469,7 +521,8 @@ class Sandbox:
                     return {"status": "rejected", "reason": "learner_not_found", "event_id": event_id}
                 demo_clock = self.get_clock(learner_id)
                 rule_version = self._effective_rule_version(learner, learner_id)
-                config = IngestConfig(rule_version=rule_version, clock=lambda: demo_clock)
+                hold = self._xp_hold()
+                config = IngestConfig(rule_version=rule_version, clock=lambda: demo_clock, xp_hold=hold)
                 res = ingest_lesson_completed(
                     app, evidence, envelope, authenticated_producer="learning-svc", config=config
                 )
@@ -477,8 +530,11 @@ class Sandbox:
                     _project_new_notifications(
                         app, self.live_dir / "leaderboard.db", self.live_dir / "demo_state.db"
                     )
+                abuse = _live_abuse_pass(app, evidence, self.live_dir, learner_id)
+                if res.status == "accepted" or abuse["new_signals"]:
                     _bump_version(self.root)
-                return {"status": res.status, "reason": res.reason, "event_id": envelope["event_id"]}
+                return {"status": res.status, "reason": res.reason, "event_id": envelope["event_id"],
+                        "abuse": abuse, "xp_withheld": self._withheld(app, learner_id, res, envelope)}
             finally:
                 evidence.close()
                 app.close()
@@ -554,7 +610,8 @@ class Sandbox:
                 }
 
                 # 5. Ingest event
-                config = IngestConfig(rule_version=rule_version, clock=lambda: demo_clock)
+                hold = self._xp_hold()
+                config = IngestConfig(rule_version=rule_version, clock=lambda: demo_clock, xp_hold=hold)
                 t_ingest = time.perf_counter()
                 res = ingest_lesson_completed(
                     app,
@@ -578,12 +635,17 @@ class Sandbox:
                     )
                     project_ms = (time.perf_counter() - t_project) * 1000.0
                     _bump_version(self.root)
+                abuse = _live_abuse_pass(app, evidence, self.live_dir, str(learner_id))
+                if abuse["new_signals"]:
+                    _bump_version(self.root)
 
                 return {
                     "status": res.status,
                     "reason": res.reason,
                     "event_id": evt_id,
                     "timings_ms": {"ingest": round(ingest_ms, 2), "project": round(project_ms, 2)},
+                    "abuse": abuse,
+                    "xp_withheld": self._withheld(app, str(learner_id), res, envelope),
                 }
             finally:
                 evidence.close()
@@ -727,7 +789,7 @@ def create_sandbox(path: Path | str) -> Sandbox:
         }
     )
     try:
-        priya = overlay_app.repository.get(UUID("4871b5d7-1673-5416-8a37-48353d80e6a4"))
+        priya = overlay_app.repository.get(seed_learner_uuid(1))  # Priya Nair, the main persona
         priya.acquire_freeze("freeze:demo_overlay", activity_date="2026-10-16")
         overlay_app.save(priya)
     finally:

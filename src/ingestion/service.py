@@ -70,6 +70,11 @@ class _EventSpec:
 def _accept_lesson(
     learner: Learner, action_id: str, envelope: Mapping[str, Any], config: IngestConfig
 ) -> bool:
+    hold = (
+        config.xp_hold(str(learner.id), str(envelope["occurred_at"]))
+        if config.xp_hold is not None
+        else None
+    )
     return learner.complete_lesson(
         action_id,
         str(envelope["payload"]["lesson_id"]),
@@ -80,6 +85,7 @@ def _accept_lesson(
         causation_id=envelope["causation_id"],
         rule_version=config.rule_version,
         completion_kind=envelope["payload"].get("completion_kind"),
+        xp_withheld_reason=hold,
     )
 
 

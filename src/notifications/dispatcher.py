@@ -12,6 +12,7 @@ from src.notifications.channels.push import SimulatedPushAdapter
 from src.notifications.guardrails import (
     check_consent,
     check_fatigue_cap,
+    local_day_start,
     evaluate_quiet_hours,
     is_ttl_expired,
     normalize_iso_to_utc_dt,
@@ -49,6 +50,7 @@ class NotificationDispatcher:
         quiet_start_hour: int = 22,
         quiet_end_hour: int = 8,
         clock: Callable[[], datetime | str] | None = None,
+        cap_per_channel: bool = True,
     ) -> None:
         self.store = store
         self.adapters = adapters or {
@@ -58,6 +60,10 @@ class NotificationDispatcher:
         }
         self.retry_scheduler = retry_scheduler or RetryScheduler(max_retries=3)
         self.fatigue_cap = fatigue_cap
+        # True (default): ``fatigue_cap`` messages per learner per day on each channel (in_app,
+        # push and email each have their own count of 5). False: ``fatigue_cap`` per learner per
+        # day across all channels together (the original reading of AT-14).
+        self.cap_per_channel = cap_per_channel
         self.quiet_start_hour = quiet_start_hour
         self.quiet_end_hour = quiet_end_hour
         self.clock = clock
@@ -74,6 +80,33 @@ class NotificationDispatcher:
             proposal_id=proposal.proposal_id,
             reason="daily_cap_exceeded",
             occurred_at=now_iso,
+        )
+
+    def _check_daily_cap(
+        self,
+        learner_id: str,
+        now_dt: datetime,
+        timezone_str: str | None,
+        channel: ChannelType | None = None,
+    ) -> tuple[bool, str | None]:
+        """Daily fatigue cap: at most ``fatigue_cap`` dispatches since the learner's local midnight.
+
+        The count covers every channel, or only ``channel`` when ``cap_per_channel`` is set,
+        and resets at 00:00 in the learner's timezone.
+        """
+        day_start = local_day_start(now_dt, timezone_str)
+        # A small margin before midnight keeps the SQL string comparison safe; the exact
+        # window is applied on parsed instants in check_fatigue_cap.
+        since_iso = (day_start - timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        per_channel = channel if self.cap_per_channel else None
+        recent_dispatches = self.store.get_dispatch_history_since(
+            learner_id, since_iso=since_iso, channel=per_channel
+        )
+        return check_fatigue_cap(
+            recent_dispatches=recent_dispatches,
+            now_utc=now_dt,
+            max_cap=self.fatigue_cap,
+            window_start=day_start,
         )
 
     def _resolve_now_dt(self, now_utc: datetime | str | None) -> tuple[datetime, str]:
@@ -210,17 +243,9 @@ class NotificationDispatcher:
                 reason="ttl_expired",
             )
 
-        # 5. Notification Fatigue Guardrail across all channels (F2, AT-14)
-        cutoff_24h = (now_dt - timedelta(hours=24)).strftime("%Y-%m-%dT%H:%M:%SZ")
-        recent_dispatches = self.store.get_dispatch_history_since(
-            proposal.learner_id,
-            since_iso=cutoff_24h,
-        )
-        fatigue_ok, fatigue_reason = check_fatigue_cap(
-            recent_dispatches=recent_dispatches,
-            now_utc=now_dt,
-            max_cap=self.fatigue_cap,
-            window_hours=24,
+        # 5. Notification Fatigue Guardrail across all channels, or per channel (F2, AT-14)
+        fatigue_ok, fatigue_reason = self._check_daily_cap(
+            proposal.learner_id, now_dt, prefs.timezone, proposal.channel
         )
         if not fatigue_ok:
             suppression_id = f"supp_{uuid.uuid4().hex[:12]}"
@@ -663,17 +688,9 @@ class NotificationDispatcher:
                 )
                 continue
 
-            # 4. Recheck fatigue cap across all channels
-            cutoff_24h = (now_dt - timedelta(hours=24)).strftime("%Y-%m-%dT%H:%M:%SZ")
-            recent_dispatches = self.store.get_dispatch_history_since(
-                learner_id,
-                since_iso=cutoff_24h,
-            )
-            fatigue_ok, fatigue_reason = check_fatigue_cap(
-                recent_dispatches=recent_dispatches,
-                now_utc=now_dt,
-                max_cap=self.fatigue_cap,
-                window_hours=24,
+            # 4. Recheck fatigue cap across all channels, or per channel
+            fatigue_ok, fatigue_reason = self._check_daily_cap(
+                learner_id, now_dt, prefs.timezone, channel
             )
             if not fatigue_ok:
                 suppression_id = f"supp_{uuid.uuid4().hex[:12]}"
@@ -1003,16 +1020,8 @@ class NotificationDispatcher:
             )
 
         # 5. Check fatigue cap
-        cutoff_24h = (now_dt - timedelta(hours=24)).strftime("%Y-%m-%dT%H:%M:%SZ")
-        recent_dispatches = self.store.get_dispatch_history_since(
-            proposal.learner_id,
-            since_iso=cutoff_24h,
-        )
-        fatigue_ok, fatigue_reason = check_fatigue_cap(
-            recent_dispatches=recent_dispatches,
-            now_utc=now_dt,
-            max_cap=self.fatigue_cap,
-            window_hours=24,
+        fatigue_ok, fatigue_reason = self._check_daily_cap(
+            proposal.learner_id, now_dt, prefs.timezone, proposal.channel
         )
         if not fatigue_ok:
             suppression_id = f"supp_{uuid.uuid4().hex[:12]}"

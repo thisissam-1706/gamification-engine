@@ -63,7 +63,8 @@ def learner_snapshot(sandbox, learner_id: str) -> dict:
             "streak": learner.new_streak,
             "freezes": learner.freezes_remaining,
             "active_days": len(learner.activity_dates),
-            "ruleset": views.learner_rule_version(learner),
+            # The version the learner's next reward uses (demo default v3, or the admin override).
+            "ruleset": sandbox._effective_rule_version(learner, learner_id),
         }
 
 

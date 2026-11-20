@@ -22,6 +22,10 @@ class IngestConfig:
     # None disables the check (unbounded).
     late_window: timedelta | None = DEFAULT_LATE_WINDOW
     clock: Callable[[], datetime] = utc_now
+    # Optional reward hold: (learner_id, occurred_at) -> reason or None. When it returns a
+    # reason, a lesson completion is accepted but its XP is decided as 0 with that reason
+    # stored (src/abuse/xp_hold.py). None: no hold (the default).
+    xp_hold: Callable[[str, str], str | None] | None = None
 
     def __post_init__(self) -> None:
         if self.rule_version not in RULESETS:
@@ -35,6 +39,8 @@ class IngestConfig:
             )
         if not callable(self.clock):
             raise ValueError(f"clock must be callable, got {self.clock!r}")
+        if self.xp_hold is not None and not callable(self.xp_hold):
+            raise ValueError(f"xp_hold must be callable or None, got {self.xp_hold!r}")
 
 
 DEFAULT_CONFIG = IngestConfig(DEFAULT_INGEST_RULE_VERSION)

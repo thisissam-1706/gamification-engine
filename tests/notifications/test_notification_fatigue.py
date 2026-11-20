@@ -61,7 +61,8 @@ def test_notification_fatigue(tmp_path):
 
 
 def test_notification_fatigue_cross_channel_combined_cap(tmp_path):
-    """Proves F2: Fatigue cap applies across all channels combined (e.g. 3 push + 2 in-app = 5)."""
+    """With the combined option (cap_per_channel=False) the cap applies across all channels
+    (e.g. 3 push + 2 in-app = 5). The default is per channel (test_fatigue_cap_per_channel.py)."""
     store = NotificationStore(str(tmp_path / "notif_cross.db"))
     push = SimulatedPushAdapter()
     in_app = InAppChannelAdapter()
@@ -69,6 +70,7 @@ def test_notification_fatigue_cross_channel_combined_cap(tmp_path):
         store=store,
         adapters={ChannelType.PUSH: push, ChannelType.IN_APP: in_app},
         fatigue_cap=5,
+        cap_per_channel=False,
     )
     prefs = LearnerPreferences(learner_id="L2")
 

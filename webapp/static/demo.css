@@ -1,8 +1,14 @@
-.demo-topbar { align-items: flex-start; }
+/* Stays pinned to the top of the window while the page scrolls. */
+.demo-topbar {
+  align-items: center; padding-top: 10px; padding-bottom: 10px; flex-wrap: nowrap;
+  position: sticky; top: 0; z-index: 40;
+}
+.demo-topbar .brand-name { white-space: nowrap; }
 .demo-controls {
   margin-left: auto; display: flex; align-items: center; justify-content: flex-end;
-  gap: 8px; flex-wrap: wrap;
+  gap: 6px; flex-wrap: nowrap; min-width: 0;
 }
+.demo-controls .btn-small { padding: 6px 11px; font-size: 13px; }
 .demo-controls .btn-small { white-space: nowrap; }
 .demo-layout {
   max-width: 1440px; margin: 0 auto; padding: 20px 24px 28px;
@@ -30,4 +36,48 @@
 }
 
 .demo-controls .btn-small { text-decoration: none; color: var(--text); }
-#demo-learner { max-width: 260px; }
+#demo-learner { max-width: 230px; }
+/* The clock is repainted every second. A fixed width with equal-width digits keeps it from
+   pushing the learner dropdown sideways each tick (that movement crashed Chrome when zoomed out). */
+#demo-clock {
+  display: inline-block; white-space: nowrap; text-align: right;
+  font-variant-numeric: tabular-nums; min-width: 13.5em; font-size: 13px;
+}
+
+/* "More" menu: the less used clock moves, push controls and Reset demo. */
+.demo-more { position: relative; }
+.demo-more-toggle { font-size: 18px !important; line-height: 1; padding: 4px 10px !important; }
+.demo-menu {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 50; min-width: 260px;
+  background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 6px;
+  box-shadow: 0 12px 32px rgba(16, 24, 40, 0.16);
+}
+.demo-menu[hidden] { display: none; }
+.demo-menu-label {
+  font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
+  color: var(--muted, #667085); padding: 8px 10px 4px;
+}
+.demo-menu-item {
+  display: block; width: 100%; text-align: left; font: inherit; font-size: 14px; font-weight: 500;
+  padding: 8px 10px; border: 0; border-radius: 8px; background: none; color: var(--text); cursor: pointer;
+}
+.demo-menu-item:hover:not(:disabled), .demo-menu-item:focus-visible { background: var(--neutral); }
+.demo-menu-item:disabled { opacity: .55; cursor: default; }
+.demo-menu-note { margin: 2px 10px 6px; font-size: 12px; color: var(--muted, #667085); }
+.demo-menu-note:empty { display: none; }
+.demo-menu-sep { height: 1px; background: var(--border); margin: 6px 4px; }
+.demo-menu-danger { color: #b42318; }
+#push-provider.is-down { color: #b42318; font-weight: 700; }
+/* Shown next to the menu while the push provider is down (or just came back). */
+.demo-badge {
+  font: inherit; font-size: 12px; font-weight: 600; white-space: nowrap; cursor: pointer;
+  padding: 5px 10px; border-radius: 999px; border: 1px solid #d92d20; background: #fef3f2; color: #b42318;
+}
+.demo-badge.is-ok { border-color: #079455; background: #ecfdf3; color: #067647; }
+.demo-badge[hidden] { display: none; }
+
+/* Narrow screens: let the row wrap instead of overflowing. */
+@media (max-width: 1100px) {
+  .demo-topbar, .demo-controls { flex-wrap: wrap; }
+  .demo-controls { justify-content: flex-start; }
+}

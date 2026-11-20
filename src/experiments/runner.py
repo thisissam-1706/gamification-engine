@@ -10,7 +10,14 @@ from datetime import datetime, timedelta, timezone
 
 from src.abuse.guardrail import AwardLike, CohortGamingReport, cohort_gaming_report, iso_week_key
 from src.abuse.service import AbuseDetectionService
-from src.experiments.fatigue import in_window, max_in_rolling_24h, observation_window, wald_interval, window_days
+from src.experiments.fatigue import (
+    in_window,
+    max_in_local_day,
+    max_in_rolling_24h,
+    observation_window,
+    wald_interval,
+    window_days,
+)
 from src.experiments.inputs import EventScan, build_mastery_inputs, scan_events
 from src.experiments.metrics import MasteryReport, mastery_report
 from src.experiments.srm import srm_check
@@ -94,7 +101,8 @@ NO_ELIGIBLE_LEARNERS = "no_eligible_learners"
 MIXED_ASSESSMENT_VERSIONS = "mixed_assessment_versions"
 DELIVERED_OVER_CAP_TREATMENT = "delivered_over_cap_treatment"
 
-# exp_007 fatigue cap: at most this many messages in any rolling 24 hours (exp_007.yaml: fatigue_cap).
+# exp_007 fatigue cap: at most this many messages per learner per channel per local calendar day
+# (exp_007.yaml: fatigue_cap); the dispatcher's cap resets at the learner's local midnight.
 DEFAULT_FATIGUE_CAP = 5
 NOTE_PREFS_NOT_SUPPLIED = (
     "current preferences were not supplied: opt_outs is not computed (None)"
@@ -119,7 +127,8 @@ class ArmResult:
     messages_streak_risk: int
     learner_days_observed: float
     messages_per_learner_per_day: float | None
-    max_delivered_in_24h: int
+    max_delivered_in_24h: int  # informational: largest count on one channel in any rolling 24 h
+    max_delivered_in_day: int  # largest count on one channel on one local day (what the cap limits)
     delivered_cap_breach_learners: int
     opt_outs: int | None  # None when current_prefs was not supplied
 
@@ -208,8 +217,9 @@ def run_experiment(
     (None or naive raises ValueError). With ``assessment_version`` only that version's attempts count
     (others are ignored and counted); without it, counted attempts spanning more than one version
     invalidate the run (``mixed_assessment_versions``). Fatigue: messages are the dispatch rows of eligible
-    learners inside ``[assigned_at, min(assigned_at + 14 days, as_of))``; more than ``fatigue_cap`` in a rolling
-    24 h breaches the cap, and a treatment breach invalidates the run. ``opt_outs`` needs ``current_prefs``.
+    learners inside ``[assigned_at, min(assigned_at + 14 days, as_of))``; more than ``fatigue_cap`` on one channel
+    on one local calendar day (the learner's timezone from ``current_prefs``, else UTC) breaches the cap, and a treatment breach
+    invalidates the run. ``opt_outs`` needs ``current_prefs``.
     """
     if as_of is None:
         raise ValueError("as_of is required: declare the data cutoff")
@@ -246,11 +256,11 @@ def run_experiment(
             if learner_id in members:
                 breaches[name].add((learner_id, occurred.date()))
 
-    dispatch_times: dict[str, list[tuple[datetime, str]]] = {}
+    dispatch_times: dict[str, list[tuple[datetime, str, str]]] = {}
     for row in notification_store.list_dispatches():
         if row["learner_id"] in eligible_ids:
             dispatch_times.setdefault(row["learner_id"], []).append(
-                (_utc(row["dispatched_at"]), row["category"])
+                (_utc(row["dispatched_at"]), row["category"], row["channel"])
             )
 
     def _opted_out_since_snapshot(learner_id: str) -> bool:
@@ -281,20 +291,31 @@ def run_experiment(
         messages = streak_messages = 0
         learner_days = 0.0
         max_24h = 0
+        max_day = 0
         cap_breachers = 0
         for learner_id in sorted(members):
             window = observation_window(_utc(assignments[learner_id]), as_of)
             learner_days += window_days(window)
             inside = [
-                (at, category)
-                for at, category in dispatch_times.get(learner_id, [])
+                (at, category, channel)
+                for at, category, channel in dispatch_times.get(learner_id, [])
                 if in_window([at], window)
             ]
             messages += len(inside)
-            streak_messages += sum(1 for _, category in inside if category == NotificationCategory.STREAK_RISK.value)
-            peak = max_in_rolling_24h(at for at, _ in inside)
-            max_24h = max(max_24h, peak)
-            cap_breachers += peak > fatigue_cap
+            streak_messages += sum(1 for _, category, _ in inside if category == NotificationCategory.STREAK_RISK.value)
+            learner_prefs = (current_prefs or {}).get(learner_id)
+            tz_name = learner_prefs.timezone if learner_prefs else "UTC"
+            # The cap is per channel, so the peaks are taken on each channel separately.
+            channels = {channel for _, _, channel in inside}
+            max_24h = max(
+                [max_24h, *(max_in_rolling_24h(at for at, _, c in inside if c == ch) for ch in channels)]
+            )
+            day_peak = max(
+                (max_in_local_day((at for at, _, c in inside if c == ch), tz_name) for ch in channels),
+                default=0,
+            )
+            max_day = max(max_day, day_peak)
+            cap_breachers += day_peak > fatigue_cap
         arms[name] = ArmResult(
             eligible=len(members),
             mastery=report,
@@ -307,6 +328,7 @@ def run_experiment(
             learner_days_observed=learner_days,
             messages_per_learner_per_day=messages / learner_days if learner_days > 0 else None,
             max_delivered_in_24h=max_24h,
+            max_delivered_in_day=max_day,
             delivered_cap_breach_learners=cap_breachers,
             opt_outs=(
                 None if current_prefs is None else sum(1 for i in members if _opted_out_since_snapshot(i))

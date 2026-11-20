@@ -24,7 +24,7 @@ fatigue_metrics:
   - "messages per learner per day"
   - "opt-outs"
   - "cap breaches"
-fatigue_cap: "5 messages per 24 hours"
+fatigue_cap: "5 messages per learner per channel per local calendar day (in-app, push and email each have their own 5; resets at the learner's local midnight)"
 events:
   - "assignment"
   - "eligibility"
@@ -35,7 +35,7 @@ consent_and_fatigue: "The treatment and control groups use the same consent and 
 data_scope: "Synthetic data; results do not demonstrate real-world causality"
 guardrails:
   - type: "notification_cap"
-    description: "Push notifications must not exceed 5 messages per 24 hours"
+    description: "Notifications must not exceed 5 messages per learner per channel per local calendar day"
     reference: "§5.3"
   - type: "gaming_threshold"
     description: "Cohort decayed-XP share must not exceed 15% of weekly total"

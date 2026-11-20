@@ -11,8 +11,21 @@
     { id: "fractions_basics_5", prompt: "A pizza has 8 equal slices. You eat 3. What fraction is left?", answers: ["3/8", "5/8", "1/2", "8/5"], correct: 1, explanation: "Eight slices minus three eaten leaves five of eight slices." }
   ];
   function setCheckpointVisible(visible) {
-    var button = document.getElementById("checkpoint-button");
+    var row = document.getElementById("checkpoint-row");
+    if (row) row.hidden = !visible;
+  }
+  function setPracticeVisible(visible) {
+    var button = document.getElementById("practice-button");
     if (button) button.hidden = !visible;
+  }
+  function hasOpenPracticeQuest(home) {
+    return home.quests.some(function (q) { return q.kind === "remediation" && q.status !== "completed" && q.status !== "expired"; });
+  }
+  function setRedoVisible(visible) {
+    var button = document.getElementById("redo-button");
+    if (button) button.hidden = !visible;
+    var note = document.getElementById("redo-note");
+    if (note && !visible) note.hidden = true;
   }
   var LESSON_KEY = "demoLessonIndex:";
   function getLessonIndex(id) {
@@ -38,6 +51,21 @@
     { prompt: "What is 1/3 + 1/3?", answers: ["1/6", "2/3", "1", "2/6"], correct: 1, explanation: "Two thirds is the sum of two one-third pieces." }
   ];
 
+  // Practice (remediation) lesson: what a learner does to finish a practice quest. It is sent as
+  // completion_kind "remediation", the only kind that counts for remediation_v1.
+  var PRACTICE = {
+    id: "fractions_practice_1",
+    questions: [
+      { prompt: "Practice: which fraction equals 2/4?", answers: ["1/2", "1/4", "2/2", "4/2"], correct: 0, explanation: "Divide top and bottom by 2: 2/4 = 1/2." },
+      { prompt: "Practice: which is bigger, 2/3 or 3/5?", answers: ["2/3", "3/5", "They are equal", "Cannot tell"], correct: 0, explanation: "2/3 is about 0.67 and 3/5 is 0.6." }
+    ]
+  };
+  var DECISION_TEXT = {
+    passed: "You passed, so no practice quest is needed.",
+    not_first_attempt: "No new practice quest: only your first attempt at a checkpoint can earn one.",
+    remediated_within_window: "No new practice quest: you already got one in the last 14 days."
+  };
+
   var REASON_TEXT = {
     learner_not_found: "That learner was not found.",
     outside_late_window: "The event was outside the allowed late-arrival window.",
@@ -53,7 +81,7 @@
     reward_field_in_source_event: "The submission included fields only the server may set.",
     dedup_key_mismatch: "The event could not be verified as unique."
   };
-  var PRIYA_ID = "4871b5d7-1673-5416-8a37-48353d80e6a4";
+  var PRIYA_ID = "a4b67f76-95be-50c1-8157-55022bf4e70d";
 
   var state = {
     section: "lesson",
@@ -209,6 +237,7 @@
   function loadLearner(learnerId) {
     if (state.requestInFlight) return Promise.resolve();
     state.learnerId = learnerId;
+    state.redoLessonId = null;
     updateURL(learnerId);
     updateHomeLink();
     clearRequestError();
@@ -218,7 +247,8 @@
       $("demo-clock").textContent = "Demo clock: " + formatClock(clock.now_utc);
       $("lesson-card").hidden = false;
       clearSetupError();
-      startLesson(getLessonIndex(learnerId));
+      if (new URLSearchParams(window.location.search).get("mode") === "practice") startPractice();
+      else startLesson(getLessonIndex(learnerId));
     }).catch(function (error) {
       if (error.status === 404) {
         setSetupError("Demo routes are unavailable. Start the server with DEMO_MODE=1 and DEMO_SANDBOX_PATH set.");
@@ -265,7 +295,8 @@
     var total = state.questions.length;
     var current = state.index + 1;
     $("section-label").textContent = state.section === "lesson" ?
-      "Lesson " + (state.lessonIndex + 1) + " of " + LESSONS.length : "Checkpoint";
+      (state.isRedo ? "Repeat of lesson " : "Lesson ") + (state.lessonIndex + 1) + " of " + LESSONS.length :
+      state.section === "practice" ? "Practice lesson" : "Checkpoint";
     $("question-count").textContent = "Question " + current + " of " + total;
     $("progress-fill").style.width = (current / total) * 100 + "%";
     $("lesson-progress").setAttribute("aria-valuemax", String(total));
@@ -278,6 +309,8 @@
     $("question-screen").hidden = false;
     $("summary-screen").hidden = true;
     setCheckpointVisible(false);
+    setRedoVisible(false);
+    setPracticeVisible(false);
     $("question-prompt").textContent = question.prompt;
     $("feedback").hidden = true;
     $("feedback").classList.remove("is-wrong");
@@ -320,20 +353,27 @@
   function showSummary() {
     var total = state.questions.length;
     var isLesson = state.section === "lesson";
+    var isPractice = state.section === "practice";
     $("question-screen").hidden = true;
     $("summary-screen").hidden = false;
-    $("section-label").textContent = isLesson ? "Lesson complete" : "Checkpoint complete";
+    $("section-label").textContent = isLesson ? "Lesson complete" : isPractice ? "Practice complete" : "Checkpoint complete";
     $("question-count").textContent = "Finished";
     $("progress-fill").style.width = "100%";
     $("lesson-progress").setAttribute("aria-valuemax", String(total));
     $("lesson-progress").setAttribute("aria-valuenow", String(total));
-    $("summary-title").textContent = isLesson ? "Nice work!" : "Checkpoint results";
+    $("summary-title").textContent = isLesson ? "Nice work!" : isPractice ? "Practice done!" : "Checkpoint results";
     $("summary-score").textContent = state.score + " of " + total + " correct";
-    state.summaryMode = isLesson ? "submit-lesson" : "submit-checkpoint";
+    state.summaryMode = isLesson ? "submit-lesson" : isPractice ? "submit-practice" : "submit-checkpoint";
     setCheckpointVisible(false);
-    $("summary-message").textContent = isLesson ? "Finish the lesson to earn XP." :
+    setRedoVisible(false);
+    setPracticeVisible(false);
+    $("summary-message").textContent = isLesson ? (state.isRedo ?
+      "This repeats a lesson you already finished. It is still saved, but repeats count toward the scripted-farming rule (4 in 24 h)." :
+      "Finish the lesson to earn XP.") :
+      isPractice ? "Finish to complete your practice quest." :
       (state.score >= 2 ? "You passed the checkpoint." : "You need 2 correct answers to pass.");
-    $("summary-button").textContent = isLesson ? "Finish lesson" : "Submit checkpoint";
+    $("summary-button").textContent = isLesson ? (state.isRedo ? "Finish lesson (repeat)" : "Finish lesson") :
+      isPractice ? "Finish practice lesson" : "Submit checkpoint";
     $("summary-button").disabled = false;
     $("summary-button").focus();
   }
@@ -386,6 +426,12 @@
 
     if (result && result.status !== "accepted") {
       items.unshift((result.status === "duplicate" ? "Not submitted (duplicate): " : "Not submitted: ") + reasonText(result.reason));
+    }
+    if (result && result.xp_withheld) {
+      items.unshift("No XP for this lesson: XP is on hold for 24 h after a scripted-farming flag.");
+    }
+    if (result && result.abuse && result.abuse.new_rules && result.abuse.new_rules.length) {
+      items.push("Abuse flag raised (flag-only, XP kept): " + result.abuse.new_rules.join(", "));
     }
 
     var list = $("changes-list");
@@ -440,13 +486,22 @@
       }).then(function (result) {
         return getJSON("/api/learners/" + encodeURIComponent(id) + "/home").then(function (after) {
           renderChanges(before, after, result);
-          if (result.status === "accepted") setLessonIndex(id, (state.lessonIndex + 1) % LESSONS.length);
+          if (result.status === "accepted") {
+            state.redoLessonId = LESSONS[state.lessonIndex].id;
+            setLessonIndex(id, (state.lessonIndex + 1) % LESSONS.length);
+          }
+          var wasRedo = state.isRedo;
+          state.isRedo = false;
           state.summaryMode = "next-lesson";
           $("summary-button").textContent = "Next lesson";
-          $("summary-message").textContent = result.status === "accepted" ?
-            "Lesson saved. Start the next lesson or try the checkpoint." :
-            "This lesson was not saved. See what changed below.";
+          $("summary-message").textContent = result.status !== "accepted" ?
+            "This lesson was not saved. See what changed below." : wasRedo ?
+            "Repeat saved. It counts toward the abuse rules (see below)." :
+            "Lesson saved. Start the next lesson or try the checkpoint.";
           setCheckpointVisible(true);
+          setRedoVisible(!!state.redoLessonId);
+          setPracticeVisible(hasOpenPracticeQuest(after));
+          if (wasRedo) showRedoProgress(id);
         });
       });
     }).catch(function (error) {
@@ -454,6 +509,76 @@
     }).finally(function () {
       setRequestBusy(false);
     });
+  }
+  // Redo: the same lesson again as a new completion. Each redo is accepted (it is a real new
+  // completion) but raises the lesson's repeat count, which the scripted-farming abuse rule
+  // counts (4 repeats in 24 h, abuse rules v3). Under the decay rule sets each repeat also earns less XP.
+  function showRedoProgress(id) {
+    var note = $("redo-note");
+    return getJSON("/api/demo/admin/learners/" + encodeURIComponent(id) + "/abuse/live").then(function (live) {
+      var r = live.repeats;
+      var farming = live.flags.by_rule["scripted_farming.repeat"] || 0;
+      note.hidden = false;
+      note.classList.toggle("is-flagged", r.count >= r.threshold || farming > 0);
+      note.textContent = "Repeats in the last " + r.window_hours + " h: " + r.count + " of " + r.threshold +
+        " before the scripted-farming flag" + (farming ? " (flagged " + farming + "x)" : "") + ".";
+    }).catch(function () { note.hidden = true; });
+  }
+  // Redo replays the lesson's questions; finishing it sends the same lesson_id again.
+  function redoLesson() {
+    if (state.requestInFlight || !state.redoLessonId) return;
+    var index = 0;
+    LESSONS.forEach(function (lesson, i) { if (lesson.id === state.redoLessonId) index = i; });
+    startLesson(index);
+    state.isRedo = true;
+    updateProgress();
+  }
+  function startPractice() {
+    $("changes-panel").hidden = true;
+    clearRequestError();
+    state.section = "practice";
+    state.isRedo = false;
+    state.questions = PRACTICE.questions;
+    state.index = 0;
+    state.score = 0;
+    renderQuestion();
+  }
+  function submitPractice() {
+    if (state.requestInFlight) return;
+    var id = state.learnerId;
+    clearRequestError();
+    setRequestBusy(true);
+    return getJSON("/api/learners/" + encodeURIComponent(id) + "/home").then(function (before) {
+      return requestJSON("/api/demo/learners/" + encodeURIComponent(id) + "/lesson-complete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lesson_id: PRACTICE.id, completion_kind: "remediation" })
+      }).then(function (result) {
+        return getJSON("/api/learners/" + encodeURIComponent(id) + "/home").then(function (after) {
+          renderChanges(before, after, result);
+          state.summaryMode = "back-to-lessons";
+          $("summary-button").textContent = "Back to lessons";
+          $("summary-message").textContent = result.status !== "accepted" ? "This practice lesson was not saved." :
+            hasOpenPracticeQuest(before) && !hasOpenPracticeQuest(after) ? "Practice quest complete. Nice recovery!" :
+            "Practice saved. (Only an open practice quest is moved forward by it.)";
+        });
+      });
+    }).catch(function (error) {
+      submissionError(error, submitPractice);
+    }).finally(function () {
+      setRequestBusy(false);
+    });
+  }
+  function showPolicyDecision(id, attemptPassed) {
+    // What the engine decided about this attempt (stored as a fact, M4).
+    return getJSON("/api/demo/admin/learners/" + encodeURIComponent(id) + "/policy").then(function (p) {
+      var d = p.decisions[0];
+      if (!d) return;
+      var text = d.decision === "assign" ?
+        "You got a practice quest: finish one practice lesson within 7 days." :
+        (DECISION_TEXT[d.reason] || d.reason);
+      $("summary-message").textContent = (attemptPassed ? "You passed the checkpoint. " : "You did not pass. ") + text;
+    }).catch(function () {});
   }
   function submitCheckpoint() {
     if (state.requestInFlight) return;
@@ -464,12 +589,14 @@
       return requestJSON("/api/demo/learners/" + encodeURIComponent(id) + "/checkpoint", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ assessment_id: "fractions_checkpoint_1", passed: state.score >= 2 })
+        body: JSON.stringify({ assessment_id: $("checkpoint-select").value, passed: state.score >= 2 })
       }).then(function (result) {
         return getJSON("/api/learners/" + encodeURIComponent(id) + "/home").then(function (after) {
           renderChanges(before, after, result);
           state.summaryMode = "back-to-lessons";
           $("summary-button").textContent = "Back to lessons";
+          setPracticeVisible(hasOpenPracticeQuest(after));
+          if (result.status === "accepted") return showPolicyDecision(id, state.score >= 2);
         });
       });
     }).catch(function (error) {
@@ -489,6 +616,7 @@
   }
   function startLesson(index) {
     state.section = "lesson";
+    state.isRedo = false;
     state.lessonIndex = index;
     state.questions = [LESSONS[index]];
     state.index = 0;
@@ -517,13 +645,20 @@
   $("summary-button").addEventListener("click", function () {
     if (state.summaryMode === "submit-lesson") submitLesson();
     else if (state.summaryMode === "submit-checkpoint") submitCheckpoint();
+    else if (state.summaryMode === "submit-practice") submitPractice();
     else startLesson(getLessonIndex(state.learnerId));
   });
   var checkpointButton = document.getElementById("checkpoint-button");
   if (checkpointButton) checkpointButton.addEventListener("click", startCheckpoint);
-  $("same-day-button").addEventListener("click", setSameDayEvening);
-  $("next-day-button").addEventListener("click", setNextDay);
-  $("skip-day-button").addEventListener("click", setSkipDay);
-  $("reset-demo-button").addEventListener("click", resetDemo);
+  var redoButton = document.getElementById("redo-button");
+  if (redoButton) redoButton.addEventListener("click", redoLesson);
+  $("practice-button").addEventListener("click", startPractice);
+  // The scenario card with its own clock buttons was removed (the split view's top bar has
+  // them); only wire these up if a page still has them.
+  [["same-day-button", setSameDayEvening], ["next-day-button", setNextDay],
+   ["skip-day-button", setSkipDay], ["reset-demo-button", resetDemo]].forEach(function (pair) {
+    var button = document.getElementById(pair[0]);
+    if (button) button.addEventListener("click", pair[1]);
+  });
   initLearners();
 })();

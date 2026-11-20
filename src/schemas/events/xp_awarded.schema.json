@@ -3,16 +3,30 @@
   "title": "XpAwardedPayload",
   "description": "A durable, already-decided XP reward derived from one source completion.",
   "type": "object",
-  "required": ["reward_id", "completion_id", "xp_amount", "rule_version"],
+  "required": [
+    "reward_id",
+    "completion_id",
+    "xp_amount",
+    "rule_version"
+  ],
   "properties": {
     "reward_id": {
       "type": "string",
       "pattern": "^xp:.+$",
       "description": "Stable business identity, exactly xp:{completion_id}."
     },
-    "completion_id": {"type": "string", "minLength": 1},
-    "xp_amount": {"type": "integer", "minimum": 0},
-    "rule_version": {"type": "string", "minLength": 1},
+    "completion_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "xp_amount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "rule_version": {
+      "type": "string",
+      "minLength": 1
+    },
     "repeat_index": {
       "type": "integer",
       "minimum": 0,
@@ -20,8 +34,17 @@
     },
     "completion_kind": {
       "type": "string",
-      "enum": ["lesson", "review", "remediation"],
+      "enum": [
+        "lesson",
+        "review",
+        "remediation"
+      ],
       "description": "Optional. Kind of the rewarded completion; absent means lesson. review and remediation never decay."
+    },
+    "withheld_reason": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Optional. Why the XP was decided as 0, e.g. scripted_farming_hold (src/abuse/xp_hold.py). Absent on normal awards."
     }
   },
   "additionalProperties": false

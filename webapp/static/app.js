@@ -210,7 +210,24 @@
       foot.appendChild(el("span", "quest-reward", "+" + q.xp_reward + " XP"));
     }
     tile.appendChild(foot);
+    if (q.status !== "completed" && q.status !== "expired") {
+      var start = el("button", "btn-small quest-start", "Start practice lesson");
+      start.type = "button";
+      start.addEventListener("click", function () { openPracticeLesson(); });
+      tile.appendChild(start);
+    }
     return tile;
+  }
+
+  // The practice lesson lives on the lesson page (completion_kind "remediation"). In the demo
+  // split view it opens in the lesson pane next to this one; otherwise this page navigates.
+  function openPracticeLesson() {
+    var id = state.currentId;
+    var embedded = new URLSearchParams(window.location.search).get("embed") === "1";
+    var url = "lesson.html?" + (embedded ? "embed=1&" : "") + "learner=" + encodeURIComponent(id) + "&mode=practice";
+    var frame = null;
+    try { frame = embedded && window.parent.document.getElementById("lesson-frame"); } catch (e) { frame = null; }
+    if (frame) frame.src = url; else window.location.href = url;
   }
 
   function renderQuests(home) {

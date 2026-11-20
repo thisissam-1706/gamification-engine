@@ -1,4 +1,4 @@
-// Events tab (M1/M2): immutable event history, ingestion decisions, and the replay lab.
+// Events tab (M1/M2): immutable event history and ingestion decisions.
 (function () {
   "use strict";
 
@@ -35,95 +35,10 @@
   }
 
 
-  // ---- M2 lab: duplicate, late events, rebuild-and-compare, rule version
-  function buildLab(slot) {
-    slot.innerHTML =
-      '<div class="adm-card"><h3>Replay and late-event lab</h3>' +
-      '<p class="adm-hint">Pick the replay/late-event learner (Ishaan Gupta) to keep the story clean.</p>' +
-      '<div class="adm-actions">' +
-      '<button class="btn-small" type="button" data-lab="fresh-lesson">Send a lesson</button>' +
-      '<button class="btn-small" type="button" data-lab="duplicate">Resend the last event (exact duplicate)</button>' +
-      '<button class="btn-small" type="button" data-lab="late" data-hours="24">Send event 24 h late (inside 72 h window)</button>' +
-      '<button class="btn-small" type="button" data-lab="late" data-hours="100">Send event 100 h late (outside window)</button>' +
-      '</div><div id="lab-result"></div>' +
-      '<div class="adm-actions"><button class="btn-small" type="button" id="lab-rebuild">Rebuild this learner from history and compare</button></div>' +
-      '<div id="lab-rebuild-out"></div>' +
-      '<div class="adm-row"><strong>Rule version</strong><select id="lab-ruleset"></select>' +
-      '<button class="btn-small" type="button" id="lab-ruleset-apply">Apply to new events</button></div>' +
-      '<p class="adm-hint">Old rewards keep the version they were issued under; only events sent from now on use the new one.</p>' +
-      '</div>';
-    var resultEl = slot.querySelector("#lab-result");
-    var rebuildEl = slot.querySelector("#lab-rebuild-out");
-    var rulesetSel = slot.querySelector("#lab-ruleset");
-
-    function base() { return "/api/demo/admin/learners/" + Admin.learnerId() + "/lab/"; }
-    function delta(a, b) {
-      var d = b - a;
-      return (d >= 0 ? "+" : "") + d;
-    }
-    function showResult(data, label) {
-      var r = data.result;
-      var kind = r.status === "accepted" ? "ok" : "warn";
-      var html = '<div class="adm-strip">' + Admin.badge(r.status, kind) +
-        "<span>" + Admin.esc(r.reason || "no rejection reason") + "</span>" +
-        "<span>XP " + data.before.xp_total + " -> " + data.after.xp_total + " (" +
-        delta(data.before.xp_total, data.after.xp_total) + ")</span>" +
-        "<span>Streak " + data.before.streak + " -> " + data.after.streak + "</span>";
-      if (label) html += '<span class="muted">' + Admin.esc(label) + "</span>";
-      resultEl.innerHTML = html + "</div>";
-    }
-    Array.prototype.forEach.call(slot.querySelectorAll("button[data-lab]"), function (btn) {
-      btn.addEventListener("click", function () {
-        var action = btn.getAttribute("data-lab");
-        var hours = btn.getAttribute("data-hours");
-        var body = hours ? { hours_late: Number(hours) } : {};
-        btn.disabled = true;
-        Admin.api("POST", base() + action, body).then(function (data) {
-          showResult(data, hours ? hours + " h late" : "");
-        }).catch(function (e) { Admin.toast(e.message, "bad"); })
-          .then(function () { btn.disabled = false; });
-      });
-    });
-    slot.querySelector("#lab-rebuild").addEventListener("click", function () {
-      Admin.api("POST", base() + "rebuild-compare", {}).then(function (data) {
-        function show(v) { return Array.isArray(v) ? (v.length ? v.join(", ") : "none") : String(v); }
-        var html = Admin.table([
-          { label: "Field", key: "field" },
-          { label: "Live", render: function (r) { return Admin.esc(show(r.live)); } },
-          { label: "Rebuilt from events", render: function (r) { return Admin.esc(show(r.rebuilt)); } },
-          { label: "Match", render: function (r) { return r.match ? Admin.badge("✓", "ok") : Admin.badge("✗", "bad"); } }
-        ], data.rows);
-        var banner = data.identical
-          ? '<div class="adm-banner adm-banner-ok"><strong>Rebuilt state is identical to live state</strong> (' + data.events_replayed + " events replayed)</div>"
-          : '<div class="adm-banner adm-banner-bad"><strong>Rebuilt state differs from live state</strong></div>';
-        rebuildEl.innerHTML = banner + html;
-      }).catch(function (e) { Admin.toast(e.message, "bad"); });
-    });
-    function loadRuleset() {
-      Admin.api("GET", base() + "ruleset").then(function (data) {
-        rulesetSel.innerHTML = "";
-        data.available.forEach(function (v) {
-          var o = document.createElement("option");
-          o.value = v; o.textContent = v; o.selected = v === data.effective;
-          rulesetSel.appendChild(o);
-        });
-      }).catch(function (e) { Admin.toast(e.message, "bad"); });
-    }
-    slot.querySelector("#lab-ruleset-apply").addEventListener("click", function () {
-      Admin.api("POST", base() + "ruleset", { version: rulesetSel.value }).then(function (data) {
-        Admin.toast("New events will use rule version " + data.effective, "ok");
-        loadRuleset();
-      }).catch(function (e) { Admin.toast(e.message, "bad"); });
-    });
-    Admin.onLearnerChange(function () { resultEl.innerHTML = ""; rebuildEl.innerHTML = ""; loadRuleset(); });
-    loadRuleset();
-  }
-
   Admin.registerTab("events", function (root) {
     root.innerHTML =
       '<p>Every row below is an immutable event. XP, streaks, quests and badges on the learner home page are a fold of these rows.</p>' +
       '<div class="adm-tiles" id="ev-snapshot"></div>' +
-      '<div id="lab-slot"></div>' +
       '<div class="adm-grid">' +
       '<div><div class="adm-card"><h3>Event history</h3><div id="ev-history"></div></div>' +
       '<div class="adm-card" id="ev-detail" hidden></div></div>' +
@@ -167,7 +82,10 @@
         data.events.length + " shown. Click a row for details.</p>";
       html += Admin.table([
         { label: "#", key: "seq" },
-        { label: "Time", render: function (e) { return Admin.esc(Admin.fmtTime(e.timestamp)); } },
+        { label: "Time (demo clock)", render: function (e) {
+          var t = Admin.esc(Admin.fmtTime(e.time));
+          return e.time_source === "same_decision" ? '<span class="muted" title="Emitted in the same decision as the row below it">' + t + "</span>" : t;
+        } },
         { label: "Type", render: function (e) {
           return TYPE_BADGES[e.type] ? Admin.badge(e.type, TYPE_BADGES[e.type]) : Admin.esc(e.type);
         } },
@@ -232,6 +150,5 @@
     Admin.onChange(refresh);
     refresh();
 
-    buildLab(root.querySelector("#lab-slot"));
   });
 })();

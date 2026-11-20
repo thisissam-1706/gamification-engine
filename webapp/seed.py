@@ -73,8 +73,15 @@ SKIP_DATES = {FREEZE_LEARNER: {"2026-10-14"}, MISSED_LEARNER: {"2026-10-15"}}
 PUSH_OPTED_OUT = {2, 5, 9}
 
 
+# exp_007 puts a learner in a group by hashing their id (src/experiments/assignment.py), so which
+# persona lands in the reminder group depends on the id it gets. Priya (index 1, the main persona)
+# and Tara (index 11) swap ids so that Priya is in the treatment group (receives the streak-risk
+# reminders) and Tara is in control (receives none). Nothing else about either persona changes.
+_ID_SWAP = {1: 11, 11: 1}
+
+
 def learner_uuid(index: int) -> UUID:
-    return uuid5(NAMESPACE, f"learner_{index:04d}")
+    return uuid5(NAMESPACE, f"learner_{_ID_SWAP.get(index, index):04d}")
 
 
 def _dt(value: str) -> datetime:

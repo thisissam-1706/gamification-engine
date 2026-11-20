@@ -90,7 +90,9 @@ def _release_due_deferred(sandbox: Sandbox, learner_id: str) -> None:
 
 def _run_clock_jobs(sandbox: Sandbox, learner_id: str, quiet: bool = False) -> None:
     """Everything the scheduler would do for this learner as of their current demo clock."""
-    for job in (_release_due_deferred, demo_clock_jobs.send_due_streak_reminders):
+    jobs = (_release_due_deferred, demo_clock_jobs.send_due_streak_reminders,
+            demo_clock_jobs.recover_dead_letters)
+    for job in jobs:
         try:
             job(sandbox, learner_id)
         except Exception:  # one failing job must not stop the others or block the clock

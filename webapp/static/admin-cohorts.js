@@ -1,11 +1,7 @@
-// Cohorts tab (M3): membership, ranks, consistency semantics, measured latency.
+// Cohorts tab (M3): membership, ranks and measured latency.
 (function () {
   "use strict";
 
-  function tile(label, value) {
-    return '<div class="adm-tile"><div class="adm-tile-label">' + Admin.esc(label) +
-      '</div><div class="adm-tile-value">' + Admin.esc(value) + "</div></div>";
-  }
   function arrow(a, b) {
     return (a === null || a === undefined ? "-" : a) + " → " + (b === null || b === undefined ? "-" : b);
   }
@@ -18,13 +14,11 @@
   Admin.registerTab("cohorts", function (root) {
     root.innerHTML =
       '<div class="adm-card" id="co-cohorts"><p class="muted">Loading...</p></div>' +
-      '<div class="adm-card" id="co-consistency"></div>' +
       '<div class="adm-card"><h3>Latency</h3>' +
       '<div class="adm-actions"><button class="btn-small" type="button" id="co-probe">Run query probe</button>' +
       '<button class="btn-small" type="button" id="co-measure">Send a lesson and measure update</button></div>' +
       '<div id="co-probe-out"></div><div id="co-measure-out"></div></div>';
     var cohortsEl = root.querySelector("#co-cohorts");
-    var consEl = root.querySelector("#co-consistency");
     var probeOut = root.querySelector("#co-probe-out");
     var measureOut = root.querySelector("#co-measure-out");
     var token = 0;
@@ -59,22 +53,11 @@
       cohortsEl.innerHTML = html;
     }
 
-    function renderConsistency(c) {
-      consEl.innerHTML = "<h3>Consistency</h3>" +
-        '<div class="adm-tiles">' + tile("Projection offset", c.projection_offset) +
-        tile("Log head", c.log_head) + tile("Lag", c.lag) + tile("Mode", c.mode) + "</div>" +
-        '<ul class="adm-bullets">' + c.semantics.map(function (s) { return "<li>" + Admin.esc(s) + "</li>"; }).join("") + "</ul>";
-    }
-
     function refresh() {
       var t = ++token;
-      Promise.all([
-        Admin.api("GET", "/api/demo/admin/cohorts"),
-        Admin.api("GET", "/api/demo/admin/cohorts/consistency")
-      ]).then(function (res) {
+      Admin.api("GET", "/api/demo/admin/cohorts").then(function (data) {
         if (t !== token) return;
-        renderCohorts(res[0]);
-        renderConsistency(res[1]);
+        renderCohorts(data);
       }).catch(function (e) { Admin.toast(e.message, "bad"); });
     }
 

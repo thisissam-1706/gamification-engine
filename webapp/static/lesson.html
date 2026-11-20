@@ -16,7 +16,7 @@
   <header class="topbar lesson-topbar">
     <a class="brand" href="index.html" aria-label="Streakwise home">
       <span class="brand-mark" aria-hidden="true">
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="#fff"><path d="M13.2 2 4.5 13.4c-.4.5 0 1.1.6 1.1H10l-1.2 7.1c-.1.7.8 1 1.2.5l8.7-11.4c.4-.5 0-1.1-.6-1.1H14l1.200-7.100c.1-.7-.8-1-1.2-.5z"/></svg>
+        <svg viewBox="0 0 40 32" width="40" height="32" role="img" aria-label="Streakwise"><defs><linearGradient id="swg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#E5383B"/><stop offset=".42" stop-color="#F48C06"/><stop offset="1" stop-color="#2BB24C"/></linearGradient></defs><g transform="translate(1.69 23.86) scale(0.02989 -0.02989)" fill="url(#swg)"><path d="M280 -16Q218 -16 161.0 -7.0Q104 2 57.5 18.5Q11 35 -23 55L68 229Q107 207 146.5 192.5Q186 178 225.5 171.0Q265 164 304 164Q335 164 355.5 169.0Q376 174 386.5 183.5Q397 193 397 205Q397 221 379.0 231.0Q361 241 331.5 249.0Q302 257 266.5 265.5Q231 274 195.0 287.5Q159 301 129.5 322.0Q100 343 82.0 375.0Q64 407 64 453Q64 533 106.5 592.0Q149 651 228.5 683.5Q308 716 418 716Q496 716 563.5 700.5Q631 685 680 656L595 484Q553 510 503.5 523.0Q454 536 403 536Q369 536 346.0 529.5Q323 523 311.5 512.0Q300 501 300 489Q300 473 318.0 462.5Q336 452 366.0 444.5Q396 437 431.5 428.5Q467 420 502.5 407.5Q538 395 568.0 374.5Q598 354 616.0 322.5Q634 291 634 245Q634 167 591.0 108.5Q548 50 468.5 17.0Q389 -16 280 -16Z"/><path transform="translate(610 -190) scale(0.5)" d="M175 0 91 700H324L391 109H269L577 700H794L853 109H738L1045 700H1277L913 0H660L607 484H679L428 0Z"/></g></svg>
       </span>
       <span class="brand-name">Streakwise</span>
     </a>
@@ -25,7 +25,6 @@
       <select id="learner-select" class="learner-select"></select>
       <span class="muted" id="demo-clock" aria-live="polite"></span>
       <a class="pill lesson-home-link" id="home-link" href="demo.html">Open home page</a>
-      <a class="pill" href="demo.html">Split view</a>
     </div>
   </header>
 
@@ -34,29 +33,6 @@
       <span id="setup-error-text"></span>
       <button class="btn-small" id="retry-button" type="button">Retry</button>
     </div>
-    <section class="changes-card scenario-card" aria-labelledby="scenario-title">
-      <h2 class="card-title" id="scenario-title">Scenario</h2>
-      <p><strong>Priya Nair</strong> is building a daily learning habit and wants to see how one freeze protects her streak.</p>
-      <h3>Try this</h3>
-      <ol>
-        <li>Choose a time below to move Priya's demo clock.</li>
-        <li>Complete the lesson and submit the checkpoint on that day.</li>
-        <li>Move the clock again and repeat to see the streak rules in action.</li>
-      </ol>
-      <h3>You should see</h3>
-      <ul>
-        <li><strong>Same day, evening:</strong> XP increases, while the streak stays at 4.</li>
-        <li><strong>Next day:</strong> the streak becomes 5 and the freeze remains available.</li>
-        <li><strong>Skip a day:</strong> the freeze covers the gap, the streak extends, and freezes go from 1 to 0.</li>
-        <li><strong>Skip again with no freeze:</strong> the streak resets to 1.</li>
-      </ul>
-      <div class="scenario-actions">
-        <button class="btn-small" id="same-day-button" type="button" data-request-control>Same day, evening</button>
-        <button class="btn-small" id="next-day-button" type="button" data-request-control>Next day</button>
-        <button class="btn-small" id="skip-day-button" type="button" data-request-control>Skip a day</button>
-        <button class="btn-small" id="reset-demo-button" type="button" data-request-control>Reset demo</button>
-      </div>
-    </section>
     <section class="lesson-card" id="lesson-card" aria-labelledby="lesson-title">
       <div class="lesson-heading">
         <span class="chip chip-violet" id="section-label">Lesson</span>
@@ -85,7 +61,17 @@
         <p class="summary-score" id="summary-score"></p>
         <p class="muted" id="summary-message"></p>
         <button class="lesson-button" id="summary-button" type="button" data-request-control></button>
-        <button class="lesson-button" id="checkpoint-button" type="button" data-request-control style="margin-top:8px" hidden>Take checkpoint</button>
+        <button class="lesson-button" id="practice-button" type="button" data-request-control style="margin-top:8px" hidden>Start practice lesson</button>
+        <div class="checkpoint-row" id="checkpoint-row" hidden>
+          <button class="lesson-button" id="checkpoint-button" type="button" data-request-control>Take checkpoint</button>
+          <label class="sr-only" for="checkpoint-select">Checkpoint quiz</label>
+          <select id="checkpoint-select" class="learner-select" data-request-control>
+            <option value="fractions_checkpoint_1">Checkpoint 1</option>
+            <option value="fractions_checkpoint_2">Checkpoint 2</option>
+          </select>
+        </div>
+        <button class="lesson-button lesson-button-secondary" id="redo-button" type="button" data-request-control style="margin-top:8px" hidden>Redo this lesson</button>
+        <p class="muted redo-note" id="redo-note" hidden></p>
       </div>
     </section>
     <div class="error lesson-error" id="request-error" role="alert" hidden>
@@ -111,10 +97,11 @@
 
   <footer class="page-foot">
     <p class="muted">Take your time. You can use Tab and the arrow keys to answer.</p>
-    <p><a class="pill" href="demo.html">Split view</a></p>
   </footer>
 
   <script src="lesson.js"></script>
+  <script src="push-notify.js"></script>
+  <script>window.StreakwisePush.start(function () { var s = document.getElementById("learner-select"); return s && s.value; });</script>
   <script>
     if (new URLSearchParams(window.location.search).get("embed") === "1") {
       document.querySelector(".lesson-topbar").hidden = true;

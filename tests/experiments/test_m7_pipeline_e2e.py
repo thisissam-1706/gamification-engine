@@ -273,8 +273,9 @@ def test_sweep_dispatched_to_treatment_learners_with_a_streak_and_to_no_control_
     store = ExperimentStore(pipeline.db)
     try:
         dispatched = nstore.list_dispatches()
-        assert sorted(r["learner_id"] for r in dispatched) == sorted(pipeline.T[0:12])
-        assert {(r["category"], r["channel"]) for r in dispatched} == {("streak_risk", "push")}
+        # One reminder per treatment learner, sent on push and in-app at once (no email in these prefs).
+        assert sorted(r["learner_id"] for r in dispatched) == sorted(pipeline.T[0:12] * 2)
+        assert {(r["category"], r["channel"]) for r in dispatched} == {("streak_risk", "push"), ("streak_risk", "in_app")}
         assert not {r["learner_id"] for r in dispatched} & set(pipeline.C)
         decisions = {r["learner_id"]: r["outcome"] for r in store.list_decisions(EXP_ID)}
         assert [decisions[i] for i in pipeline.T[0:12]] == ["sent"] * 12
@@ -307,7 +308,7 @@ def test_report_exposure_fatigue_and_contrast(pipeline):
     assert treatment["exposure"]["exposed"] == 6 and treatment["exposure"]["eligible"] == 17
     assert treatment["exposure"]["rate"] == pytest.approx(6 / 17) and treatment["exposure"]["rate"] > 0
     assert control["exposure"]["rate"] is None and control["exposure"]["note"]  # no surface for variant_b
-    assert treatment["messages_total"] == 12 and treatment["messages_streak_risk"] == 12
+    assert treatment["messages_total"] == 24 and treatment["messages_streak_risk"] == 24  # push + in-app
     assert treatment["messages_per_learner_per_day"] > 0
     assert treatment["learner_days_observed"] == pytest.approx(17 * 14.0)
     assert control["messages_total"] == 0 and control["messages_per_learner_per_day"] == 0.0
@@ -361,6 +362,6 @@ def test_a_treatment_guardrail_violation_makes_the_run_invalid_but_keeps_every_n
     assert (t["mastered"], t["failed"], t["missing_outcome"]) == (8, 3, 6)  # numbers are still there
     assert (c["mastered"], c["failed"], c["missing_outcome"]) == (6, 4, 8)
     assert data["arms"]["treatment"]["breach_learners"] == 1
-    assert data["arms"]["treatment"]["messages_total"] == 12
+    assert data["arms"]["treatment"]["messages_total"] == 24
     printed = json.loads(out)
     assert printed["valid"] is False and "cap_breach_treatment" in printed["invalid_reasons"]

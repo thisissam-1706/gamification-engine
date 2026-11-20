@@ -1,11 +1,11 @@
-"""Streak-risk reminders for the exp_007 treatment arm.
+"""Streak-risk reminders for the exp_007 treatment arm (sent on in-app, push and email).
 
 ``plan_streak_risk_reminders`` turns one learner's state into the reminders that are due now;
 ``run_streak_risk_sweep`` hands the latest due reminder of each learner to the real
 ``NotificationDispatcher``. Every instant is passed in (``now_utc``); nothing reads the clock.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from typing import Mapping, Sequence
 from uuid import UUID
@@ -45,6 +45,39 @@ ALREADY_ACTIVE_TODAY = "already_active_today"
 NO_STREAK = "no_streak"
 QUIET_HOURS = "quiet_hours"
 NOTHING_DUE = "nothing_due"
+
+
+def channel_copies(
+    push: NotificationProposal, prefs: LearnerPreferences
+) -> list[NotificationProposal]:
+    """The in-app and email twins of a push reminder, sent at the same scheduled time.
+
+    Each keeps the push's experiment id and variant (so a cap block is recorded as a guardrail
+    violation) and gets its own proposal id (``<push id>:in_app`` / ``:email``), so each channel
+    is deduplicated and capped on its own. Email is included only when ``prefs.email`` is set.
+    """
+    streak = push.payload.get("streak_count", 0)
+    title = f"Your {streak}-day streak is at risk"
+    copies = [
+        replace(
+            push,
+            proposal_id=f"{push.proposal_id}:in_app",
+            channel=ChannelType.IN_APP,
+            payload={**push.payload, "title": title,
+                     "body": "Finish one quick lesson today to keep it going."},
+        )
+    ]
+    if prefs.email:
+        copies.append(
+            replace(
+                push,
+                proposal_id=f"{push.proposal_id}:email",
+                channel=ChannelType.EMAIL,
+                payload={**push.payload, "to": prefs.email, "title": title,
+                         "body": "Finish one quick lesson today to keep your streak going."},
+            )
+        )
+    return copies
 
 
 @dataclass(frozen=True)
@@ -165,6 +198,10 @@ def run_streak_risk_sweep(
 ) -> SweepResult:
     """Dispatches each learner's latest due reminder; repeats are deduplicated by proposal id.
 
+    The reminder goes out on every channel at the same time: in-app, push and (when the learner's
+    preferences have an address) email. Each channel has its own daily cap and consent check. The
+    outcome and decision row describe the push, which is the exp_007 treatment message.
+
     With ``store``, a learner whose stored eligibility row is ineligible is skipped (reason
     ``ineligible:<stored reason>``) before any evaluation, and one ``experiment_decisions`` row
     is recorded per learner outcome (the first record for a given ``now_utc`` wins).
@@ -214,6 +251,8 @@ def run_streak_risk_sweep(
             _decision(learner_id, variant, "skipped", reason)
             continue
         fact = dispatcher.dispatch(proposals[-1], prefs=prefs, now_utc=now_utc)
+        for copy in channel_copies(proposals[-1], prefs):
+            dispatcher.dispatch(copy, prefs=prefs, now_utc=now_utc)
         outcomes.append(SweepOutcome(learner_id, fact=fact))
         _decision(learner_id, variant, "sent", None, proposals[-1].proposal_id, fact)
     return SweepResult(outcomes)

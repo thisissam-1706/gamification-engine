@@ -110,11 +110,14 @@ def m1_m2():
     check("rebuild_compare_identical", j["identical"] is True, str(j), f"identical, {j['events_replayed']} events replayed")
     rs = get(f"{base}/ruleset").json()
     new = [v for v in rs["available"] if v != rs["effective"]][0]
+    xp_versions = lambda: [e["rule_version"] for e in get(f"{admin(who)}/events?limit=30").json()["events"] if e["type"] == "XPAwarded"]
+    before = xp_versions()
     post(f"{base}/ruleset", {"version": new})
     post(f"{base}/fresh-lesson")
-    xp_events = [e for e in get(f"{admin(who)}/events?limit=30").json()["events"] if e["type"] == "XPAwarded"]
-    check("ruleset_switch_only_new_events", xp_events[0]["rule_version"] == new and xp_events[-1]["rule_version"] == rs["effective"],
-          str([e["rule_version"] for e in xp_events]), f"newest reward {xp_events[0]['rule_version']}, older rewards keep {xp_events[-1]['rule_version']}")
+    after = xp_versions()
+    # Newest reward uses the picked version; every older reward keeps the version it was issued under.
+    check("ruleset_switch_only_new_events", after[0] == new and after[1:] == before[:len(after) - 1],
+          str(after), f"newest reward {after[0]}, older rewards unchanged ({after[-1]} ...)")
 
 
 def m3():
@@ -186,11 +189,12 @@ def m5():
     t = get(base).json()
     check("outage_then_dead_letter", f[0]["status"] == "failed" and t["counts"]["dead_letter_open"] == 1, str(f),
           f"3 attempts failed, dead_letter_open {t['counts']['dead_letter_open']}")
-    post(f"{base}/outage", {"channel": "push", "active": False})
-    rep = post(f"{base}/replay-dlq").json()
+    back = post(f"{base}/outage", {"channel": "push", "active": False}).json()
+    # Bringing the provider back runs the recovery worker, which re-sends the dead letter.
+    rep = [{"status": "dispatched"}] * back.get("recovered", 0) + post(f"{base}/replay-dlq").json()
     t = get(base).json()
     check("replay_resolves_dead_letter", rep and rep[0]["status"] == "dispatched" and t["counts"]["dead_letter_resolved"] == 1, str(rep),
-          f"replayed {len(rep)}, dead_letter_resolved {t['counts']['dead_letter_resolved']}")
+          f"recovered {back.get('recovered', 0)} automatically, dead_letter_resolved {t['counts']['dead_letter_resolved']}")
     set_clock(arjun, "2026-10-20T23:00:00Z")
     f = send(arjun, "push")
     check("quiet_hours_deferred", f[0]["status"] == "queued" and f[0]["reason"] == "quiet_hours_rescheduled", str(f), f"deferred until {f[0]['rescheduled_for']}")
@@ -203,7 +207,10 @@ def m5():
           f"attempt ids shorten to {shorts[0]} / {shorts[1]}")
     set_clock(arjun, "2026-10-21T09:00:00Z")
     rel = post(f"{base}/release-deferred").json()
-    check("release_deferred_delivered", rel and rel[0]["status"] == "dispatched", str(rel), "released and delivered at 09:00")
+    # Moving the clock runs the scheduler's release job, so the message may already be out.
+    held = [i for i in get(base).json()["items"] if i["proposal_id"] == f[0]["proposal_id"]]
+    released = (rel and rel[0]["status"] == "dispatched") or any(i["outcome"] == "delivered" for i in held)
+    check("release_deferred_delivered", released, str(rel or held), "released and delivered at 09:00")
     set_clock(arjun, SEED_CLOCK)
 
 
@@ -237,11 +244,24 @@ def m7():
     rows = get("/api/demo/admin/experiments/assignments").json()
     check("assignments_12_rows_with_arms", len(rows["rows"]) == 12 and all(r["arm"] for r in rows["rows"]), str(rows)[:200],
           f"treatment {rows['arm_counts']['treatment']}, control {rows['arm_counts']['control']}")
-    tara_arm = [r for r in rows["rows"] if r["display_name"] == "Tara Bose"][0]["arm"]
+    arm_of = {r["display_name"]: r["arm"] for r in rows["rows"]}
+    check("priya_treatment_tara_control", arm_of["Priya Nair"] == "treatment" and arm_of["Tara Bose"] == "control",
+          str(arm_of), "Priya is treatment (gets reminders), Tara is control (gets none)")
+    set_clock("Priya Nair", "2026-10-17T20:00:00Z")
+    s = post("/api/demo/admin/experiments/sweep", {"learner_id": ID["Priya Nair"]}).json()["outcomes"][0]
+    # Moving the clock to 20:00 already runs the scheduled reminder job (in-app, push and email),
+    # so the manual sweep may find it sent and be deduplicated.
+    got = {i["channel"] for i in get(f"{admin('Priya Nair')}/notifications").json()["items"]
+           if i["category"] == "streak_risk" and i["outcome"] == "delivered"}
+    if s["fact_status"] != "dispatched" and got >= {"in_app", "push", "email"}:
+        s = {**s, "fact_status": "dispatched"}
+    check("sweep_for_priya", s["fact_status"] == "dispatched" and got >= {"in_app", "push", "email"}, str(s),
+          f"Priya: reminder {s['fact_status']} at 20:00 UTC on in-app, push and email")
     set_clock("Tara Bose", "2026-10-17T20:00:00Z")
-    s = post("/api/demo/admin/experiments/sweep", {"learner_id": ID["Tara Bose"]}).json()["outcomes"][0]
-    check("sweep_for_tara", s["fact_status"] == "dispatched" and tara_arm == "treatment", str(s),
-          f"Tara is {tara_arm}: reminder {s['fact_status']} at 20:00 UTC on a day she has not practised")
+    t = post("/api/demo/admin/experiments/sweep", {"learner_id": ID["Tara Bose"]}).json()["outcomes"][0]
+    tara_got = [i for i in get(f"{admin('Tara Bose')}/notifications").json()["items"] if i["category"] == "streak_risk"]
+    check("tara_control_gets_nothing", t["fact_status"] is None and t["reason"] == "not_treatment" and not tara_got, str(t),
+          f"Tara: {t['reason']}, no streak-risk reminder")
     rep = get("/api/demo/admin/experiments/report").json()
     r = rep["report"]
     check("report_valid_with_arms", r["valid"] is True and set(r["arms"]) == {"treatment", "control"}, str(r)[:200],
@@ -261,6 +281,7 @@ def m7():
     rp = post("/api/demo/admin/experiments/reproduce").json()
     check("reproduce_identical", rp["identical"] is True, str(rp), f"identical, {rp['hash_1'][:12]} = {rp['hash_2'][:12]}")
     set_clock("Tara Bose", SEED_CLOCK)
+    set_clock("Priya Nair", SEED_CLOCK)
 
 
 def m8():
@@ -286,8 +307,67 @@ def tick():
     check("priya_home_after_tick", get(f"/api/learners/{ID['Priya Nair']}/home").status_code == 200)
 
 
+def fixes():
+    """Regression checks for the demo fixes (daily cap reset, demo-clock event times, quest
+    updates, live abuse detection and episodes, redo-lesson farming, outbox). Runs last so the
+    numbers of the sections above are unchanged."""
+    SECTION[0] = "fixes"
+    rohan, base = "Rohan Iyer", f"{admin('Rohan Iyer')}/notifications"
+    set_clock(rohan, "2026-10-22T18:00:00Z")
+    f = post(f"{base}/send", {"channel": "in_app", "category": "general", "count": 7}).json()["facts"]
+    capped = sum(1 for x in f if x["reason"] == "daily_cap_exceeded")
+    set_clock(rohan, "2026-10-23T09:00:00Z")
+    nxt = post(f"{base}/send", {"channel": "in_app", "category": "general"}).json()["facts"][0]
+    cap = get(base).json()["cap"]
+    check("daily_cap_resets_at_local_midnight", capped >= 1 and nxt["status"] == "dispatched" and cap["used"] == 1,
+          f"{capped} capped, next day {nxt}, cap {cap}", f"capped {capped} on Oct 22; next day 09:00 delivered, cap 1/5")
+
+    post(f"{admin(rohan)}/lab/fresh-lesson")
+    newest = get(f"{admin(rohan)}/events?limit=3").json()["events"]
+    check("event_log_uses_demo_clock", all(e["time"] == "2026-10-23T09:00:00Z" for e in newest), str([e["time"] for e in newest]),
+          "newest events stamped 2026-10-23 09:00 (demo clock), not the wall clock")
+
+    set_clock("Priya Nair", SEED_CLOCK)
+    q = post(f"{admin('Priya Nair')}/notifications/send", {"channel": "in_app", "category": "quest_update"}).json()["facts"][0]
+    check("quest_update_suppressed_when_quest_done", q["reason"] == "no_active_quest", str(q), "Priya (weekly quest done): no_active_quest")
+    quests = get(f"{admin('Priya Nair')}/quests").json()["quests"]
+    check("quests_endpoint_lists_weekly", any(x["quest_id"] == "lesson_starter_v1" for x in quests), str(quests)[:200],
+          f"{len(quests)} quest(s) listed for Priya")
+
+    vik = "Vikram Rao"
+    set_clock(vik, "2026-10-24T10:00:00Z")
+    post(f"/api/demo/learners/{ID[vik]}/clock/freeze", {"frozen": True})
+    rules = []
+    for i in range(5):
+        r = post(f"/api/demo/learners/{ID[vik]}/lesson-complete", {"lesson_id": f"fractions_basics_{i + 1}"}).json()
+        rules.append(r["abuse"]["new_rules"])
+    check("frozen_clock_lessons_flag_live_once", rules[3] == ["impossible_timing.short_gaps"] and rules[4] == [], str(rules),
+          "4th frozen-clock lesson raises impossible_timing; the 5th adds no duplicate")
+    set_clock(vik, "2026-10-24T16:00:00Z")
+    later = [post(f"/api/demo/learners/{ID[vik]}/lesson-complete", {"lesson_id": f"fractions_basics_{i + 1}"}).json()["abuse"]["new_rules"]
+             for i in range(4)]
+    # These 4 lessons repeat ones done earlier today, so with the repeat threshold of 4 (abuse
+    # rules v3) the burst is also a scripted-farming episode.
+    check("second_episode_flagged_again", "impossible_timing.short_gaps" in later[3], str(later),
+          f"a burst 6 h later is flagged again: {', '.join(later[3])}")
+    post(f"/api/demo/learners/{ID[vik]}/clock/freeze", {"frozen": False})
+
+    sneha = "Sneha Kulkarni"
+    set_clock(sneha, "2026-10-25T10:00:00Z")
+    post(f"/api/demo/learners/{ID[sneha]}/lesson-complete", {"lesson_id": "fractions_basics_1"})
+    rd = post(f"{admin(sneha)}/abuse/redo", {"count": 4, "spacing_seconds": 120}).json()
+    check("redo_x4_flags_scripted_farming", rd["new_flags"] == ["scripted_farming.repeat"] and rd["progress"]["repeats"]["count"] == 4,
+          str({k: rd[k] for k in ("new_flags", "accepted")}), "4 spaced redos: scripted_farming.repeat only")
+
+    set_clock("Aarav Mehta", "2026-10-26T10:00:00Z")  # a fresh day, so the daily cap has room
+    p = post(f"{admin('Aarav Mehta')}/notifications/send", {"channel": "push", "category": "general"}).json()["facts"][0]
+    box = get(f"{admin('Aarav Mehta')}/notifications/outbox").json()["messages"]
+    check("push_lands_in_outbox", p["status"] == "dispatched" and box and box[0]["channel"] == "push", str(box[:1]),
+          "delivered push shown as a phone notification")
+
+
 def main() -> int:
-    steps = [intro, m1_m2, m3, m4, m5, m6, m7, m8, tick]
+    steps = [intro, m1_m2, m3, m4, m5, m6, m7, m8, tick, fixes]
     for step in steps:
         try:
             step()

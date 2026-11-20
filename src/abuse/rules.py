@@ -16,8 +16,9 @@ from typing import Any
 
 ABUSE_RULES_FILE = Path(__file__).with_name("abuse_rules.json")
 COMPLETION_KINDS = ("lesson", "review", "remediation")
-# The one place the default abuse rule version is named.
-DEFAULT_ABUSE_RULES_VERSION = "v2"
+# The one place the default abuse rule version is named. v3 is v2 with the scripted-farming
+# repeat threshold lowered from 10 to 4 repeats of already-completed lessons within 24 hours.
+DEFAULT_ABUSE_RULES_VERSION = "v3"
 # Sections added in v2; absent (None) on rule sets that predate them.
 OPTIONAL_SECTIONS = ("review_misuse", "receive_burst", "future_dated")
 

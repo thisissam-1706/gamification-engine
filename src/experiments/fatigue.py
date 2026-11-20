@@ -1,11 +1,13 @@
-"""Pure helpers for the exp_007 fatigue metrics: observation window, rolling 24 h maximum, Wald interval.
+"""Pure helpers for the exp_007 fatigue metrics: observation window, per-day and rolling 24 h maxima, Wald interval.
 
 No clock, no I/O: every instant is passed in.
 """
 
 import math
 from collections.abc import Iterable
-from datetime import datetime, timedelta
+from collections import Counter
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from src.experiments.metrics import WINDOW
 
@@ -50,6 +52,20 @@ def max_in_rolling_24h(instants: Iterable[datetime]) -> int:
             count += 1
         best = max(best, count)
     return best
+
+
+def max_in_local_day(instants: Iterable[datetime], timezone_str: str | None = "UTC") -> int:
+    """Largest count on any one calendar day in the learner's timezone (0 for none).
+
+    This is the window the dispatcher's daily cap enforces: it resets at local midnight.
+    An unknown timezone falls back to UTC.
+    """
+    try:
+        tz = ZoneInfo(timezone_str or "UTC")
+    except Exception:
+        tz = timezone.utc
+    days = Counter(t.astimezone(tz).date() for t in instants)
+    return max(days.values(), default=0)
 
 
 def wald_interval(p1: float, n1: int, p0: float, n0: int) -> dict[str, float] | None:

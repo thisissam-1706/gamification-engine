@@ -34,22 +34,66 @@ def check_consent(
     return True, None
 
 
+def local_day_start(now_utc: datetime, timezone_str: str | None) -> datetime:
+    """Midnight of the learner's current local calendar day, as a UTC instant.
+
+    The daily notification cap resets here. An unknown or empty timezone falls back to UTC
+    (the dispatcher separately suppresses proposals whose timezone is invalid).
+    """
+    try:
+        tz = ZoneInfo(timezone_str or "UTC")
+    except Exception:
+        tz = timezone.utc
+    local = normalize_iso_to_utc_dt(now_utc).astimezone(tz)
+    midnight = datetime(local.year, local.month, local.day, tzinfo=tz)
+    return midnight.astimezone(timezone.utc)
+
+
 def check_fatigue_cap(
     recent_dispatches: Sequence[str | datetime],
     now_utc: datetime,
     max_cap: int = 5,
     window_hours: int = 24,
+    window_start: datetime | None = None,
 ) -> tuple[bool, str | None]:
-    """Enforces the rolling window message fatigue cap (default 5 messages per 24 hours)."""
-    cutoff = now_utc - timedelta(hours=window_hours)
+    """Enforces the message fatigue cap (default 5 messages per learner per day).
+
+    Counts dispatches in ``[window_start, now_utc]``. The dispatcher passes the learner's local
+    midnight (``local_day_start``), so the cap resets at the start of each local calendar day.
+    Without ``window_start`` the window is the rolling ``window_hours`` before ``now_utc``.
+    Dispatches stamped after ``now_utc`` (a clock moved backwards) are not counted.
+    """
+    now = normalize_iso_to_utc_dt(now_utc)
+    start = (
+        normalize_iso_to_utc_dt(window_start)
+        if window_start is not None
+        else now - timedelta(hours=window_hours)
+    )
     dispatches_in_window = [
-        normalize_iso_to_utc_dt(d)
-        for d in recent_dispatches
-        if normalize_iso_to_utc_dt(d) >= cutoff
+        d
+        for d in (normalize_iso_to_utc_dt(raw) for raw in recent_dispatches)
+        if start <= d <= now
     ]
     if len(dispatches_in_window) >= max_cap:
         return False, "daily_cap_exceeded"
     return True, None
+
+
+def daily_cap_usage(
+    recent_dispatches: Sequence[str | datetime],
+    now_utc: datetime,
+    timezone_str: str | None,
+) -> tuple[int, datetime, datetime]:
+    """(dispatches counted today, local-midnight start, next reset) for display and checks."""
+    start = local_day_start(now_utc, timezone_str)
+    now = normalize_iso_to_utc_dt(now_utc)
+    used = sum(
+        1
+        for d in (normalize_iso_to_utc_dt(raw) for raw in recent_dispatches)
+        if start <= d <= now
+    )
+    next_reset = local_day_start(start + timedelta(hours=36), timezone_str)
+    return used, start, next_reset
 
 
 def evaluate_quiet_hours(

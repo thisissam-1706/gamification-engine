@@ -1,5 +1,5 @@
 {
-  "summary": "59 passed, 0 failed, 59 checks",
+  "summary": "69 passed, 0 failed, 69 checks",
   "checks": [
     {
       "section": "intro",
@@ -17,7 +17,7 @@
       "section": "intro",
       "name": "priya_lesson_accepted_xp_up",
       "ok": true,
-      "detail": "{'status': 'accepted', 'reason': None, 'event_id': '13a7ae5d-cdcd-4845-8538-43e432dd17a8', 'timings_ms': {'ingest': 6.88, 'project': 6.53}} {'xp_total': 1000, 'streak': 4, 'freezes': 1, 'active_days': 7, 'ruleset': 'v1'} {'xp_total': 1100, 'streak': 4, 'freezes': 1, 'active_days': 7, 'ruleset': 'v1'}"
+      "detail": "{'status': 'accepted', 'reason': None, 'event_id': 'e55de194-6cfe-4f77-b4b7-2b84738cfa02', 'timings_ms': {'ingest': 6.29, 'project': 5.03}, 'abuse': {'new_signals': 0, 'new_types': [], 'new_rules': []}, 'xp_withheld': None} {'xp_total': 1000, 'streak': 4, 'freezes': 1, 'active_days': 7, 'ruleset': 'v3'} {'xp_total': 1100, 'streak': 4, 'freezes': 1, 'active_days': 7, 'ruleset': 'v3'}"
     },
     {
       "section": "intro",
@@ -35,25 +35,25 @@
       "section": "M1/M2",
       "name": "fresh_lesson_accepted",
       "ok": true,
-      "detail": "{'status': 'accepted', 'reason': None, 'event_id': '3af3ec55-a4a6-4de5-bd84-c359a6a37471', 'timings_ms': {'ingest': 6.35, 'project': 7.26}}"
+      "detail": "{'status': 'accepted', 'reason': None, 'event_id': 'e01c41eb-a702-47b1-9d9c-c043c354d41b', 'timings_ms': {'ingest': 5.99, 'project': 5.92}, 'abuse': {'new_signals': 0, 'new_types': [], 'new_rules': []}, 'xp_withheld': None}"
     },
     {
       "section": "M1/M2",
       "name": "duplicate_rejected_no_xp_change",
       "ok": true,
-      "detail": "{'status': 'duplicate', 'reason': 'duplicate_event_id', 'event_id': '3af3ec55-a4a6-4de5-bd84-c359a6a37471'}"
+      "detail": "{'status': 'duplicate', 'reason': 'duplicate_event_id', 'event_id': 'e01c41eb-a702-47b1-9d9c-c043c354d41b', 'abuse': {'new_signals': 0, 'new_types': [], 'new_rules': []}, 'xp_withheld': None}"
     },
     {
       "section": "M1/M2",
       "name": "late_24h_accepted",
       "ok": true,
-      "detail": "{'status': 'accepted', 'reason': None, 'event_id': '60c8cad2-e263-4e8f-9b66-52b6276ffb87', 'timings_ms': {'ingest': 6.76, 'project': 6.4}}"
+      "detail": "{'status': 'accepted', 'reason': None, 'event_id': 'c5256df3-112d-4520-a324-e496b0f80459', 'timings_ms': {'ingest': 5.44, 'project': 4.99}, 'abuse': {'new_signals': 0, 'new_types': [], 'new_rules': []}, 'xp_withheld': None}"
     },
     {
       "section": "M1/M2",
       "name": "late_100h_rejected",
       "ok": true,
-      "detail": "{'status': 'rejected', 'reason': 'outside_late_window', 'event_id': 'a1026a1c-d638-4bf6-8e95-3ef311fc8a65', 'timings_ms': {'ingest': 2.48, 'project': 0.0}}"
+      "detail": "{'status': 'rejected', 'reason': 'outside_late_window', 'event_id': '9a808393-753b-4943-b67e-994af275a1d2', 'timings_ms': {'ingest': 1.39, 'project': 0.0}, 'abuse': {'new_signals': 0, 'new_types': [], 'new_rules': []}, 'xp_withheld': None}"
     },
     {
       "section": "M1/M2",
@@ -65,7 +65,7 @@
       "section": "M1/M2",
       "name": "ruleset_switch_only_new_events",
       "ok": true,
-      "detail": "['v2', 'v1', 'v1', 'v1', 'v1', 'v1', 'v1', 'v1', 'v1']"
+      "detail": "['v1', 'v3', 'v3', 'v1', 'v1', 'v1', 'v1', 'v1', 'v1']"
     },
     {
       "section": "M3",
@@ -83,43 +83,43 @@
       "section": "M3",
       "name": "latency_probe_numbers",
       "ok": true,
-      "detail": "{'queries': 400, 'rank_ms': {'p50': 0.01, 'p95': 0.015, 'p99': 0.029, 'max': 0.251}, 'top_ms': {'p50': 0.022, 'p95': 0.024, 'p99': 0.03, 'max': 0.043}}"
+      "detail": "{'queries': 400, 'rank_ms': {'p50': 0.011, 'p95': 0.012, 'p99': 0.028, 'max': 0.233}, 'top_ms': {'p50': 0.02, 'p95': 0.025, 'p99': 0.036, 'max': 0.057}}"
     },
     {
       "section": "M3",
       "name": "measure_update_timings_and_xp",
       "ok": true,
-      "detail": "{'result': {'status': 'accepted', 'reason': None, 'event_id': 'e1ba5a93-d52a-468c-8cd2-1def21866494', 'timings_ms': {'ingest': 7.2, 'project': 6.57}}, 'timings_ms': {'ingest': 7.2, 'project': 6.57}, 'before': {'cohort_rank': 2, 'cohort_score': 800, 'global_rank': 11, 'global_score': 800, 'first_reached_at': '2026-10-16T18:00:00Z', 'xp_total': 1100}, 'after': {'cohort_rank': 2, 'cohort_score': 900, 'global_rank': 10, 'global_score': 900, 'first_reached_at': '2026-10-16T18:00:00Z', 'xp_total': 1200}}"
+      "detail": "{'result': {'status': 'accepted', 'reason': None, 'event_id': 'ccda678d-c317-4406-a861-73ab07d36f35', 'timings_ms': {'ingest': 5.05, 'project': 5.37}, 'abuse': {'new_signals': 0, 'new_types': [], 'new_rules': []}, 'xp_withheld': None}, 'timings_ms': {'ingest': 5.05, 'project': 5.37}, 'before': {'cohort_rank': 2, 'cohort_score': 800, 'global_rank': 11, 'global_score': 800, 'first_reached_at': '2026-10-16T18:00:00Z', 'xp_total': 1100}, 'after': {'cohort_rank': 2, 'cohort_score': 900, 'global_rank': 10, 'global_score': 900, 'first_reached_at': '2026-10-16T18:00:00Z', 'xp_total': 1200}}"
     },
     {
       "section": "M4",
       "name": "fail_checkpoint_assigns_quest",
       "ok": true,
-      "detail": "{'result': {'status': 'accepted', 'reason': None}, 'attempt_id': 'att_1794825657212_b593b5', 'latest_decision': {'decision_id': 'remediation:att_1794825657212_b593b5', 'attempt_id': 'att_1794825657212_b593b5', 'assessment_id': 'fractions_checkpoint_1', 'decision': 'assign', 'reason': None, 'assignment_id': 'remediation_quest:att_1794825657212_b593b5', 'decided_at': '2026-10-16T18:00:00+00:00', 'deadline_at': '2026-10-23T18:00:00+00:00'}, 'snapshot': {'xp_total': 1200, 'streak': 5, 'freezes': 0, 'active_days': 8, 'ruleset': 'v1'}}"
+      "detail": "{'result': {'status': 'accepted', 'reason': None}, 'attempt_id': 'att_1795205010547_260d30', 'latest_decision': {'decision_id': 'remediation:att_1795205010547_260d30', 'attempt_id': 'att_1795205010547_260d30', 'assessment_id': 'fractions_checkpoint_1', 'decision': 'assign', 'reason': None, 'assignment_id': 'remediation_quest:att_1795205010547_260d30', 'decided_at': '2026-10-16T18:00:00+00:00', 'deadline_at': '2026-10-23T18:00:00+00:00'}, 'snapshot': {'xp_total': 1200, 'streak': 5, 'freezes': 0, 'active_days': 8, 'ruleset': 'v3'}}"
     },
     {
       "section": "M4",
       "name": "decision_and_quest_recorded",
       "ok": true,
-      "detail": "{'attempts': [{'attempt_id': 'att_1794825657212_b593b5', 'assessment_id': 'fractions_checkpoint_1', 'passed': False, 'occurred_at': '2026-10-16T18:00:00Z'}], 'decisions': [{'decision_id': 'remediation"
+      "detail": "{'attempts': [{'attempt_id': 'att_1795205010547_260d30', 'assessment_id': 'fractions_checkpoint_1', 'passed': False, 'occurred_at': '2026-10-16T18:00:00Z'}], 'decisions': [{'decision_id': 'remediation"
     },
     {
       "section": "M4",
       "name": "second_fail_same_assessment_not_first_attempt",
       "ok": true,
-      "detail": "{'decision_id': 'remediation:att_1794825657253_178bd3', 'attempt_id': 'att_1794825657253_178bd3', 'assessment_id': 'fractions_checkpoint_1', 'decision': 'no_action', 'reason': 'not_first_attempt', 'assignment_id': None, 'decided_at': '2026-10-16T18:00:00+00:00', 'deadline_at': None}"
+      "detail": "{'decision_id': 'remediation:att_1795205010579_6d9b64', 'attempt_id': 'att_1795205010579_6d9b64', 'assessment_id': 'fractions_checkpoint_1', 'decision': 'no_action', 'reason': 'not_first_attempt', 'assignment_id': None, 'decided_at': '2026-10-16T18:00:00+00:00', 'deadline_at': None}"
     },
     {
       "section": "M4",
       "name": "other_assessment_frequency_guardrail",
       "ok": true,
-      "detail": "{'decision_id': 'remediation:att_1794825657282_862723', 'attempt_id': 'att_1794825657282_862723', 'assessment_id': 'fractions_checkpoint_2', 'decision': 'no_action', 'reason': 'remediated_within_window', 'assignment_id': None, 'decided_at': '2026-10-16T18:00:00+00:00', 'deadline_at': None}"
+      "detail": "{'decision_id': 'remediation:att_1795205010603_06625f', 'attempt_id': 'att_1795205010603_06625f', 'assessment_id': 'fractions_checkpoint_2', 'decision': 'no_action', 'reason': 'remediated_within_window', 'assignment_id': None, 'decided_at': '2026-10-16T18:00:00+00:00', 'deadline_at': None}"
     },
     {
       "section": "M4",
       "name": "complete_remediation_accepted",
       "ok": true,
-      "detail": "{'result': {'status': 'accepted', 'reason': None, 'event_id': '15e54a4a-7445-451b-b468-1fa02f330ea6', 'timings_ms': {'ingest': 7.19, 'project': 7.75}}, 'snapshot': {'xp_total': 1300, 'streak': 5, 'freezes': 0, 'active_days': 8, 'ruleset': 'v1'}}"
+      "detail": "{'result': {'status': 'accepted', 'reason': None, 'event_id': '339193d7-f05c-45f2-8a50-4c3d8b7e1e5a', 'timings_ms': {'ingest': 7.21, 'project': 5.79}, 'abuse': {'new_signals': 0, 'new_types': [], 'new_rules': []}, 'xp_withheld': None}, 'snapshot': {'xp_total': 1300, 'streak': 5, 'freezes': 0, 'active_days': 8, 'ruleset': 'v3'}}"
     },
     {
       "section": "M4",
@@ -131,55 +131,55 @@
       "section": "M4",
       "name": "expiry_sweep_200",
       "ok": true,
-      "detail": "{\"now\":\"2026-10-16T18:00:00+00:00\",\"learners_swept\":12,\"learners_with_expiry\":0,\"expired_count\":0,\"expired_quest_ids\":[],\"by_learner\":{}}"
+      "detail": "{\"now\": \"2026-10-16T18:00:00+00:00\", \"learners_swept\": 12, \"learners_with_expiry\": 0, \"expired_count\": 0, \"expired_quest_ids\": [], \"by_learner\": {}}"
     },
     {
       "section": "M5",
       "name": "in_app_delivered",
       "ok": true,
-      "detail": "[{'status': 'dispatched', 'reason': None, 'channel': 'in_app', 'proposal_id': 'demo:6c306d6500', 'attempt_count': 1, 'rescheduled_for': None}]"
+      "detail": "[{'status': 'dispatched', 'reason': None, 'channel': 'in_app', 'proposal_id': 'demo:d8eaf96a65', 'attempt_count': 1, 'rescheduled_for': None}]"
     },
     {
       "section": "M5",
       "name": "dedup_second_suppressed",
       "ok": true,
-      "detail": "[{'status': 'dispatched', 'reason': None, 'channel': 'in_app', 'proposal_id': 'demo:a0257f033f', 'attempt_count': 1, 'rescheduled_for': None}, {'status': 'suppressed', 'reason': 'duplicate_proposal', 'channel': 'in_app', 'proposal_id': 'demo:a0257f033f', 'attempt_count': 1, 'rescheduled_for': None}]"
+      "detail": "[{'status': 'dispatched', 'reason': None, 'channel': 'in_app', 'proposal_id': 'demo:4247659e93', 'attempt_count': 1, 'rescheduled_for': None}, {'status': 'suppressed', 'reason': 'duplicate_proposal', 'channel': 'in_app', 'proposal_id': 'demo:4247659e93', 'attempt_count': 1, 'rescheduled_for': None}]"
     },
     {
       "section": "M5",
       "name": "daily_cap_suppression",
       "ok": true,
-      "detail": "[{'status': 'dispatched', 'reason': None, 'channel': 'push', 'proposal_id': 'demo:47bfef5338', 'attempt_count': 1, 'rescheduled_for': None}, {'status': 'dispatched', 'reason': None, 'channel': 'push', 'proposal_id': 'demo:21e8791c1e', 'attempt_count': 1, 'rescheduled_for': None}, {'status': 'suppressed', 'reason': 'daily_cap_exceeded', 'channel': 'push', 'proposal_id': 'demo:f39dc5ade8', 'attempt_count': 1, 'rescheduled_for': None}, {'status': 'suppressed', 'reason': 'daily_cap_exceeded', 'channel': 'push', 'proposal_id': 'demo:aa7b9bdbf5', 'attempt_count': 1, 'rescheduled_for': None}, {'status': 'suppressed', 'reason': 'daily_cap_exceeded', 'channel': 'push', 'proposal_id': 'demo:dc36c2ca8d', 'attempt_count': 1, 'rescheduled_for': None}, {'status': 'suppressed', 'reason': 'daily_cap_exceeded', 'channel': 'push', 'proposal_id': 'demo:9e0711ceed', 'attempt_count': 1, 'rescheduled_for': None}, {'status': 'suppressed', 'reason': 'daily_cap_exceeded', 'channel': 'push', 'proposal_id': 'demo:ca22fde6b3', 'attempt_count': 1, 'rescheduled_for': None}]"
+      "detail": "[{'status': 'dispatched', 'reason': None, 'channel': 'push', 'proposal_id': 'demo:cd39b09649', 'attempt_count': 1, 'rescheduled_for': None}, {'status': 'dispatched', 'reason': None, 'channel': 'push', 'proposal_id': 'demo:5d210702a1', 'attempt_count': 1, 'rescheduled_for': None}, {'status': 'dispatched', 'reason': None, 'channel': 'push', 'proposal_id': 'demo:8e421f9d8d', 'attempt_count': 1, 'rescheduled_for': None}, {'status': 'dispatched', 'reason': None, 'channel': 'push', 'proposal_id': 'demo:e78d215196', 'attempt_count': 1, 'rescheduled_for': None}, {'status': 'dispatched', 'reason': None, 'channel': 'push', 'proposal_id': 'demo:92ec68f1c5', 'attempt_count': 1, 'rescheduled_for': None}, {'status': 'suppressed', 'reason': 'daily_cap_exceeded', 'channel': 'push', 'proposal_id': 'demo:8fccc2057f', 'attempt_count': 1, 'rescheduled_for': None}, {'status': 'suppressed', 'reason': 'daily_cap_exceeded', 'channel': 'push', 'proposal_id': 'demo:c8fc08f250', 'attempt_count': 1, 'rescheduled_for': None}]"
     },
     {
       "section": "M5",
       "name": "consent_suppression_push_opted_out",
       "ok": true,
-      "detail": "[{'status': 'suppressed', 'reason': 'opt_out', 'channel': 'push', 'proposal_id': 'demo:6fcee62fa9', 'attempt_count': 1, 'rescheduled_for': None}]"
+      "detail": "[{'status': 'suppressed', 'reason': 'opt_out', 'channel': 'push', 'proposal_id': 'demo:af36df4dbb', 'attempt_count': 1, 'rescheduled_for': None}]"
     },
     {
       "section": "M5",
       "name": "email_delivered",
       "ok": true,
-      "detail": "[{'status': 'dispatched', 'reason': None, 'channel': 'email', 'proposal_id': 'demo:dbdd170b0e', 'attempt_count': 1, 'rescheduled_for': None}]"
+      "detail": "[{'status': 'dispatched', 'reason': None, 'channel': 'email', 'proposal_id': 'demo:f37fc2f41b', 'attempt_count': 1, 'rescheduled_for': None}]"
     },
     {
       "section": "M5",
       "name": "outage_then_dead_letter",
       "ok": true,
-      "detail": "[{'status': 'failed', 'reason': 'provider_exhausted: Simulated push provider outage (503 Service Unavailable)', 'channel': 'push', 'proposal_id': 'demo:72d662bea7', 'attempt_count': 3, 'rescheduled_for': None}]"
+      "detail": "[{'status': 'failed', 'reason': 'provider_exhausted: Simulated push provider outage (503 Service Unavailable)', 'channel': 'push', 'proposal_id': 'demo:c0191c5604', 'attempt_count': 3, 'rescheduled_for': None}]"
     },
     {
       "section": "M5",
       "name": "replay_resolves_dead_letter",
       "ok": true,
-      "detail": "[{'dlq_id': 'dlq_87fe68bc1b42', 'status': 'dispatched', 'reason': None}]"
+      "detail": "[{'status': 'dispatched'}]"
     },
     {
       "section": "M5",
       "name": "quiet_hours_deferred",
       "ok": true,
-      "detail": "[{'status': 'queued', 'reason': 'quiet_hours_rescheduled', 'channel': 'push', 'proposal_id': 'demo:c3e2575ae7', 'attempt_count': 1, 'rescheduled_for': '2026-10-21T08:00:00Z'}]"
+      "detail": "[{'status': 'queued', 'reason': 'quiet_hours_rescheduled', 'channel': 'push', 'proposal_id': 'demo:c58031d1c9', 'attempt_count': 1, 'rescheduled_for': '2026-10-21T08:00:00Z'}]"
     },
     {
       "section": "M5",
@@ -203,7 +203,7 @@
       "section": "M5",
       "name": "release_deferred_delivered",
       "ok": true,
-      "detail": "[{'proposal_id': 'demo:c3e2575ae7', 'status': 'dispatched', 'reason': None}]"
+      "detail": "[{'time': '2026-10-21T09:00:00Z', 'proposal_id': 'demo:c58031d1c9', 'channel': 'push', 'category': 'general', 'outcome': 'delivered', 'reason': None, 'attempts': None, 'dlq_id': None, 'resolved': None, 'deliver_at': None}, {'time': '2026-10-20T23:00:00Z', 'proposal_id': 'demo:c58031d1c9', 'channel': 'push', 'category': 'general', 'outcome': 'deferred', 'reason': 'quiet_hours_rescheduled (released)', 'attempts': None, 'dlq_id': None, 'resolved': None, 'deliver_at': '2026-10-21T08:00:00Z'}]"
     },
     {
       "section": "M6",
@@ -215,7 +215,7 @@
       "section": "M6",
       "name": "scan_impossible_timing_scores_unchanged",
       "ok": true,
-      "detail": "{'summary': {'counts_by_type': {'impossible_timing': 1}, 'learners_scanned': 1, 'events_read': 650, 'new_signals': 1, 'existing_signals': 0, 'rules_version': 'v2'}, 'scores_changed': False, 'event_log"
+      "detail": "{'summary': {'counts_by_type': {'impossible_timing': 1}, 'learners_scanned': 1, 'events_read': 651, 'new_signals': 0, 'existing_signals': 1, 'rules_version': 'v3'}, 'scores_changed': False, 'event_log"
     },
     {
       "section": "M6",
@@ -227,7 +227,7 @@
       "section": "M6",
       "name": "scan_scripted_farming_scores_unchanged",
       "ok": true,
-      "detail": "{'summary': {'counts_by_type': {'impossible_timing': 1, 'scripted_farming': 1}, 'learners_scanned': 1, 'events_read': 692, 'new_signals': 1, 'existing_signals': 1, 'rules_version': 'v2'}, 'scores_chan"
+      "detail": "{'summary': {'counts_by_type': {'impossible_timing': 1, 'scripted_farming': 1}, 'learners_scanned': 1, 'events_read': 693, 'new_signals': 0, 'existing_signals': 2, 'rules_version': 'v3'}, 'scores_chan"
     },
     {
       "section": "M6",
@@ -239,7 +239,7 @@
       "section": "M6",
       "name": "scan_replay_scores_unchanged",
       "ok": true,
-      "detail": "{'summary': {'counts_by_type': {'replay': 1}, 'learners_scanned': 1, 'events_read': 710, 'new_signals': 1, 'existing_signals': 0, 'rules_version': 'v2'}, 'scores_changed': False, 'event_log_before': 7"
+      "detail": "{'summary': {'counts_by_type': {'replay': 1}, 'learners_scanned': 1, 'events_read': 711, 'new_signals': 0, 'existing_signals': 1, 'rules_version': 'v3'}, 'scores_changed': False, 'event_log_before': 7"
     },
     {
       "section": "M6",
@@ -251,7 +251,7 @@
       "section": "M6",
       "name": "scan_duplicate_exploit_scores_unchanged",
       "ok": true,
-      "detail": "{'summary': {'counts_by_type': {'duplicate_exploit': 1, 'replay': 1}, 'learners_scanned': 1, 'events_read': 722, 'new_signals': 1, 'existing_signals': 1, 'rules_version': 'v2'}, 'scores_changed': Fals"
+      "detail": "{'summary': {'counts_by_type': {'duplicate_exploit': 1, 'replay': 1}, 'learners_scanned': 1, 'events_read': 723, 'new_signals': 0, 'existing_signals': 2, 'rules_version': 'v3'}, 'scores_changed': Fals"
     },
     {
       "section": "M6",
@@ -269,7 +269,7 @@
       "section": "M7",
       "name": "assign_counts_add_to_12",
       "ok": true,
-      "detail": "{'newly_assigned': 12, 'already_assigned': 0, 'eligible': 9, 'excluded': 3}"
+      "detail": "{'newly_assigned': 11, 'already_assigned': 1, 'eligible': 9, 'excluded': 3}"
     },
     {
       "section": "M7",
@@ -285,9 +285,21 @@
     },
     {
       "section": "M7",
-      "name": "sweep_for_tara",
+      "name": "priya_treatment_tara_control",
+      "ok": true,
+      "detail": "{'Aarav Mehta': 'treatment', 'Ananya Das': 'control', 'Arjun Reddy': 'control', 'Diya Menon': 'control', 'Ishaan Gupta': 'treatment', 'Kabir Singh': 'treatment', 'Meera Pillai': 'control', 'Priya Nair': 'treatment', 'Rohan Iyer': 'treatment', 'Sneha Kulkarni': 'treatment', 'Tara Bose': 'control', 'Vikram Rao': 'control'}"
+    },
+    {
+      "section": "M7",
+      "name": "sweep_for_priya",
       "ok": true,
       "detail": "{'learner_id': 'a4b67f76-95be-50c1-8157-55022bf4e70d', 'reason': None, 'fact_status': 'dispatched'}"
+    },
+    {
+      "section": "M7",
+      "name": "tara_control_gets_nothing",
+      "ok": true,
+      "detail": "{'learner_id': '4871b5d7-1673-5416-8a37-48353d80e6a4', 'reason': 'not_treatment', 'fact_status': None}"
     },
     {
       "section": "M7",
@@ -317,13 +329,13 @@
       "section": "M7",
       "name": "reproduce_identical",
       "ok": true,
-      "detail": "{'hash_1': '29058b117f7c071f5c0ddf9b5f43d8e5a1345e7f881d108129aaf24df35e9e5b', 'hash_2': '29058b117f7c071f5c0ddf9b5f43d8e5a1345e7f881d108129aaf24df35e9e5b', 'identical': True, 'valid': True}"
+      "detail": "{'hash_1': '77cd96207f93f02c64366fc0c56652afee1cec87aca5b5d09c8e198211dc46f8', 'hash_2': '77cd96207f93f02c64366fc0c56652afee1cec87aca5b5d09c8e198211dc46f8', 'identical': True, 'valid': True}"
     },
     {
       "section": "M8",
       "name": "wipe_and_rebuild_identical",
       "ok": true,
-      "detail": "{'wipe': {'before': {'hash': '3d61104067b6ff031787f9f90dc6cc35c18f2a927b6020e2d3212a167ea608d0', 'tables': {'leaderboard_applied_events': 204, 'leaderboard_checkpoints': 6, 'leaderboard_cohort_definitions': 5, 'leaderboard_completion_times': 204, 'leaderboard_entries': 35, 'leaderboard_pending_award"
+      "detail": "{'wipe': {'before': {'hash': 'f7fb116e32632405c8586bfc062ac9b047b4d99cad9b85df5e18bfd5521fde38', 'tables': {'leaderboard_applied_events': 204, 'leaderboard_checkpoints': 6, 'leaderboard_cohort_definitions': 5, 'leaderboard_completion_times': 204, 'leaderboard_entries': 35, 'leaderboard_pending_award"
     },
     {
       "section": "M8",
@@ -335,7 +347,7 @@
       "section": "M8",
       "name": "small_benchmark_passed",
       "ok": true,
-      "detail": "{'timestamp': '2026-11-16T10:41:01.707290+00:00', 'profile': {'population_size': 20, 'cohort_count': 2, 'events_per_learner': 15, 'duplicate_rate': 0.05, 'late_rate': 0.05, 'seed': 42, 'epoch': '2026-"
+      "detail": "{'timestamp': '2026-11-20T20:03:34.875952+00:00', 'profile': {'population_size': 20, 'cohort_count': 2, 'events_per_learner': 15, 'duplicate_rate': 0.05, 'late_rate': 0.05, 'seed': 42, 'epoch': '2026-"
     },
     {
       "section": "tick",
@@ -354,23 +366,71 @@
       "name": "priya_home_after_tick",
       "ok": true,
       "detail": ""
+    },
+    {
+      "section": "fixes",
+      "name": "daily_cap_resets_at_local_midnight",
+      "ok": true,
+      "detail": "2 capped, next day {'status': 'dispatched', 'reason': None, 'channel': 'in_app', 'proposal_id': 'demo:c0726c7c70', 'attempt_count': 1, 'rescheduled_for': None}, cap {'used': 1, 'limit': 5, 'per_channel': {'in_app': 1, 'push': 0, 'email': 0}, 'day_start': '2026-10-23T00:00:00Z', 'resets_at': '2026-10-24T00:00:00Z', 'timezone': 'UTC'}"
+    },
+    {
+      "section": "fixes",
+      "name": "event_log_uses_demo_clock",
+      "ok": true,
+      "detail": "['2026-10-23T09:00:00Z', '2026-10-23T09:00:00Z', '2026-10-23T09:00:00Z']"
+    },
+    {
+      "section": "fixes",
+      "name": "quest_update_suppressed_when_quest_done",
+      "ok": true,
+      "detail": "{'status': 'suppressed', 'reason': 'no_active_quest', 'channel': 'in_app', 'proposal_id': 'demo:b07db2e718', 'attempt_count': 0, 'rescheduled_for': None}"
+    },
+    {
+      "section": "fixes",
+      "name": "quests_endpoint_lists_weekly",
+      "ok": true,
+      "detail": "[{'assignment_id': 'weekly:2026-W42', 'quest_id': 'lesson_starter_v1', 'title': 'Weekly lesson sprint', 'status': 'completed', 'progress': 3, 'target': 3, 'assigned_at': '2026-10-15T00:00:00+00:00', '"
+    },
+    {
+      "section": "fixes",
+      "name": "frozen_clock_lessons_flag_live_once",
+      "ok": true,
+      "detail": "[[], [], [], ['impossible_timing.short_gaps'], []]"
+    },
+    {
+      "section": "fixes",
+      "name": "second_episode_flagged_again",
+      "ok": true,
+      "detail": "[[], [], [], ['impossible_timing.short_gaps', 'scripted_farming.repeat']]"
+    },
+    {
+      "section": "fixes",
+      "name": "redo_x4_flags_scripted_farming",
+      "ok": true,
+      "detail": "{'new_flags': ['scripted_farming.repeat'], 'accepted': 4}"
+    },
+    {
+      "section": "fixes",
+      "name": "push_lands_in_outbox",
+      "ok": true,
+      "detail": "[{'seq': 12, 'sent_at': '2026-10-26T10:00:00Z', 'learner_id': 'c6bb39cc-7ede-5881-83ca-1f84ebd502c1', 'channel': 'push', 'proposal_id': 'demo:7675a0ebcc', 'category': 'general', 'recipient': \"learner's phone (simulated)\", 'title': 'Hello from Streakwise', 'body': 'Here is a message from the demo admin.', 'provider': 'simulated phone', 'provider_message_id': None, 'preview_url': None}]"
     }
   ],
   "numbers": {
     "personas_endpoint_returns_12": "12 personas",
     "priya_lesson_accepted_xp_up": "XP 1000 -> 1100 (+100)",
     "priya_streak_per_engine": "streak 4 -> 4 (she already practised on the demo day, so it holds)",
-    "events_show_ids": "52 events; newest QuestCompleted has correlation id 09b4b33f",
+    "events_show_ids": "52 events; newest QuestCompleted has correlation id c9af40d9",
     "fresh_lesson_accepted": "accepted, XP 1400 -> 1500",
     "duplicate_rejected_no_xp_change": "reason duplicate_event_id, XP unchanged at 1500",
     "late_24h_accepted": "accepted, XP 1500 -> 1600",
     "late_100h_rejected": "reason outside_late_window, XP unchanged at 1600",
     "rebuild_compare_identical": "identical, 55 events replayed",
-    "ruleset_switch_only_new_events": "newest reward v2, older rewards keep v1",
+    "ruleset_switch_only_new_events": "newest reward v1, older rewards unchanged (v1 ...)",
     "cohorts_have_members": "5 cohorts for 2026-W42, 12 learners",
     "consistency_lag_zero": "projection offset 617 = log head 617, lag 0",
-    "latency_probe_numbers": "p95 rank 0.015 ms, p95 top-N 0.024 ms",
-    "measure_update_timings_and_xp": "ingest 7.2 ms + projection 6.57 ms; cohort rank 2 -> 2, global rank 11 -> 10, XP +100",
+    "latency_probe_numbers": "p95 rank 0.012 ms, p95 top-N 0.025 ms",
+    "measure_update_timings_and_xp": "ingest 5.05 ms + projection 5.37 ms; cohort rank 2 -> 2, global rank 11 -> 10, XP +100",
     "fail_checkpoint_assigns_quest": "decision assign, quest deadline 2026-10-23",
     "decision_and_quest_recorded": "1 decision, 1 remediation quest (assigned)",
     "second_fail_same_assessment_not_first_attempt": "no_action, reason not_first_attempt",
@@ -380,37 +440,47 @@
     "expiry_sweep_200": "swept 12 learners, 0 expired at the seed clock",
     "in_app_delivered": "in-app message delivered",
     "dedup_second_suppressed": "second copy suppressed: duplicate_proposal",
-    "daily_cap_suppression": "7 push sends: 2 delivered, 5 suppressed daily_cap_exceeded",
+    "daily_cap_suppression": "7 push sends: 5 delivered, 2 suppressed daily_cap_exceeded",
     "consent_suppression_push_opted_out": "Ananya (push off): suppressed opt_out",
     "email_delivered": "Diya: email delivered",
     "outage_then_dead_letter": "3 attempts failed, dead_letter_open 1",
-    "replay_resolves_dead_letter": "replayed 1, dead_letter_resolved 1",
+    "replay_resolves_dead_letter": "recovered 1 automatically, dead_letter_resolved 1",
     "quiet_hours_deferred": "deferred until 2026-10-21T08:00:00Z",
     "utc_send_time_shows_2300_on_ist_machine": "23:00 UTC send shows Oct 20, 23:00:00 (TZ=Asia/Kolkata)",
     "utc_deferred_until_0800": "deferred shows 'until Oct 21, 08:00:00 UTC'",
     "short_strips_prefix_distinct": "attempt ids shorten to aaaaaaaa / bbbbbbbb",
     "release_deferred_delivered": "released and delivered at 09:00",
     "impossible_timing_flagged_kabir": "6 events sent, 6 accepted, rejected: none; signal impossible_timing",
-    "scan_impossible_timing_scores_unchanged": "scores_changed false, event log 650/650",
+    "scan_impossible_timing_scores_unchanged": "scores_changed false, event log 651/651",
     "scripted_farming_flagged_kabir": "14 events sent, 14 accepted, rejected: none; signal scripted_farming",
-    "scan_scripted_farming_scores_unchanged": "scores_changed false, event log 692/692",
+    "scan_scripted_farming_scores_unchanged": "scores_changed false, event log 693/693",
     "replay_flagged_meera": "12 events sent, 6 accepted, rejected: duplicate_event_id 6; signal replay",
-    "scan_replay_scores_unchanged": "scores_changed false, event log 710/710",
+    "scan_replay_scores_unchanged": "scores_changed false, event log 711/711",
     "duplicate_exploit_flagged_meera": "8 events sent, 4 accepted, rejected: duplicate_completion_id 4; signal duplicate_exploit",
-    "scan_duplicate_exploit_scores_unchanged": "scores_changed false, event log 722/722",
+    "scan_duplicate_exploit_scores_unchanged": "scores_changed false, event log 723/723",
     "four_signal_types_present": "replay, impossible_timing, scripted_farming, duplicate_exploit",
     "signals_have_evidence": "4 signals with resolved evidence",
-    "assign_counts_add_to_12": "12 assigned, 9 eligible, 3 excluded",
+    "assign_counts_add_to_12": "11 assigned, 9 eligible, 3 excluded",
     "assign_again_changes_nothing": "second run: 0 newly assigned",
     "assignments_12_rows_with_arms": "treatment 6, control 6",
-    "sweep_for_tara": "Tara is treatment: reminder dispatched at 20:00 UTC on a day she has not practised",
-    "report_valid_with_arms": "valid, treatment eligible 5, control eligible 4, hash 29058b117f7c",
-    "reference_report_matured_mastery_ci_hash": "reference run valid: mastery treatment 0.333 vs control 0.625, difference -0.292, 95% CI [-0.720, 0.137], hash 8bd5769bbbd1",
-    "reproduce_identical": "identical, 29058b117f7c = 29058b117f7c",
-    "wipe_and_rebuild_identical": "734 events replayed in 365.99 ms, checksum 3d61104067b6 identical",
+    "priya_treatment_tara_control": "Priya is treatment (gets reminders), Tara is control (gets none)",
+    "sweep_for_priya": "Priya: reminder dispatched at 20:00 UTC on in-app, push and email",
+    "tara_control_gets_nothing": "Tara: not_treatment, no streak-risk reminder",
+    "report_valid_with_arms": "valid, treatment eligible 5, control eligible 4, hash 77cd96207f93",
+    "reference_report_matured_mastery_ci_hash": "reference run valid: mastery treatment 0.333 vs control 0.625, difference -0.292, 95% CI [-0.720, 0.137], hash e97e52762dde",
+    "reproduce_identical": "identical, 77cd96207f93 = 77cd96207f93",
+    "wipe_and_rebuild_identical": "734 events replayed in 232.16 ms, checksum f7fb116e3263 identical",
     "dead_letter_counts": "open 0, resolved 1",
-    "small_benchmark_passed": "overall_passed true in 2.4 s",
+    "small_benchmark_passed": "overall_passed true in 1.8 s",
     "engine_tick_eight_steps": "8 steps ok: weekly_cycle, assign, poll, quest_expiry, remediation, streak_risk, abuse, reconcile",
-    "engine_tick_idempotent": "second tick summary {'new_decisions': 0, 'new_signals': 0, 'new_notifications': 0}"
+    "engine_tick_idempotent": "second tick summary {'new_decisions': 0, 'new_signals': 0, 'new_notifications': 0}",
+    "daily_cap_resets_at_local_midnight": "capped 2 on Oct 22; next day 09:00 delivered, cap 1/5",
+    "event_log_uses_demo_clock": "newest events stamped 2026-10-23 09:00 (demo clock), not the wall clock",
+    "quest_update_suppressed_when_quest_done": "Priya (weekly quest done): no_active_quest",
+    "quests_endpoint_lists_weekly": "1 quest(s) listed for Priya",
+    "frozen_clock_lessons_flag_live_once": "4th frozen-clock lesson raises impossible_timing; the 5th adds no duplicate",
+    "second_episode_flagged_again": "a burst 6 h later is flagged again: impossible_timing.short_gaps, scripted_farming.repeat",
+    "redo_x4_flags_scripted_farming": "4 spaced redos: scripted_farming.repeat only",
+    "push_lands_in_outbox": "delivered push shown as a phone notification"
   }
 }

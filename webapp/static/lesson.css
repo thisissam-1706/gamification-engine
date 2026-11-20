@@ -175,3 +175,13 @@
   .result-metrics.is-animated .result-metric strong,
   .result-metrics.is-animated .result-flame > span:first-child { animation: none; }
 }
+
+/* Redo-lesson demo control: a quieter secondary button and its repeat counter. */
+.lesson-button-secondary { background: transparent; color: inherit; border: 1px solid currentColor; opacity: .85; }
+.lesson-button-secondary:hover { opacity: 1; background: rgba(91, 61, 245, .1); }
+.redo-note { font-size: 13px; margin-top: 6px; }
+.redo-note.is-flagged { color: #b42318; font-weight: 600; }
+
+.checkpoint-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
+.checkpoint-row .lesson-button { margin-top: 0; }
+.policy-note { margin-top: 8px; font-size: 14px; }
