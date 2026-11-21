@@ -1,9 +1,8 @@
 """SQLite persistence for notifications, outbox dispatches, suppressions, and DLQ."""
 
-from datetime import datetime, timezone
 import json
 import sqlite3
-from typing import Any, Sequence
+from typing import Any
 
 from src.notifications.models import (
     ChannelType,

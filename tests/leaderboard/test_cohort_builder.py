@@ -5,7 +5,7 @@ Written before the implementation (src/leaderboard/cohort_builder.py does not ex
 Decided convention: lesson_id is "<module_id>/<lesson>"; a learner's module is the text before the
 FIRST "/" of the lesson_id; a lesson_id with no "/" has no module.
 
-Assumed contract (see docs/audit/m3-cohort-step1-tests.md):
+Assumed contract (see docs/ranking-consistency.md, section 2):
 - prior-week lessons = stored ``LessonCompleted`` events whose UTC ``occurred_at`` falls in the ISO
   week before ``epoch``;
 - module = the module with the most prior-week completions, ties to the lexicographically smallest

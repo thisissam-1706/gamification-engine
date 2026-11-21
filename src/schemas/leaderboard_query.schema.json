@@ -1,6 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "LeaderboardQuery",
+  "$comment": "Design-time contract for a leaderboard query API; not validated at runtime (the leaderboard is read through LeaderboardService in Python). See docs/event-contracts.md, 'Schema files'.",
   "type": "object",
   "required": [
     "scope_type",
@@ -11,7 +12,10 @@
   "properties": {
     "scope_type": {
       "type": "string",
-      "enum": ["cohort", "global"],
+      "enum": [
+        "cohort",
+        "global"
+      ],
       "description": "Scope level of the ranking query."
     },
     "scope_id": {
@@ -19,12 +23,19 @@
       "description": "Cohort ID if scope_type is cohort, or 'global'."
     },
     "epoch": {
-      "type": ["string", "integer"],
+      "type": [
+        "string",
+        "integer"
+      ],
       "description": "Calendar week epoch (e.g., '2026-W41' or 202641)."
     },
     "query_type": {
       "type": "string",
-      "enum": ["top_k", "surrounding", "subject_rank"],
+      "enum": [
+        "top_k",
+        "surrounding",
+        "subject_rank"
+      ],
       "description": "Type of query requested."
     },
     "limit": {

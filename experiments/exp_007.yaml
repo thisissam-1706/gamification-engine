@@ -3,7 +3,7 @@ description: "Streak-Risk Reminder Policy vs. Control"
 variants:
   variant_a:
     name: "Treatment"
-    description: "Fires automated exponential-interval push reminder during the 4 hours preceding localized midnight when streak is at risk"
+    description: "Fires streak-risk reminders at shrinking intervals at 20:00, 21:00, 21:30 and 21:45 learner local time (cut off by quiet hours at 22:00) when the streak is at risk; each reminder is sent on in-app, push and email (email only with an address), and the push copy is the treatment message"
   variant_b:
     name: "Control"
     description: "Suppresses streak-risk interventions; observes baseline learner behavior"
@@ -17,7 +17,7 @@ exclusions:
 primary_metric:
   name: "First eligible checkpoint mastery"
   definition: "Percent of all assigned eligible learners who pass their first eligible checkpoint within 14 days of assignment"
-  matching: "CheckpointAttempt matches CheckpointCompleted by attempt_id and assessment_id/version"
+  matching: "CheckpointAttempt matches CheckpointCompleted by attempt_id and assessment_id/version; checkpoint_completed is not ingested, so the runner derives exactly one completion per stored CheckpointAttempted event (same attempt, assessment and version, passed as stored)"
   missing_outcome: "Learners who never complete the assessment count as not mastered; report missing-outcome rate separately"
   assessment: "Use the same assessment for everyone, or report results by difficulty level"
 fatigue_metrics:
@@ -27,8 +27,8 @@ fatigue_metrics:
 fatigue_cap: "5 messages per learner per channel per local calendar day (in-app, push and email each have their own 5; resets at the learner's local midnight)"
 events:
   - "assignment"
-  - "eligibility"
-  - "decision"
+  - "eligibility"  # experiment store row, not a learner event
+  - "decision"  # experiment store row, not a learner event
   - "delivery"
   - "exposure"
 consent_and_fatigue: "The treatment and control groups use the same consent and fatigue rules"
@@ -38,10 +38,10 @@ guardrails:
     description: "Notifications must not exceed 5 messages per learner per channel per local calendar day"
     reference: "§5.3"
   - type: "gaming_threshold"
-    description: "Cohort decayed-XP share must not exceed 15% of weekly total"
+    description: "Cohort decayed-XP share (XP awarded on repeat completions, repeat_index >= 1) must not exceed 15% of weekly total"
     reference: "§5.3"
 srm_check:
   test: "chi_square"
   expected_split: "50/50"
   alert_threshold: "p < 0.001"
-  frequency: "daily"
+  frequency: "every run_experiment report (run it daily; nothing schedules it)"

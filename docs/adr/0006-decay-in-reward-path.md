@@ -1,6 +1,6 @@
 # 0006 - Decay Lives in the Reward Path; Abuse Detection Stays Flag-Only
 
-**Status**: Accepted
+**Status**: Accepted (updated 2026-11-21: rule set `v3`, XP hold)
 **Date**: 2026-10-26
 
 **Context**:
@@ -9,7 +9,9 @@ AT-6 asks for diminishing XP on repeated lessons (E = 100, step 20, 3rd completi
 **Decision**:
 - Decay is a **reward rule**. It is part of rule set `v2` (E, `first_repeat_percent`, `step_xp`), is decided once at the decision boundary (`Learner.complete_lesson`), and the decided amount and the repeat count `N` are stored on the `XPAwarded` fact. Replay and projections only fold stored facts. Rule sets stay immutable, versioned and SHA-256 pinned.
 - `v2` is opt-in (registered with `register_decay_rulesets()`, kept in `rulesets_decay.json`). `v1` stays flat and remains the default, so existing behaviour, digests and tests are unchanged.
-- Abuse detection stays **retroactive and flag-only** (ADR 0003). It reads stored facts and ingestion evidence in a separate pass, emits `suspected` signals with evidence references, and never changes XP, streaks, leaderboards or any learner state. It never produces `confirmed`; confirming a signal or correcting XP is a future, explicitly authorized action.
+  - *Update (2026-11-21):* `rulesets_decay.json` also holds `v3`, which is `v2` plus `floor_xp: 5` (100, 50, 30, 10, 5, 5, ...). It is opt-in in the same way; the demo uses it for new rewards. `v2` is unchanged.
+- Abuse detection stays **retroactive and flag-only** (ADR 0003). It reads stored facts and ingestion evidence in a separate pass, emits `suspected` signals with evidence references, and never changes XP already awarded, streaks, leaderboards or any existing learner state. It never produces `confirmed`; confirming a signal or correcting XP is a future, explicitly authorized action.
+  - *Update (2026-11-20):* the opt-in XP hold (ADR 0003 amendment) is the one place a signal affects rewards: it decides the *next* lesson rewards within 24 hours of a scripted-farming flag as 0 XP at the decision boundary, stored on the fact like decay. Nothing already awarded changes.
 - The cohort gaming guardrail reports the share of weekly XP awarded on repeat completions (`repeat_index >= 1`) per cohort and flags `share > 15%`. It is a report, not an enforcement.
 
 **Consequences**:

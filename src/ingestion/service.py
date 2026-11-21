@@ -86,6 +86,8 @@ def _accept_lesson(
         rule_version=config.rule_version,
         completion_kind=envelope["payload"].get("completion_kind"),
         xp_withheld_reason=hold,
+        questions_correct=envelope["payload"].get("questions_correct"),
+        questions_total=envelope["payload"].get("questions_total"),
     )
 
 

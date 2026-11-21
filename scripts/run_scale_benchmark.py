@@ -19,7 +19,7 @@ from src.scale_and_recovery.experiment_repro import (
 )
 from src.state_machine.learner import Learner, LearnerApplication
 from src.scale_and_recovery.hardware import capture_hardware_environment
-from src.scale_and_recovery.latency import LatencyThresholds, measure_leaderboard_latency
+from src.scale_and_recovery.latency import measure_leaderboard_latency
 from src.scale_and_recovery.outage import NotificationOutageHarness
 from src.scale_and_recovery.rebuild import LEARNER_ID_NAMESPACE, FullStateRebuildHarness
 from src.scale_and_recovery.workload import WorkloadProfile, generate_synthetic_workload

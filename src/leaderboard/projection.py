@@ -13,12 +13,7 @@ from eventsourcing.persistence import (
     UUIDAsHex,
 )
 
-from src.leaderboard.cohorts import (
-    CohortCapacityOverflowError,
-    CohortLifecycleService,
-    CohortSealedError,
-    get_calendar_week,
-)
+from src.leaderboard.cohorts import CohortLifecycleService, get_calendar_week
 from src.leaderboard.models import CohortDefinition
 from src.leaderboard.store import LeaderboardStore
 from src.state_machine.learner import Learner

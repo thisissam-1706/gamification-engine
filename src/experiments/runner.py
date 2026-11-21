@@ -22,6 +22,7 @@ from src.experiments.inputs import EventScan, build_mastery_inputs, scan_events
 from src.experiments.metrics import MasteryReport, mastery_report
 from src.experiments.srm import srm_check
 from src.experiments.store import ExperimentStore
+from src.notifications.guardrails import DAILY_NOTIFICATION_CAP
 from src.notifications.models import ChannelType, LearnerPreferences, NotificationCategory
 from src.notifications.store import NotificationStore
 from src.state_machine.learner import LearnerApplication
@@ -103,7 +104,7 @@ DELIVERED_OVER_CAP_TREATMENT = "delivered_over_cap_treatment"
 
 # exp_007 fatigue cap: at most this many messages per learner per channel per local calendar day
 # (exp_007.yaml: fatigue_cap); the dispatcher's cap resets at the learner's local midnight.
-DEFAULT_FATIGUE_CAP = 5
+DEFAULT_FATIGUE_CAP = DAILY_NOTIFICATION_CAP
 NOTE_PREFS_NOT_SUPPLIED = (
     "current preferences were not supplied: opt_outs is not computed (None)"
 )

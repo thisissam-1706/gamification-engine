@@ -3,7 +3,7 @@
 Acceptance case "Out-of-Order Within 72h", then an out-of-window delivery after
 a restart. Every expected value was derived by hand from
 src/state_machine/rules.py and Learner.complete_lesson before the first run;
-the derivation is in docs/audit/week4-fix11b-late-behaviour.md.
+the derivation is summarised in the table below.
 
     A  cmp-0922  occurred 2026-09-22T10:00Z  received 2026-09-22T10:05Z  ->  accepted
     B  cmp-0921  occurred 2026-09-21T10:00Z  received 2026-09-24T09:00Z  ->  accepted (71h)

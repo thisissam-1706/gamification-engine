@@ -1,7 +1,7 @@
 """Notification dispatcher coordinating guardrail checks, channel adapters, and terminal facts."""
 
 from collections.abc import Callable
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Any
 import uuid
 
@@ -10,6 +10,7 @@ from src.notifications.channels.email import SimulatedEmailAdapter
 from src.notifications.channels.in_app import InAppChannelAdapter
 from src.notifications.channels.push import SimulatedPushAdapter
 from src.notifications.guardrails import (
+    DAILY_NOTIFICATION_CAP,
     check_consent,
     check_fatigue_cap,
     local_day_start,
@@ -46,7 +47,7 @@ class NotificationDispatcher:
         store: NotificationStore,
         adapters: dict[ChannelType, BaseChannelAdapter] | None = None,
         retry_scheduler: RetryScheduler | None = None,
-        fatigue_cap: int = 5,
+        fatigue_cap: int = DAILY_NOTIFICATION_CAP,
         quiet_start_hour: int = 22,
         quiet_end_hour: int = 8,
         clock: Callable[[], datetime | str] | None = None,

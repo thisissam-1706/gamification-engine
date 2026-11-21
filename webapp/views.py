@@ -1,6 +1,6 @@
 """Read-only adapter: one home-page dict per learner.
 
-Engine reads used (see docs/audit/frontend-01-recon.md):
+Engine reads used:
   LearnerApplication.repository.get / .events.get   (opened with SQLite mode=ro)
   LearnerQuestProjection.rebuild / .get_summary      (quest status and progress, as_of aware)
   quest_definition_for, get_ruleset                  (quest target, badge id and threshold)

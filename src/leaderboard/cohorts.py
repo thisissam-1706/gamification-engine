@@ -1,6 +1,6 @@
 """Deterministic cohort grouping, constraint enforcement, and lifecycle rules."""
 
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 import hashlib
 import json
 from typing import Sequence

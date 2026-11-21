@@ -18,7 +18,9 @@ DATA_CUTOFF_ISO = "2026-09-29T00:00:00Z"
 ASSIGN_SPREAD_DAYS = 18
 REMINDER_DAYS = 3
 MAX_MESSAGES = 21
-CAP = 5  # messages per rolling 24h
+# Messages per rolling 24h on one channel: the pilot keeps the cap model it was written with, a
+# stand-in for the dispatcher's per-channel calendar-day cap (DAILY_NOTIFICATION_CAP, see SPEC.md).
+CAP = 5
 DELIVER_PROB = 0.9
 EXPOSE_PROB = 0.7
 COMPLETION_LOGGED_PROB = 0.95

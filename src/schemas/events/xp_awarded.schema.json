@@ -44,7 +44,12 @@
     "withheld_reason": {
       "type": "string",
       "minLength": 1,
-      "description": "Optional. Why the XP was decided as 0, e.g. scripted_farming_hold (src/abuse/xp_hold.py). Absent on normal awards."
+      "description": "Optional. Why the XP was decided as 0: scripted_farming_hold (src/abuse/xp_hold.py) or below_pass_mark (src/state_machine/pass_mark.py). Absent on normal awards."
+    },
+    "occurred_at": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Optional. Time of the completion, set only on a below_pass_mark award, which has no LessonCompleted event to take the time from. Absent on normal awards."
     }
   },
   "additionalProperties": false

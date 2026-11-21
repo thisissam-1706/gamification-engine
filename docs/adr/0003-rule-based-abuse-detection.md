@@ -1,6 +1,6 @@
 # 0003 - Rule-Based Abuse Detection
 
-**Status**: Accepted
+**Status**: Accepted (amended 2026-11-20, see below)
 **Date**: 2026-09-26
 
 **Context**: 
@@ -21,3 +21,5 @@ Selected rule-based, retroactive, asynchronous abuse detection.
 
 **Alternatives Considered**:
 A real-time ML anomaly-detection model was considered but rejected for the current scope. It is treated as a stated future extension.
+
+**Amendment (2026-11-20)**: Detection is still retroactive and flag-only for everything already awarded (no XP is revoked, the log is never rewritten). An opt-in XP hold was added: when ingestion is configured with `IngestConfig.xp_hold`, a stored `scripted_farming` signal whose window ended within the last 24 hours makes new lesson completions earn 0 XP, with `withheld_reason: scripted_farming_hold` stored on the `XPAwarded` fact so replay reproduces it (`src/abuse/xp_hold.py`, see [abuse-detection.md](../abuse-detection.md)). The engine default is no hold; the demo enables it.

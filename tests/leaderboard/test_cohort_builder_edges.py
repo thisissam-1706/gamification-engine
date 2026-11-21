@@ -5,7 +5,7 @@
 3 min_size merge / max_size  7 SQLite vs in-memory store parity
 4 sealed or finalized cohort
 
-Assumed additions to the build result (see docs/audit/m3-cohort-step3-edges.md):
+Assumed additions to the build result (see docs/ranking-consistency.md, section 2):
 ``result.inactive`` (learner ids excluded as inactive) and ``result.definitions``
 (cohort_id -> CohortDefinition for every cohort the build produced).
 Tests that need exact cohort sizes pin the hash buckets to a constant by patching the two

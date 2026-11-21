@@ -1,7 +1,7 @@
 """Full-state rebuild and disaster recovery orchestration (AT-2, AT-15)."""
 
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime
 import hashlib
 import json
 import os

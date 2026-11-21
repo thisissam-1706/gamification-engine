@@ -3,7 +3,7 @@
 Each scenario writes through a real LearnerApplication on a SQLite file,
 snapshots every reader, closes and drops every object, reopens the same file
 with new objects, snapshots again, and compares both snapshots with expected
-values written by hand in docs/audit/week4-fix5-persisted-reload.md.
+values written by hand (the constants below).
 """
 
 from collections import Counter
@@ -175,7 +175,7 @@ def _assert_headline(snapshot, expected):
 
 
 # ---------------------------------------------------------------------------
-# Hand-written expected values (docs/audit/week4-fix5-persisted-reload.md)
+# Hand-written expected values (derived by hand from the scenario above)
 # ---------------------------------------------------------------------------
 EMPTY_QUESTS = LearnerQuestSummary(
     assigned_quests=(), completed_quests=(), quest_progress={}, assignments={}

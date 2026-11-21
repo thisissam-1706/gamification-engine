@@ -1,7 +1,6 @@
 """run_tick: one pass over the engine's caller-run jobs, written before scripts/run_engine_tick.py exists.
 
-Every test fails with ImportError until the script exists. The interface these tests pin (see
-docs/audit/driver-step1-tests.md):
+Every test fails with ImportError until the script exists. The interface these tests pin:
 
     run_tick(*, application, projection, dispatcher, evidence, signal_store, prefs, now,
              cohort_min_size=500, cohort_max_size=5000) -> dict

@@ -64,6 +64,9 @@ def lesson_completed_validator() -> Draft7Validator:
 def validate_lesson_completed_payload(payload: Mapping[str, Any]) -> None:
     """Raises ``ValidationError`` when a v1 source payload violates its contract."""
     lesson_completed_validator().validate(dict(payload))
+    correct, total = payload.get("questions_correct"), payload.get("questions_total")
+    if correct is not None and total is not None and correct > total:
+        raise ValidationError(f"questions_correct ({correct}) exceeds questions_total ({total})")
 
 
 @lru_cache(maxsize=1)

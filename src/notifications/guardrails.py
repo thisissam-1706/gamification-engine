@@ -4,11 +4,11 @@ from datetime import datetime, timedelta, timezone
 from typing import Sequence
 from zoneinfo import ZoneInfo
 
-from src.notifications.models import (
-    ChannelType,
-    LearnerPreferences,
-    NotificationProposal,
-)
+from src.notifications.models import LearnerPreferences, NotificationProposal
+
+# The daily notification cap: at most this many messages per learner per channel per local calendar
+# day (docs/problem-boundaries.md). The dispatcher and the M7 runner use this one value.
+DAILY_NOTIFICATION_CAP = 5
 
 
 def normalize_iso_to_utc_dt(ts: str | datetime) -> datetime:
@@ -52,7 +52,7 @@ def local_day_start(now_utc: datetime, timezone_str: str | None) -> datetime:
 def check_fatigue_cap(
     recent_dispatches: Sequence[str | datetime],
     now_utc: datetime,
-    max_cap: int = 5,
+    max_cap: int = DAILY_NOTIFICATION_CAP,
     window_hours: int = 24,
     window_start: datetime | None = None,
 ) -> tuple[bool, str | None]:

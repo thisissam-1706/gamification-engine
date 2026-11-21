@@ -15,6 +15,9 @@ dev = [
     "pytest>=7.0",
     "pytest-asyncio",
     "pyyaml",
+    # tests/demo/test_demo_backend.py exercises the web API through fastapi's TestClient
+    "fastapi",
+    "httpx",
 ]
 web = [
     "fastapi",

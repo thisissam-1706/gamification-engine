@@ -1,10 +1,9 @@
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
-from datetime import datetime, timezone
 import json
 import sqlite3
 import time
-from typing import Any, Sequence
+from typing import Any
 
 from src.leaderboard.models import (
     CohortDefinition,

@@ -367,7 +367,11 @@
     setCheckpointVisible(false);
     setRedoVisible(false);
     setPracticeVisible(false);
-    $("summary-message").textContent = isLesson ? (state.isRedo ?
+    // More than half wrong earns no XP and does not count (src/state_machine/pass_mark.py).
+    var failedMark = (isLesson || isPractice) && 2 * (total - state.score) > total;
+    $("summary-message").textContent = failedMark ?
+      "More than half of the answers are wrong, so this attempt earns no XP and does not count toward your streak or quests. Try the lesson again to earn it." :
+      isLesson ? (state.isRedo ?
       "This repeats a lesson you already finished. It is still saved, but repeats count toward the scripted-farming rule (4 in 24 h)." :
       "Finish the lesson to earn XP.") :
       isPractice ? "Finish to complete your practice quest." :
@@ -427,7 +431,9 @@
     if (result && result.status !== "accepted") {
       items.unshift((result.status === "duplicate" ? "Not submitted (duplicate): " : "Not submitted: ") + reasonText(result.reason));
     }
-    if (result && result.xp_withheld) {
+    if (result && result.xp_withheld === "below_pass_mark") {
+      items.unshift("No XP for this lesson: more than half of the answers were wrong. It does not count toward your streak or quests; pass it to earn the full XP.");
+    } else if (result && result.xp_withheld) {
       items.unshift("No XP for this lesson: XP is on hold for 24 h after a scripted-farming flag.");
     }
     if (result && result.abuse && result.abuse.new_rules && result.abuse.new_rules.length) {
@@ -482,19 +488,24 @@
       return requestJSON("/api/demo/learners/" + encodeURIComponent(id) + "/lesson-complete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ lesson_id: LESSONS[state.lessonIndex].id, completion_kind: "lesson" })
+        body: JSON.stringify({ lesson_id: LESSONS[state.lessonIndex].id, completion_kind: "lesson",
+          questions_correct: state.score, questions_total: state.questions.length })
       }).then(function (result) {
         return getJSON("/api/learners/" + encodeURIComponent(id) + "/home").then(function (after) {
           renderChanges(before, after, result);
-          if (result.status === "accepted") {
+          var failedMark = result.status === "accepted" && result.xp_withheld === "below_pass_mark";
+          if (result.status === "accepted" && !failedMark) {
             state.redoLessonId = LESSONS[state.lessonIndex].id;
             setLessonIndex(id, (state.lessonIndex + 1) % LESSONS.length);
           }
           var wasRedo = state.isRedo;
           state.isRedo = false;
           state.summaryMode = "next-lesson";
-          $("summary-button").textContent = "Next lesson";
-          $("summary-message").textContent = result.status !== "accepted" ?
+          // A failed attempt keeps the learner on the same lesson so they can pass it.
+          $("summary-button").textContent = failedMark ? "Try this lesson again" : "Next lesson";
+          $("summary-message").textContent = failedMark ?
+            "Not passed: more than half of the answers were wrong, so no XP. Try the same lesson again." :
+            result.status !== "accepted" ?
             "This lesson was not saved. See what changed below." : wasRedo ?
             "Repeat saved. It counts toward the abuse rules (see below)." :
             "Lesson saved. Start the next lesson or try the checkpoint.";
@@ -552,7 +563,8 @@
       return requestJSON("/api/demo/learners/" + encodeURIComponent(id) + "/lesson-complete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ lesson_id: PRACTICE.id, completion_kind: "remediation" })
+        body: JSON.stringify({ lesson_id: PRACTICE.id, completion_kind: "remediation",
+          questions_correct: state.score, questions_total: state.questions.length })
       }).then(function (result) {
         return getJSON("/api/learners/" + encodeURIComponent(id) + "/home").then(function (after) {
           renderChanges(before, after, result);

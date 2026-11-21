@@ -1,22 +1,59 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Streak Updated payload",
+  "$comment": "Design-time contract, not validated at runtime: no code loads this schema. It describes the payload fields; the stored engine fact may also carry provenance fields (correlation_id, causation_id). See docs/event-contracts.md, 'Schema files'.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["completion_id", "previous_streak", "new_streak", "activity_date", "freezes_consumed", "freezes_remaining", "rule_version", "revision", "supersedes"],
+  "required": [
+    "completion_id",
+    "previous_streak",
+    "new_streak",
+    "activity_date",
+    "freezes_consumed",
+    "freezes_remaining",
+    "rule_version",
+    "revision",
+    "supersedes"
+  ],
   "properties": {
     "completion_id": {
       "type": "string",
       "minLength": 1,
       "description": "The accepted dated completion that caused this recalculation."
     },
-    "previous_streak": {"type": "integer", "minimum": 0},
-    "new_streak": {"type": "integer", "minimum": 1},
-    "activity_date": {"type": "string", "format": "date"},
-    "freezes_consumed": {"type": "integer", "minimum": 0},
-    "freezes_remaining": {"type": "integer", "minimum": 0},
-    "rule_version": {"type": "string", "minLength": 1},
-    "revision": {"type": "integer", "minimum": 1},
-    "supersedes": {"type": ["string", "null"]}
+    "previous_streak": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "new_streak": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "activity_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "freezes_consumed": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "freezes_remaining": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "rule_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "supersedes": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
   }
 }

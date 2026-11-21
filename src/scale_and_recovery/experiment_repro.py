@@ -12,7 +12,7 @@ from src.abuse.service import AbuseDetectionService
 from src.abuse.store import AbuseSignalStore
 from src.experiments.assignment import assign
 from src.experiments.inputs import build_mastery_inputs, read_assignments
-from src.experiments.metrics import MasteryReport, mastery_report
+from src.experiments.metrics import mastery_report
 from src.experiments.runner import ExperimentRunResult, awards_from_abuse_service, run_experiment
 from src.experiments.store import ExperimentStore
 from src.ingestion.evidence import EvidenceStore

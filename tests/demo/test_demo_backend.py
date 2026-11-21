@@ -384,6 +384,10 @@ def _fresh_http_client(monkeypatch: pytest.MonkeyPatch, sandbox_path: Path, demo
         monkeypatch.delenv("DEMO_MODE", raising=False)
         monkeypatch.delenv("DEMO_SANDBOX_PATH", raising=False)
 
+    # The HTTP tests need the web extras (fastapi, and httpx for TestClient); skip, not fail,
+    # when they are not installed (the CI lock file installs only the engine dependencies).
+    pytest.importorskip("fastapi")
+    pytest.importorskip("httpx")
     sys.modules.pop("webapp.app", None)
     app_module = importlib.import_module("webapp.app")
     from fastapi.testclient import TestClient

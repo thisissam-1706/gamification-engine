@@ -1,7 +1,6 @@
 """HTTP routes for the writable demo sandbox."""
 
 from datetime import datetime
-from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -27,6 +26,9 @@ class LessonRequest(BaseModel):
     event_id: str | None = None
     occurred_at: str | None = None
     completion_id: str | None = None
+    # The lesson page's score; more than half wrong earns no XP.
+    questions_correct: int | None = None
+    questions_total: int | None = None
 
 
 class FreezeRequest(BaseModel):
@@ -152,6 +154,8 @@ def create_demo_router(sandbox: Sandbox) -> APIRouter:
                 event_id=request.event_id,
                 occurred_at=request.occurred_at,
                 completion_id=request.completion_id,
+                questions_correct=request.questions_correct,
+                questions_total=request.questions_total,
             )
         )
 

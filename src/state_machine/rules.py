@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo
 
 RULESETS_FILE = Path(__file__).with_name("rulesets.json")
 # Opt-in rule sets with a decay schedule; kept out of rulesets.json so the
-# default registry stays exactly {"v1"} (see docs/audit/week5-m6-abuse-detection.md).
+# default registry stays exactly {"v1"} (see ADR-0006, docs/adr/0006-decay-in-reward-path.md).
 DECAY_RULESETS_FILE = Path(__file__).with_name("rulesets_decay.json")
 _CONTENT_FIELDS = ("xp_amount", "quest_targets", "badge_threshold", "badge_id")
 _DECAY_KEYS = frozenset({"first_repeat_percent", "step_xp"})

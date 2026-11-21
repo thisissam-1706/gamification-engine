@@ -1,5 +1,5 @@
 {
-  "summary": "69 passed, 0 failed, 69 checks",
+  "summary": "70 passed, 0 failed, 70 checks",
   "checks": [
     {
       "section": "intro",
@@ -17,7 +17,7 @@
       "section": "intro",
       "name": "priya_lesson_accepted_xp_up",
       "ok": true,
-      "detail": "{'status': 'accepted', 'reason': None, 'event_id': 'e55de194-6cfe-4f77-b4b7-2b84738cfa02', 'timings_ms': {'ingest': 6.29, 'project': 5.03}, 'abuse': {'new_signals': 0, 'new_types': [], 'new_rules': []}, 'xp_withheld': None} {'xp_total': 1000, 'streak': 4, 'freezes': 1, 'active_days': 7, 'ruleset': 'v3'} {'xp_total': 1100, 'streak': 4, 'freezes': 1, 'active_days': 7, 'ruleset': 'v3'}"
+      "detail": "{'status': 'accepted', 'reason': None, 'event_id': 'fbe4b461-9fc5-4210-90d3-61e4918fbbea', 'timings_ms': {'ingest': 11.21, 'project': 7.61}, 'abuse': {'new_signals': 0, 'new_types': [], 'new_rules': []}, 'xp_withheld': None} {'xp_total': 1000, 'streak': 4, 'freezes': 1, 'active_days': 7, 'ruleset': 'v3'} {'xp_total': 1100, 'streak': 4, 'freezes': 1, 'active_days': 7, 'ruleset': 'v3'}"
     },
     {
       "section": "intro",
@@ -35,25 +35,25 @@
       "section": "M1/M2",
       "name": "fresh_lesson_accepted",
       "ok": true,
-      "detail": "{'status': 'accepted', 'reason': None, 'event_id': 'e01c41eb-a702-47b1-9d9c-c043c354d41b', 'timings_ms': {'ingest': 5.99, 'project': 5.92}, 'abuse': {'new_signals': 0, 'new_types': [], 'new_rules': []}, 'xp_withheld': None}"
+      "detail": "{'status': 'accepted', 'reason': None, 'event_id': 'eefd4b8f-0655-4e22-b75b-61763d2477b4', 'timings_ms': {'ingest': 7.16, 'project': 7.55}, 'abuse': {'new_signals': 0, 'new_types': [], 'new_rules': []}, 'xp_withheld': None}"
     },
     {
       "section": "M1/M2",
       "name": "duplicate_rejected_no_xp_change",
       "ok": true,
-      "detail": "{'status': 'duplicate', 'reason': 'duplicate_event_id', 'event_id': 'e01c41eb-a702-47b1-9d9c-c043c354d41b', 'abuse': {'new_signals': 0, 'new_types': [], 'new_rules': []}, 'xp_withheld': None}"
+      "detail": "{'status': 'duplicate', 'reason': 'duplicate_event_id', 'event_id': 'eefd4b8f-0655-4e22-b75b-61763d2477b4', 'abuse': {'new_signals': 0, 'new_types': [], 'new_rules': []}, 'xp_withheld': None}"
     },
     {
       "section": "M1/M2",
       "name": "late_24h_accepted",
       "ok": true,
-      "detail": "{'status': 'accepted', 'reason': None, 'event_id': 'c5256df3-112d-4520-a324-e496b0f80459', 'timings_ms': {'ingest': 5.44, 'project': 4.99}, 'abuse': {'new_signals': 0, 'new_types': [], 'new_rules': []}, 'xp_withheld': None}"
+      "detail": "{'status': 'accepted', 'reason': None, 'event_id': 'f9a3ce86-c0fa-495e-b48f-057ed58ba85c', 'timings_ms': {'ingest': 7.55, 'project': 8.16}, 'abuse': {'new_signals': 0, 'new_types': [], 'new_rules': []}, 'xp_withheld': None}"
     },
     {
       "section": "M1/M2",
       "name": "late_100h_rejected",
       "ok": true,
-      "detail": "{'status': 'rejected', 'reason': 'outside_late_window', 'event_id': '9a808393-753b-4943-b67e-994af275a1d2', 'timings_ms': {'ingest': 1.39, 'project': 0.0}, 'abuse': {'new_signals': 0, 'new_types': [], 'new_rules': []}, 'xp_withheld': None}"
+      "detail": "{'status': 'rejected', 'reason': 'outside_late_window', 'event_id': 'f64dd488-52ed-4d8c-b4b2-e30d1fd307d3', 'timings_ms': {'ingest': 2.03, 'project': 0.0}, 'abuse': {'new_signals': 0, 'new_types': [], 'new_rules': []}, 'xp_withheld': None}"
     },
     {
       "section": "M1/M2",
@@ -83,43 +83,43 @@
       "section": "M3",
       "name": "latency_probe_numbers",
       "ok": true,
-      "detail": "{'queries': 400, 'rank_ms': {'p50': 0.011, 'p95': 0.012, 'p99': 0.028, 'max': 0.233}, 'top_ms': {'p50': 0.02, 'p95': 0.025, 'p99': 0.036, 'max': 0.057}}"
+      "detail": "{'queries': 400, 'rank_ms': {'p50': 0.01, 'p95': 0.012, 'p99': 0.016, 'max': 0.264}, 'top_ms': {'p50': 0.022, 'p95': 0.024, 'p99': 0.03, 'max': 0.039}}"
     },
     {
       "section": "M3",
       "name": "measure_update_timings_and_xp",
       "ok": true,
-      "detail": "{'result': {'status': 'accepted', 'reason': None, 'event_id': 'ccda678d-c317-4406-a861-73ab07d36f35', 'timings_ms': {'ingest': 5.05, 'project': 5.37}, 'abuse': {'new_signals': 0, 'new_types': [], 'new_rules': []}, 'xp_withheld': None}, 'timings_ms': {'ingest': 5.05, 'project': 5.37}, 'before': {'cohort_rank': 2, 'cohort_score': 800, 'global_rank': 11, 'global_score': 800, 'first_reached_at': '2026-10-16T18:00:00Z', 'xp_total': 1100}, 'after': {'cohort_rank': 2, 'cohort_score': 900, 'global_rank': 10, 'global_score': 900, 'first_reached_at': '2026-10-16T18:00:00Z', 'xp_total': 1200}}"
+      "detail": "{'result': {'status': 'accepted', 'reason': None, 'event_id': '32556726-9299-42fe-bc43-07214e4eafaa', 'timings_ms': {'ingest': 6.55, 'project': 6.47}, 'abuse': {'new_signals': 0, 'new_types': [], 'new_rules': []}, 'xp_withheld': None}, 'timings_ms': {'ingest': 6.55, 'project': 6.47}, 'before': {'cohort_rank': 2, 'cohort_score': 800, 'global_rank': 11, 'global_score': 800, 'first_reached_at': '2026-10-16T18:00:00Z', 'xp_total': 1100}, 'after': {'cohort_rank': 2, 'cohort_score': 900, 'global_rank': 10, 'global_score': 900, 'first_reached_at': '2026-10-16T18:00:00Z', 'xp_total': 1200}}"
     },
     {
       "section": "M4",
       "name": "fail_checkpoint_assigns_quest",
       "ok": true,
-      "detail": "{'result': {'status': 'accepted', 'reason': None}, 'attempt_id': 'att_1795205010547_260d30', 'latest_decision': {'decision_id': 'remediation:att_1795205010547_260d30', 'attempt_id': 'att_1795205010547_260d30', 'assessment_id': 'fractions_checkpoint_1', 'decision': 'assign', 'reason': None, 'assignment_id': 'remediation_quest:att_1795205010547_260d30', 'decided_at': '2026-10-16T18:00:00+00:00', 'deadline_at': '2026-10-23T18:00:00+00:00'}, 'snapshot': {'xp_total': 1200, 'streak': 5, 'freezes': 0, 'active_days': 8, 'ruleset': 'v3'}}"
+      "detail": "{'result': {'status': 'accepted', 'reason': None}, 'attempt_id': 'att_1795250260941_2ccb0c', 'latest_decision': {'decision_id': 'remediation:att_1795250260941_2ccb0c', 'attempt_id': 'att_1795250260941_2ccb0c', 'assessment_id': 'fractions_checkpoint_1', 'decision': 'assign', 'reason': None, 'assignment_id': 'remediation_quest:att_1795250260941_2ccb0c', 'decided_at': '2026-10-16T18:00:00+00:00', 'deadline_at': '2026-10-23T18:00:00+00:00'}, 'snapshot': {'xp_total': 1200, 'streak': 5, 'freezes': 0, 'active_days': 8, 'ruleset': 'v3'}}"
     },
     {
       "section": "M4",
       "name": "decision_and_quest_recorded",
       "ok": true,
-      "detail": "{'attempts': [{'attempt_id': 'att_1795205010547_260d30', 'assessment_id': 'fractions_checkpoint_1', 'passed': False, 'occurred_at': '2026-10-16T18:00:00Z'}], 'decisions': [{'decision_id': 'remediation"
+      "detail": "{'attempts': [{'attempt_id': 'att_1795250260941_2ccb0c', 'assessment_id': 'fractions_checkpoint_1', 'passed': False, 'occurred_at': '2026-10-16T18:00:00Z'}], 'decisions': [{'decision_id': 'remediation"
     },
     {
       "section": "M4",
       "name": "second_fail_same_assessment_not_first_attempt",
       "ok": true,
-      "detail": "{'decision_id': 'remediation:att_1795205010579_6d9b64', 'attempt_id': 'att_1795205010579_6d9b64', 'assessment_id': 'fractions_checkpoint_1', 'decision': 'no_action', 'reason': 'not_first_attempt', 'assignment_id': None, 'decided_at': '2026-10-16T18:00:00+00:00', 'deadline_at': None}"
+      "detail": "{'decision_id': 'remediation:att_1795250260983_928d75', 'attempt_id': 'att_1795250260983_928d75', 'assessment_id': 'fractions_checkpoint_1', 'decision': 'no_action', 'reason': 'not_first_attempt', 'assignment_id': None, 'decided_at': '2026-10-16T18:00:00+00:00', 'deadline_at': None}"
     },
     {
       "section": "M4",
       "name": "other_assessment_frequency_guardrail",
       "ok": true,
-      "detail": "{'decision_id': 'remediation:att_1795205010603_06625f', 'attempt_id': 'att_1795205010603_06625f', 'assessment_id': 'fractions_checkpoint_2', 'decision': 'no_action', 'reason': 'remediated_within_window', 'assignment_id': None, 'decided_at': '2026-10-16T18:00:00+00:00', 'deadline_at': None}"
+      "detail": "{'decision_id': 'remediation:att_1795250261012_1788ea', 'attempt_id': 'att_1795250261012_1788ea', 'assessment_id': 'fractions_checkpoint_2', 'decision': 'no_action', 'reason': 'remediated_within_window', 'assignment_id': None, 'decided_at': '2026-10-16T18:00:00+00:00', 'deadline_at': None}"
     },
     {
       "section": "M4",
       "name": "complete_remediation_accepted",
       "ok": true,
-      "detail": "{'result': {'status': 'accepted', 'reason': None, 'event_id': '339193d7-f05c-45f2-8a50-4c3d8b7e1e5a', 'timings_ms': {'ingest': 7.21, 'project': 5.79}, 'abuse': {'new_signals': 0, 'new_types': [], 'new_rules': []}, 'xp_withheld': None}, 'snapshot': {'xp_total': 1300, 'streak': 5, 'freezes': 0, 'active_days': 8, 'ruleset': 'v3'}}"
+      "detail": "{'result': {'status': 'accepted', 'reason': None, 'event_id': '9be65237-c155-428b-9d26-f3529071edaf', 'timings_ms': {'ingest': 6.57, 'project': 7.72}, 'abuse': {'new_signals': 0, 'new_types': [], 'new_rules': []}, 'xp_withheld': None}, 'snapshot': {'xp_total': 1300, 'streak': 5, 'freezes': 0, 'active_days': 8, 'ruleset': 'v3'}}"
     },
     {
       "section": "M4",
@@ -131,43 +131,43 @@
       "section": "M4",
       "name": "expiry_sweep_200",
       "ok": true,
-      "detail": "{\"now\": \"2026-10-16T18:00:00+00:00\", \"learners_swept\": 12, \"learners_with_expiry\": 0, \"expired_count\": 0, \"expired_quest_ids\": [], \"by_learner\": {}}"
+      "detail": "{\"now\":\"2026-10-16T18:00:00+00:00\",\"learners_swept\":12,\"learners_with_expiry\":0,\"expired_count\":0,\"expired_quest_ids\":[],\"by_learner\":{}}"
     },
     {
       "section": "M5",
       "name": "in_app_delivered",
       "ok": true,
-      "detail": "[{'status': 'dispatched', 'reason': None, 'channel': 'in_app', 'proposal_id': 'demo:d8eaf96a65', 'attempt_count': 1, 'rescheduled_for': None}]"
+      "detail": "[{'status': 'dispatched', 'reason': None, 'channel': 'in_app', 'proposal_id': 'demo:468ab6075b', 'attempt_count': 1, 'rescheduled_for': None}]"
     },
     {
       "section": "M5",
       "name": "dedup_second_suppressed",
       "ok": true,
-      "detail": "[{'status': 'dispatched', 'reason': None, 'channel': 'in_app', 'proposal_id': 'demo:4247659e93', 'attempt_count': 1, 'rescheduled_for': None}, {'status': 'suppressed', 'reason': 'duplicate_proposal', 'channel': 'in_app', 'proposal_id': 'demo:4247659e93', 'attempt_count': 1, 'rescheduled_for': None}]"
+      "detail": "[{'status': 'dispatched', 'reason': None, 'channel': 'in_app', 'proposal_id': 'demo:831c81f5f3', 'attempt_count': 1, 'rescheduled_for': None}, {'status': 'suppressed', 'reason': 'duplicate_proposal', 'channel': 'in_app', 'proposal_id': 'demo:831c81f5f3', 'attempt_count': 1, 'rescheduled_for': None}]"
     },
     {
       "section": "M5",
       "name": "daily_cap_suppression",
       "ok": true,
-      "detail": "[{'status': 'dispatched', 'reason': None, 'channel': 'push', 'proposal_id': 'demo:cd39b09649', 'attempt_count': 1, 'rescheduled_for': None}, {'status': 'dispatched', 'reason': None, 'channel': 'push', 'proposal_id': 'demo:5d210702a1', 'attempt_count': 1, 'rescheduled_for': None}, {'status': 'dispatched', 'reason': None, 'channel': 'push', 'proposal_id': 'demo:8e421f9d8d', 'attempt_count': 1, 'rescheduled_for': None}, {'status': 'dispatched', 'reason': None, 'channel': 'push', 'proposal_id': 'demo:e78d215196', 'attempt_count': 1, 'rescheduled_for': None}, {'status': 'dispatched', 'reason': None, 'channel': 'push', 'proposal_id': 'demo:92ec68f1c5', 'attempt_count': 1, 'rescheduled_for': None}, {'status': 'suppressed', 'reason': 'daily_cap_exceeded', 'channel': 'push', 'proposal_id': 'demo:8fccc2057f', 'attempt_count': 1, 'rescheduled_for': None}, {'status': 'suppressed', 'reason': 'daily_cap_exceeded', 'channel': 'push', 'proposal_id': 'demo:c8fc08f250', 'attempt_count': 1, 'rescheduled_for': None}]"
+      "detail": "[{'status': 'dispatched', 'reason': None, 'channel': 'push', 'proposal_id': 'demo:4810a1f263', 'attempt_count': 1, 'rescheduled_for': None}, {'status': 'dispatched', 'reason': None, 'channel': 'push', 'proposal_id': 'demo:6e436ebbe0', 'attempt_count': 1, 'rescheduled_for': None}, {'status': 'dispatched', 'reason': None, 'channel': 'push', 'proposal_id': 'demo:a5028214bf', 'attempt_count': 1, 'rescheduled_for': None}, {'status': 'dispatched', 'reason': None, 'channel': 'push', 'proposal_id': 'demo:0d96b6e360', 'attempt_count': 1, 'rescheduled_for': None}, {'status': 'dispatched', 'reason': None, 'channel': 'push', 'proposal_id': 'demo:57610047b1', 'attempt_count': 1, 'rescheduled_for': None}, {'status': 'suppressed', 'reason': 'daily_cap_exceeded', 'channel': 'push', 'proposal_id': 'demo:915945dc99', 'attempt_count': 1, 'rescheduled_for': None}, {'status': 'suppressed', 'reason': 'daily_cap_exceeded', 'channel': 'push', 'proposal_id': 'demo:37bc019df9', 'attempt_count': 1, 'rescheduled_for': None}]"
     },
     {
       "section": "M5",
       "name": "consent_suppression_push_opted_out",
       "ok": true,
-      "detail": "[{'status': 'suppressed', 'reason': 'opt_out', 'channel': 'push', 'proposal_id': 'demo:af36df4dbb', 'attempt_count': 1, 'rescheduled_for': None}]"
+      "detail": "[{'status': 'suppressed', 'reason': 'opt_out', 'channel': 'push', 'proposal_id': 'demo:d089bb0e51', 'attempt_count': 1, 'rescheduled_for': None}]"
     },
     {
       "section": "M5",
       "name": "email_delivered",
       "ok": true,
-      "detail": "[{'status': 'dispatched', 'reason': None, 'channel': 'email', 'proposal_id': 'demo:f37fc2f41b', 'attempt_count': 1, 'rescheduled_for': None}]"
+      "detail": "[{'status': 'dispatched', 'reason': None, 'channel': 'email', 'proposal_id': 'demo:a9635fe8d8', 'attempt_count': 1, 'rescheduled_for': None}]"
     },
     {
       "section": "M5",
       "name": "outage_then_dead_letter",
       "ok": true,
-      "detail": "[{'status': 'failed', 'reason': 'provider_exhausted: Simulated push provider outage (503 Service Unavailable)', 'channel': 'push', 'proposal_id': 'demo:c0191c5604', 'attempt_count': 3, 'rescheduled_for': None}]"
+      "detail": "[{'status': 'failed', 'reason': 'provider_exhausted: Simulated push provider outage (503 Service Unavailable)', 'channel': 'push', 'proposal_id': 'demo:e62c6f8bf2', 'attempt_count': 3, 'rescheduled_for': None}]"
     },
     {
       "section": "M5",
@@ -179,7 +179,7 @@
       "section": "M5",
       "name": "quiet_hours_deferred",
       "ok": true,
-      "detail": "[{'status': 'queued', 'reason': 'quiet_hours_rescheduled', 'channel': 'push', 'proposal_id': 'demo:c58031d1c9', 'attempt_count': 1, 'rescheduled_for': '2026-10-21T08:00:00Z'}]"
+      "detail": "[{'status': 'queued', 'reason': 'quiet_hours_rescheduled', 'channel': 'push', 'proposal_id': 'demo:0855759b81', 'attempt_count': 1, 'rescheduled_for': '2026-10-21T08:00:00Z'}]"
     },
     {
       "section": "M5",
@@ -203,7 +203,7 @@
       "section": "M5",
       "name": "release_deferred_delivered",
       "ok": true,
-      "detail": "[{'time': '2026-10-21T09:00:00Z', 'proposal_id': 'demo:c58031d1c9', 'channel': 'push', 'category': 'general', 'outcome': 'delivered', 'reason': None, 'attempts': None, 'dlq_id': None, 'resolved': None, 'deliver_at': None}, {'time': '2026-10-20T23:00:00Z', 'proposal_id': 'demo:c58031d1c9', 'channel': 'push', 'category': 'general', 'outcome': 'deferred', 'reason': 'quiet_hours_rescheduled (released)', 'attempts': None, 'dlq_id': None, 'resolved': None, 'deliver_at': '2026-10-21T08:00:00Z'}]"
+      "detail": "[{'time': '2026-10-21T09:00:00Z', 'proposal_id': 'demo:0855759b81', 'channel': 'push', 'category': 'general', 'outcome': 'delivered', 'reason': None, 'attempts': None, 'dlq_id': None, 'resolved': None, 'deliver_at': None}, {'time': '2026-10-20T23:00:00Z', 'proposal_id': 'demo:0855759b81', 'channel': 'push', 'category': 'general', 'outcome': 'deferred', 'reason': 'quiet_hours_rescheduled (released)', 'attempts': None, 'dlq_id': None, 'resolved': None, 'deliver_at': '2026-10-21T08:00:00Z'}]"
     },
     {
       "section": "M6",
@@ -257,7 +257,7 @@
       "section": "M6",
       "name": "four_signal_types_present",
       "ok": true,
-      "detail": "{'impossible_timing', 'scripted_farming', 'replay', 'duplicate_exploit'}"
+      "detail": "{'impossible_timing', 'replay', 'scripted_farming', 'duplicate_exploit'}"
     },
     {
       "section": "M6",
@@ -335,7 +335,7 @@
       "section": "M8",
       "name": "wipe_and_rebuild_identical",
       "ok": true,
-      "detail": "{'wipe': {'before': {'hash': 'f7fb116e32632405c8586bfc062ac9b047b4d99cad9b85df5e18bfd5521fde38', 'tables': {'leaderboard_applied_events': 204, 'leaderboard_checkpoints': 6, 'leaderboard_cohort_definitions': 5, 'leaderboard_completion_times': 204, 'leaderboard_entries': 35, 'leaderboard_pending_award"
+      "detail": "{'wipe': {'before': {'hash': '91e829d83f52bc0ce7761ac65aa73d67588c0974240df2a039ba65e3dcfa0d6c', 'tables': {'leaderboard_applied_events': 204, 'leaderboard_checkpoints': 6, 'leaderboard_cohort_definitions': 5, 'leaderboard_completion_times': 204, 'leaderboard_entries': 35, 'leaderboard_pending_award"
     },
     {
       "section": "M8",
@@ -347,7 +347,7 @@
       "section": "M8",
       "name": "small_benchmark_passed",
       "ok": true,
-      "detail": "{'timestamp': '2026-11-20T20:03:34.875952+00:00', 'profile': {'population_size': 20, 'cohort_count': 2, 'events_per_learner': 15, 'duplicate_rate': 0.05, 'late_rate': 0.05, 'seed': 42, 'epoch': '2026-"
+      "detail": "{'timestamp': '2026-11-21T08:37:45.963233+00:00', 'profile': {'population_size': 20, 'cohort_count': 2, 'events_per_learner': 15, 'duplicate_rate': 0.05, 'late_rate': 0.05, 'seed': 42, 'epoch': '2026-"
     },
     {
       "section": "tick",
@@ -371,7 +371,7 @@
       "section": "fixes",
       "name": "daily_cap_resets_at_local_midnight",
       "ok": true,
-      "detail": "2 capped, next day {'status': 'dispatched', 'reason': None, 'channel': 'in_app', 'proposal_id': 'demo:c0726c7c70', 'attempt_count': 1, 'rescheduled_for': None}, cap {'used': 1, 'limit': 5, 'per_channel': {'in_app': 1, 'push': 0, 'email': 0}, 'day_start': '2026-10-23T00:00:00Z', 'resets_at': '2026-10-24T00:00:00Z', 'timezone': 'UTC'}"
+      "detail": "2 capped, next day {'status': 'dispatched', 'reason': None, 'channel': 'in_app', 'proposal_id': 'demo:77523731b7', 'attempt_count': 1, 'rescheduled_for': None}, cap {'used': 1, 'limit': 5, 'per_channel': {'in_app': 1, 'push': 0, 'email': 0}, 'day_start': '2026-10-23T00:00:00Z', 'resets_at': '2026-10-24T00:00:00Z', 'timezone': 'UTC'}"
     },
     {
       "section": "fixes",
@@ -383,7 +383,7 @@
       "section": "fixes",
       "name": "quest_update_suppressed_when_quest_done",
       "ok": true,
-      "detail": "{'status': 'suppressed', 'reason': 'no_active_quest', 'channel': 'in_app', 'proposal_id': 'demo:b07db2e718', 'attempt_count': 0, 'rescheduled_for': None}"
+      "detail": "{'status': 'suppressed', 'reason': 'no_active_quest', 'channel': 'in_app', 'proposal_id': 'demo:f27a6e1ed0', 'attempt_count': 0, 'rescheduled_for': None}"
     },
     {
       "section": "fixes",
@@ -413,14 +413,20 @@
       "section": "fixes",
       "name": "push_lands_in_outbox",
       "ok": true,
-      "detail": "[{'seq': 12, 'sent_at': '2026-10-26T10:00:00Z', 'learner_id': 'c6bb39cc-7ede-5881-83ca-1f84ebd502c1', 'channel': 'push', 'proposal_id': 'demo:7675a0ebcc', 'category': 'general', 'recipient': \"learner's phone (simulated)\", 'title': 'Hello from Streakwise', 'body': 'Here is a message from the demo admin.', 'provider': 'simulated phone', 'provider_message_id': None, 'preview_url': None}]"
+      "detail": "[{'seq': 12, 'sent_at': '2026-10-26T10:00:00Z', 'learner_id': 'c6bb39cc-7ede-5881-83ca-1f84ebd502c1', 'channel': 'push', 'proposal_id': 'demo:dbe6d6ad3b', 'category': 'general', 'recipient': \"learner's phone (simulated)\", 'title': 'Hello from Streakwise', 'body': 'Here is a message from the demo admin.', 'provider': 'simulated phone', 'provider_message_id': None, 'preview_url': None}]"
+    },
+    {
+      "section": "fixes",
+      "name": "below_pass_mark_no_xp_then_pass_full",
+      "ok": true,
+      "detail": "{'failed': 'below_pass_mark', 'xp': [1200, 1200, 1300]}"
     }
   ],
   "numbers": {
     "personas_endpoint_returns_12": "12 personas",
     "priya_lesson_accepted_xp_up": "XP 1000 -> 1100 (+100)",
     "priya_streak_per_engine": "streak 4 -> 4 (she already practised on the demo day, so it holds)",
-    "events_show_ids": "52 events; newest QuestCompleted has correlation id c9af40d9",
+    "events_show_ids": "52 events; newest QuestCompleted has correlation id 8b1e866d",
     "fresh_lesson_accepted": "accepted, XP 1400 -> 1500",
     "duplicate_rejected_no_xp_change": "reason duplicate_event_id, XP unchanged at 1500",
     "late_24h_accepted": "accepted, XP 1500 -> 1600",
@@ -429,8 +435,8 @@
     "ruleset_switch_only_new_events": "newest reward v1, older rewards unchanged (v1 ...)",
     "cohorts_have_members": "5 cohorts for 2026-W42, 12 learners",
     "consistency_lag_zero": "projection offset 617 = log head 617, lag 0",
-    "latency_probe_numbers": "p95 rank 0.012 ms, p95 top-N 0.025 ms",
-    "measure_update_timings_and_xp": "ingest 5.05 ms + projection 5.37 ms; cohort rank 2 -> 2, global rank 11 -> 10, XP +100",
+    "latency_probe_numbers": "p95 rank 0.012 ms, p95 top-N 0.024 ms",
+    "measure_update_timings_and_xp": "ingest 6.55 ms + projection 6.47 ms; cohort rank 2 -> 2, global rank 11 -> 10, XP +100",
     "fail_checkpoint_assigns_quest": "decision assign, quest deadline 2026-10-23",
     "decision_and_quest_recorded": "1 decision, 1 remediation quest (assigned)",
     "second_fail_same_assessment_not_first_attempt": "no_action, reason not_first_attempt",
@@ -469,9 +475,9 @@
     "report_valid_with_arms": "valid, treatment eligible 5, control eligible 4, hash 77cd96207f93",
     "reference_report_matured_mastery_ci_hash": "reference run valid: mastery treatment 0.333 vs control 0.625, difference -0.292, 95% CI [-0.720, 0.137], hash e97e52762dde",
     "reproduce_identical": "identical, 77cd96207f93 = 77cd96207f93",
-    "wipe_and_rebuild_identical": "734 events replayed in 232.16 ms, checksum f7fb116e3263 identical",
+    "wipe_and_rebuild_identical": "734 events replayed in 363.35 ms, checksum 91e829d83f52 identical",
     "dead_letter_counts": "open 0, resolved 1",
-    "small_benchmark_passed": "overall_passed true in 1.8 s",
+    "small_benchmark_passed": "overall_passed true in 2.4 s",
     "engine_tick_eight_steps": "8 steps ok: weekly_cycle, assign, poll, quest_expiry, remediation, streak_risk, abuse, reconcile",
     "engine_tick_idempotent": "second tick summary {'new_decisions': 0, 'new_signals': 0, 'new_notifications': 0}",
     "daily_cap_resets_at_local_midnight": "capped 2 on Oct 22; next day 09:00 delivered, cap 1/5",
@@ -481,6 +487,7 @@
     "frozen_clock_lessons_flag_live_once": "4th frozen-clock lesson raises impossible_timing; the 5th adds no duplicate",
     "second_episode_flagged_again": "a burst 6 h later is flagged again: impossible_timing.short_gaps, scripted_farming.repeat",
     "redo_x4_flags_scripted_farming": "4 spaced redos: scripted_farming.repeat only",
-    "push_lands_in_outbox": "delivered push shown as a phone notification"
+    "push_lands_in_outbox": "delivered push shown as a phone notification",
+    "below_pass_mark_no_xp_then_pass_full": "2/5: 0 XP (below_pass_mark), streak unchanged; then 3/5: +100 XP"
   }
 }

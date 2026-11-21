@@ -1,8 +1,11 @@
 {
   "as_of": "2026-10-16T18:00:00Z",
   "cohort_names": {
-    "cohort_a": "Cohort A",
-    "cohort_b": "Cohort B"
+    "cohort_act_2026-W42_casual_000__cohort_mod_2026-W42_math_101_000": "Cohort A",
+    "cohort_act_2026-W42_casual_000__cohort_mod_2026-W42_py_101_000": "Cohort B",
+    "cohort_act_2026-W42_intensive_000__cohort_mod_2026-W42_math_101_000": "Cohort C",
+    "cohort_act_2026-W42_regular_000__cohort_mod_2026-W42_py_101_000": "Cohort D",
+    "cohort_act_2026-W42_regular_000__cohort_mod_2026-W42_sql_101_000": "Cohort E"
   },
   "epoch": "2026-W42",
   "learners": {
@@ -17,8 +20,8 @@
       "push_enabled": true
     },
     "4871b5d7-1673-5416-8a37-48353d80e6a4": {
-      "display_name": "Priya Nair",
-      "key": "learner_0001",
+      "display_name": "Tara Bose",
+      "key": "learner_0011",
       "push_enabled": true
     },
     "5e45c482-1318-52ec-8b1c-f116f08db37f": {
@@ -32,8 +35,8 @@
       "push_enabled": true
     },
     "a4b67f76-95be-50c1-8157-55022bf4e70d": {
-      "display_name": "Tara Bose",
-      "key": "learner_0011",
+      "display_name": "Priya Nair",
+      "key": "learner_0001",
       "push_enabled": true
     },
     "a9ec8603-758d-5d9e-bfce-e60a1d311ff6": {
@@ -68,7 +71,7 @@
     }
   },
   "quiet_hours": {
-    "end_hour": 7,
+    "end_hour": 8,
     "start_hour": 22
   }
 }

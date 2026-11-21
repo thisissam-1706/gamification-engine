@@ -1,6 +1,6 @@
 # Gamification, Social Cohort, Notification and Retention Experimentation Engine
 
-An event-sourced gamification engine with deterministic XP, streaks, quests, badges, notifications, and experiments. Rule-based abuse detection (M6) is implemented for synthetic fixtures as a retroactive, flag-only pass, and XP decay exists as an opt-in rule set (`v2`); neither is validated on real data. The current implementation runs as a single process using the `eventsourcing` library with SQLite as its durable event store.
+An event-sourced gamification engine with deterministic XP, streaks, quests, badges, notifications, and experiments. Rule-based abuse detection (M6) is implemented for synthetic fixtures as a retroactive, flag-only pass (abuse rules `v3` by default); the only way it affects rewards is an opt-in 24-hour XP hold after a scripted-farming flag (new lessons earn 0 XP; nothing already awarded is revoked). XP decay on repeated lessons exists as the opt-in rule sets `v2` and `v3` (`v3` adds a 5 XP floor), and graded lessons with more than half the answers wrong earn no XP (pass mark). None of this is validated on real data. The current implementation runs as a single process using the `eventsourcing` library with SQLite as its durable event store.
 
 ## Architecture
 
@@ -45,7 +45,7 @@ flowchart LR
     Notifications["Notification engine"]
     Intervention["Intervention policy (remediation)<br/>stored decisions + remediation quest"]
     Sweep["Quest expiry sweep"]
-    Abuse["Abuse detection (flag-only)"]
+    Abuse["Abuse detection (flag-only;<br/>opt-in 24 h XP hold)"]
     Kafka["Kafka / Redpanda"]:::deferred
     Redis["Redis"]:::deferred
     Postgres["PostgreSQL"]:::deferred
@@ -64,7 +64,7 @@ flowchart LR
     classDef deferred stroke-dasharray: 5 5,fill:#f5f5f5,color:#666;
 ```
 
-The implemented path runs in one process: producers submit versioned events, ingestion validates and deduplicates them, and the learner aggregate emits durable domain events to the SQLite-backed eventsourcing store. Rebuildable projections provide learner summaries and leaderboard scores; the leaderboard service reads the SQLite leaderboard model and the reconciliation service repairs divergence against the projection's own applied-event log up to a pinned offset (see [ranking-consistency.md](docs/ranking-consistency.md) section 6). Experiment assignment and metrics consume event history. In-app and simulated-push notifications are implemented; a retroactive, flag-only abuse detection pass (`src/abuse`, see [abuse-detection.md](docs/abuse-detection.md)) reads stored facts and ingestion evidence outside ingestion and never changes learner state; Kafka/Redpanda, Redis, and PostgreSQL are deferred extension points rather than active runtime dependencies.
+The implemented path runs in one process: producers submit versioned events, ingestion validates and deduplicates them, and the learner aggregate emits durable domain events to the SQLite-backed eventsourcing store. Rebuildable projections provide learner summaries and leaderboard scores; the leaderboard service reads the SQLite leaderboard model and the reconciliation service repairs divergence against the projection's own applied-event log up to a pinned offset (see [ranking-consistency.md](docs/ranking-consistency.md) section 6). Experiment assignment and metrics consume event history. In-app, simulated-push and email notifications are implemented (email is simulated by default; the demo can send it over SMTP to a test inbox); a retroactive, flag-only abuse detection pass (`src/abuse`, see [abuse-detection.md](docs/abuse-detection.md)) reads stored facts and ingestion evidence outside ingestion and never changes existing learner state. When ingestion is configured with the opt-in XP hold (`IngestConfig.xp_hold`, used by the demo), a stored scripted-farming signal makes the *next* lessons within 24 hours earn 0 XP; Kafka/Redpanda, Redis, and PostgreSQL are deferred extension points rather than active runtime dependencies.
 
 ## Documentation
 
@@ -74,6 +74,9 @@ The implemented path runs in one process: producers submit versioned events, ing
 - [Metrics Framework](docs/metrics-framework.md)
 - [Traceability Matrix and Acceptance Tests](docs/traceability-matrix.md)
 - [Event Contracts](docs/event-contracts.md)
+- [Ranking Consistency and Cohort Semantics (M3)](docs/ranking-consistency.md)
+- [Simulator Specification](simulator/SPEC.md)
+- [Demo Run of Show](docs/demo/DEMO_SCRIPT.md)
 
 The architecture diagram above is the repository's single high-level architecture description. There is no separate architecture document, to avoid duplicate or conflicting descriptions.
 
@@ -123,6 +126,18 @@ python -m uvicorn webapp.app:app --port 8000
 ```
 
 Then open <http://localhost:8000/>.
+
+### Demo (split view and admin console)
+
+The demo UI is branded **Streakwise** (page titles and demo emails); it is the same engine. The quickest way to run the writable demo is:
+
+```bash
+scripts/start_demo.sh --fresh
+```
+
+Then open the learner split view at <http://localhost:8000/demo.html> (lesson page and learner home side by side) and the admin console at <http://localhost:8000/admin.html>. The full run of show, with the expected result of every step, is in [docs/demo/DEMO_SCRIPT.md](docs/demo/DEMO_SCRIPT.md).
+
+The demo differs from the engine defaults in three documented ways: new rewards use XP rule set `v3` (decay with a 5 XP floor) instead of `v1`, ingestion is configured with the 24-hour XP hold after a scripted-farming flag, and the 12 synthetic learners are grouped with a minimum cohort size of 2 (5 cohorts of a few learners each) instead of the 500–5,000 bounds, so that ranks have rivals.
 
 ### DEMO_MODE — writable sandbox
 
@@ -191,26 +206,30 @@ Example crontab lines (a tick is safe to repeat; running it twice for the same i
 
 ## Reproducing the evidence
 
-- `requirements-lock.txt` pins the exact dependency versions used for the recorded test runs.
+- `requirements-lock.txt` pins the exact versions of the engine dependencies (it does not include the web extras; the HTTP tests in `tests/demo` are skipped when `fastapi`/`httpx` are missing).
 - `scripts/capture_evidence.sh` writes the commit, environment and full pytest output to `docs/evidence/<short-sha>/`; run it only on a clean, committed tree.
-- `.github/workflows/ci.yml` runs the same install and test steps on GitHub Actions.
+- The recorded runs in `docs/evidence/`: `test_run_<sha>.txt` and `clean_install_<sha>.txt` come from early commits (October 2026) and cover only the tests that existed then (re-run `scripts/capture_evidence.sh` on a clean, committed tree to refresh them); `scale_xlarge_seed42.json` was re-run on the current code on 2026-11-21 (`scripts/run_scale_benchmark.py --profile xlarge --out docs/evidence/scale_xlarge_seed42.json`), and `scale_small_seed42.json` dates from 2026-11-13.
+- `docs/demo/smoke_results.json` and `docs/demo/smoke_output.txt` are rewritten by `scripts/demo_smoke.py` (70 checks against a fresh demo sandbox).
+- `.github/workflows/ci.yml` runs the same install and test steps on GitHub Actions for Python 3.11, 3.12 and 3.14 (each version runs to the end; it also installs `fastapi` and `httpx` so the web API tests run).
 
 ## Milestone Status
 
 | Milestone | Description | Status |
 |-----------|-------------|--------|
-| M1 | Canonical engagement events | ☑ (lesson_completed and checkpoint_attempted ingested; ID binding, late window, rule selection tested; engine-produced events and notifications carry correlation and causation ids and trace_delivery follows them) |
-| M2 | Deterministic gamification | ☑ (slice done: XP, streak/freezes, one quest, one badge, replay) |
+| M1 | Canonical engagement events | ☑ (lesson_completed, checkpoint_attempted and surface_viewed ingested; ID binding, late window, rule selection tested; engine-produced events and notifications carry correlation and causation ids and trace_delivery follows them) |
+| M2 | Deterministic gamification | ☑ (slice done: XP, streak/freezes, one quest, one badge, replay; opt-in decay rule sets `v2` and `v3` (5 XP floor); pass mark: a graded lesson with more than half the answers wrong earns 0 XP (`below_pass_mark`) and counts for nothing) |
 | M3 | Cohorts and leaderboards | ☑ (leaderboard duplicate, restart, offset and time handling tested; weekly cohort builder implemented (prior-week lesson tier, lesson-id module prefix, 30-day inactivity filter, split, merge into the nearest cohort, late arrivals counted toward sizes, bucket counts chosen from group size); leaderboard poller and weekly cycle available (invoked by the synthetic harness and demo seed); the builder, poller, weekly cycle and reconciliation are run by scripts/run_engine_tick.py and scheduled by the caller (cron); known gaps: sealing is caller-invoked, and member count covers learners assigned for the current weekly epoch; notification-log polling is the tick's poll step, scheduled by the caller (cron), not by the engine; reconciliation rebuilds from the projection's applied-event log) |
 | M4 | Intervention/quest policy | ☑ (implemented for synthetic fixtures: checkpoint_attempted ingestion, rule-based remediation policy with stored decisions, remediation_v1 quest (remediation completions only), deadline expiry sweep; policy and sweep run by scripts/run_engine_tick.py and scheduled by the caller (cron); an opt-in notification wrapper (`src/interventions/notification_hook.py`) sends one remediation notice per assign decision (push by default, deduped by proposal id), likewise run by scripts/run_engine_tick.py and scheduled by the caller (cron)) |
 | M5 | Multi-channel notifications | ☑ (in-app, simulated-push and simulated-email slice implemented; email shares the push guardrails: the daily cap of 5 messages per learner per channel (in-app, push and email each have their own 5, reset at the learner's local midnight); each scheduled exp_007 streak-risk reminder is sent on in-app, push and email at the same time (email when the learner's preferences have an address) and quiet hours 22:00–08:00; the exp_007 streak-risk reminder generator (`src/notifications/streak_risk.py`) and the experiment variant flag on notification proposals exist, and cap breaches of experiment proposals are recorded as guardrail violations; the generator skips learners whose streak can no longer be extended (same continuation rule as `calculate_streak`, a freeze can bridge one missed day) and applies the exp_007 exclusions (platform tenure under 3 days from the learner's Created event, opt-out of push or of streak_risk); the reminder sweep is run by scripts/run_engine_tick.py, scheduled by the caller (cron) (it can record one decision row per learner outcome in the experiment store), and the recorded violations are read by the M7 runner (`run_experiment` counts rows with reason `daily_cap_exceeded` per learner per UTC day; a treatment-arm breach invalidates the run)) |
-| M6 | Abuse detection | ☑ (implemented for synthetic fixtures; flag-only; the abuse pass is run by scripts/run_engine_tick.py (flag-only), scheduled by the caller (cron); thresholds unvalidated on real data; XP decay is opt-in ruleset `v2`) |
+| M6 | Abuse detection | ☑ (implemented for synthetic fixtures; abuse rules `v3` are the default (`v1` and `v2` kept, pinned); flag-only: signals stay `suspected` and nothing already awarded is revoked; an opt-in 24 h XP hold after a scripted-farming flag makes new lessons earn 0 XP (`IngestConfig.xp_hold`, used by the demo); the abuse pass is run by scripts/run_engine_tick.py, scheduled by the caller (cron); thresholds unvalidated on real data; XP decay is the opt-in rule sets `v2` and `v3`) |
 | M7 | Experimentation and metrics | ☑ (experiment assignment recorded as `ExperimentAssigned` and treatment-surface exposure as `ExperimentExposed` (AT-12 and AT-13 passing; synthetic fixtures; control learners never produce exposure events); the experiment runner `run_experiment`, the eligibility and decision stores, the manual entry point `scripts/run_experiment.py` (`assign`, `sweep`, `report`; assign and the streak-risk sweep are run by scripts/run_engine_tick.py, scheduled by the caller (cron), and `report` is run by scripts/run_experiment.py; notification preferences come from a JSON file, not the event log) and the real-log reproduction check exist and are tested; it reports per-arm mastery (completions derived from the stored attempts), exposure, fatigue (messages per learner per day over each learner's observed window of at most 14 days, delivered-over-cap and opt-out counts), a treatment-minus-control contrast and a sample-ratio check, and marks the run invalid with `invalid_reasons` (treatment cap breach, treatment delivered-over-cap, gaming share, sample ratio, missing eligibility records, no eligible learners, mixed assessment versions) while still reporting every number; acting on that verdict is the caller's job and is not automated; exposure is not consumed by the metric (a per-arm diagnostic, control None); simulator implemented for synthetic data (pilot v1 and the generator functions, see `simulator/SPEC.md`); AT-18 passing, simulator-backed synthetic) |
-| M8 | Scale and recovery | ☑ (pinned synthetic workload, multi-learner full-state rebuild AT-15 (the wipe destroys all derived state, i.e. the leaderboard and projections, and rebuilds from the retained event log with a fresh application instance; the event log itself is not wiped; synthetic population is small: 15 learners, 843 replayed entries), leaderboard p50/p95/p99 latency bounds, DLQ outage recovery drain, raw-log experiment reproduction). A separate benchmark (scripts/run_scale_benchmark.py, xlarge profile; results in report.json) runs 1000 learners and 114974 events, with bit-identical rebuild, leaderboard latency bounds, DLQ outage recovery and engine and experiment reproduction. |
+| M8 | Scale and recovery | ☑ (pinned synthetic workload, multi-learner full-state rebuild AT-15 (the wipe destroys all derived state, i.e. the leaderboard and projections, and rebuilds from the retained event log with a fresh application instance; the event log itself is not wiped; synthetic population is small: 15 learners, 843 replayed entries), leaderboard p50/p95/p99 latency bounds, DLQ outage recovery drain, raw-log experiment reproduction). A separate benchmark (scripts/run_scale_benchmark.py, xlarge profile; results in [docs/evidence/scale_xlarge_seed42.json](docs/evidence/scale_xlarge_seed42.json)) runs 1000 learners and 114974 events, with bit-identical rebuild, leaderboard latency bounds, DLQ outage recovery and engine and experiment reproduction. |
 
-M1 means events from the learning app are validated against versioned schemas before acceptance (currently `lesson_completed` and `checkpoint_attempted` are ingested), while M2 means XP, streaks, freezes, one quest, and one badge are computed deterministically and can be rebuilt exactly from the event history. M3 means synthetic learners are deterministically grouped into bounded cohorts (500–5,000 members; the 30-day inactivity filter and nearest-cohort merging run inside the weekly cohort builder; the builder, a leaderboard poller and a weekly cycle are run by scripts/run_engine_tick.py and scheduled by the caller (cron), not by the engine itself) and ranked at cohort and global levels via SQLite projections with exact tie-breaking, measurable latency, and differential reconciliation (AT-7).
+M1 means events from the learning app are validated against versioned schemas before acceptance (currently `lesson_completed`, `checkpoint_attempted` and `surface_viewed` are ingested), while M2 means XP, streaks, freezes, one quest, and one badge are computed deterministically and can be rebuilt exactly from the event history. M3 means synthetic learners are deterministically grouped into bounded cohorts (500–5,000 members by default; the small synthetic populations of the AT-15 harness and the demo pass a smaller minimum; the 30-day inactivity filter and nearest-cohort merging run inside the weekly cohort builder; the builder, a leaderboard poller and a weekly cycle are run by scripts/run_engine_tick.py and scheduled by the caller (cron), not by the engine itself) and ranked at cohort and global levels via SQLite projections with exact tie-breaking, measurable latency, and differential reconciliation (AT-7).
 
-## Planned Placeholder Tests
+## Acceptance Test Files
+
+These started as planned placeholders; all of them are now implemented and passing.
 
 | Test | Milestone | Status |
 |------|-----------|--------|

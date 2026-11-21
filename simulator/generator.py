@@ -6,7 +6,6 @@ This module provides the synthetic event generator for the simulator.
 
 import hashlib
 import math
-from typing import TypedDict, List, Dict
 from dataclasses import dataclass
 
 @dataclass

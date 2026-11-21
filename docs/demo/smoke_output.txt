@@ -67,4 +67,5 @@ PASS frozen_clock_lessons_flag_live_once
 PASS second_episode_flagged_again
 PASS redo_x4_flags_scripted_farming
 PASS push_lands_in_outbox
-69 passed, 0 failed, 69 checks
+PASS below_pass_mark_no_xp_then_pass_full
+70 passed, 0 failed, 70 checks

@@ -1,6 +1,6 @@
 # Abuse Detection (M6)
 
-> **Status: implemented for synthetic fixtures, flag-only.** The thresholds are conservative placeholders
+> **Status: implemented for synthetic fixtures, flag-only (plus an opt-in 24 h XP hold, see below).** The thresholds are conservative placeholders
 > checked only against seeded synthetic personas. Nothing here is validated on real learner data, and M6 is not
 > claimed complete or validated.
 
@@ -25,8 +25,9 @@ ingestion ──► event store (Learner.LessonCompleted, XPAwarded)      ┐
   projection consumes) and `EvidenceStore.list()`. It never writes to the event store or the evidence store.
 - Detectors (`src/abuse/detectors.py`) are pure functions over frozen dataclasses (`CompletionFact`, `EvidenceFact`)
   with no database and no clock. Every threshold comes from `src/abuse/abuse_rules.json`.
-- **Flag-only.** Detection never changes XP, streaks, badges, quests or leaderboards. Signals are always
-  `suspected`; the store rejects any other status. `confirmed` and any XP correction need a future, explicitly
+- **Flag-only.** Detection never changes XP already awarded, streaks, badges, quests or leaderboards. Signals are always
+  `suspected`; the store rejects any other status. The one effect on rewards is the opt-in XP hold described in
+  "XP hold after scripted farming" below, which only decides *future* lesson rewards. `confirmed` and any XP correction need a future, explicitly
   authorized action.
 - `run(shadow=True)` returns signals without writing, to trial other thresholds or rule versions
   (`compare_runs` diffs two shadow runs).
@@ -89,7 +90,8 @@ to `v1`'s content. With `N` prior accepted `lesson`/absent-kind completions of t
 learner, XP is `E` for `N = 0` and `max(0, E*first_repeat_percent//100 - step_xp*(N-1))` after that: 100, 50, 30,
 10, 0. `review` and `remediation` neither decay nor advance `N`. The amount and `N` are decided in
 `Learner.complete_lesson` and stored on `XPAwarded` (`repeat_index`, `completion_kind`); replay never recomputes.
-The XP rule set `v2` is opt-in (`register_decay_rulesets()`), and the XP rule set `v1` remains the default and is unchanged.
+The XP rule sets `v2` and `v3` are opt-in (`register_decay_rulesets()`); `v3` is `v2` with `floor_xp: 5`, so repeats
+never fall below 5 XP (100, 50, 30, 10, 5, 5, ...). The XP rule set `v1` remains the default and is unchanged.
 
 ## Cohort gaming guardrail (metrics-framework 5.3, exp_007)
 
@@ -163,8 +165,8 @@ new lesson completions are accepted (streak, quests and the log are unchanged) b
 **0 XP** with `withheld_reason: scripted_farming_hold` stored on the `XPAwarded` fact (`src/abuse/xp_hold.py`,
 `IngestConfig.xp_hold`). Replay reads the stored 0, so rebuilds reproduce it. Remediation and review completions are
 not held. After 24 hours with no new farming episode, lessons earn XP again. This amends ADR 0003, which made
-detection purely flag-only. Abuse
-rules `v1` still lacks these checks by design (it is immutable); the default is now `v2`.
+detection purely flag-only. The hold is opt-in: the engine default (`IngestConfig.xp_hold = None`) applies no hold; the
+demo enables it. Abuse rules `v1` still lacks the newer checks by design (it is immutable); the default is `v3`.
 
 ## How to run
 
@@ -174,7 +176,7 @@ python -m tests.abuse.run_evaluation
 ```
 
 ```python
-service = AbuseDetectionService(application, evidence_store, AbuseSignalStore(db_path), rules_version="v2")  # the default
+service = AbuseDetectionService(application, evidence_store, AbuseSignalStore(db_path))  # rules_version defaults to "v3"
 summary = service.run()                 # stores new signals, returns a RunSummary
 trial = service.run(shadow=True, rules_version=other_rules)   # writes nothing
 ```
@@ -189,7 +191,7 @@ trial = service.run(shadow=True, rules_version=other_rules)   # writes nothing
   three times within an hour would be flagged.
 - Thresholds are **unvalidated on real data**; the evaluation is synthetic and small. Precision and recall here are not
   estimates of real-world performance.
-- **No automatic corrections.** Nothing is clawed back, nothing is confirmed. `confirmed` and XP corrections are a
+- **No automatic corrections.** Nothing is clawed back, nothing is confirmed (the opt-in XP hold only affects new lessons). `confirmed` and XP corrections are a
   future authorized-action phase.
 - Not covered: shared accounts, sandbagging or league manipulation, and bots that add jitter or spread repeats thin
   (see the borderline cases). The cadence rule will flag perfectly regular humans.

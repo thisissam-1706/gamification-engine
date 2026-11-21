@@ -1,6 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "NotificationExposurePayload",
+  "$comment": "Design-time contract, not validated at runtime: no code loads this schema. It describes the payload fields; the stored engine fact may also carry provenance fields (correlation_id, causation_id). See docs/event-contracts.md, 'Schema files'.",
   "type": "object",
   "required": [
     "candidate_id",

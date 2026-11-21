@@ -20,6 +20,7 @@ The four functions in `simulator/generator.py` that implement the Bias-Avoidance
 ### Limits
 - Exposure only affects an attempt if it precedes the learner's would-be attempt time (drawn independently of exposure).
 - Eligibility, decision and delivery are simulator stand-ins for M4/M5.
+- The pilot's notification cap (`CAP = 5` in `simulator/pilot.py`) is a single-channel cap over a rolling 24 hours, the model the engine used when the pilot was written. The engine's dispatcher now caps 5 messages per learner per channel per local calendar day; the pilot keeps the older model, so its cap numbers are a stand-in, not a replay of the dispatcher.
 - Synthetic data only; results do not demonstrate real-world causality.
 
 ## Personas

@@ -6,7 +6,8 @@
     "exp_id",
     "variant",
     "hash_version",
-    "propensity"
+    "propensity",
+    "assigned_at"
   ],
   "properties": {
     "exp_id": {
@@ -29,6 +30,32 @@
       "minimum": 0,
       "maximum": 1,
       "description": "Probability of assigning the selected variant."
+    },
+    "assigned_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Timezone-aware assignment time supplied by the caller."
+    },
+    "source_event_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Event id of the source delivery that led to this fact (provenance only)."
+    },
+    "correlation_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Correlation id of the triggering delivery (provenance only)."
+    },
+    "causation_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Event id of the delivery that started the chain (provenance only)."
     }
   },
   "additionalProperties": false

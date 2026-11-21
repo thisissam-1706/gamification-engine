@@ -2,7 +2,7 @@
 
 Shared helpers live in tests/experiments/support.py (no helper is imported from another test file).
 
-Assumptions the brief does not fix (also listed in docs/audit/m7-harden.md):
+Assumptions the brief does not fix:
 * test 3: ``MasteryInputs.ignored_unassigned_attempts`` counts CheckpointAttempted events of learners with
   no ExperimentAssigned for exp_id (any assessment). Assigned learners removed by ``eligible_ids`` are
   not "unassigned" and are not counted there.

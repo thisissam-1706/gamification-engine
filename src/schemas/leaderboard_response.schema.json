@@ -1,6 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "LeaderboardResponse",
+  "$comment": "Design-time contract for a leaderboard query API; not validated at runtime (the leaderboard is read through LeaderboardService in Python). See docs/event-contracts.md, 'Schema files'.",
   "type": "object",
   "required": [
     "scope_type",
@@ -13,19 +14,30 @@
   "properties": {
     "scope_type": {
       "type": "string",
-      "enum": ["cohort", "global"]
+      "enum": [
+        "cohort",
+        "global"
+      ]
     },
     "scope_id": {
       "type": "string"
     },
     "epoch": {
-      "type": ["string", "integer"]
+      "type": [
+        "string",
+        "integer"
+      ]
     },
     "entries": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["rank", "subject_id", "score", "first_reached_at"],
+        "required": [
+          "rank",
+          "subject_id",
+          "score",
+          "first_reached_at"
+        ],
         "properties": {
           "rank": {
             "type": "integer",

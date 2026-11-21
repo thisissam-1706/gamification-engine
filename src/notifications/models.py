@@ -1,7 +1,6 @@
 """Data models and value objects for multi-channel notifications (Milestone M5)."""
 
 from dataclasses import dataclass, field
-from datetime import datetime
 from enum import Enum
 from typing import Any, Mapping
 

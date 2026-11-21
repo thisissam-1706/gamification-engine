@@ -1,12 +1,26 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Quest Expired payload",
+  "$comment": "Design-time contract, not validated at runtime: no code loads this schema. It describes the payload fields; the stored engine fact may also carry provenance fields (correlation_id, causation_id). See docs/event-contracts.md, 'Schema files'.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["assignment_id", "quest_id", "expired_at"],
+  "required": [
+    "assignment_id",
+    "quest_id",
+    "expired_at"
+  ],
   "properties": {
-    "assignment_id": {"type": "string", "minLength": 1},
-    "quest_id": {"type": "string", "minLength": 1},
-    "expired_at": {"type": "string", "format": "date-time"}
+    "assignment_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "quest_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "expired_at": {
+      "type": "string",
+      "format": "date-time"
+    }
   }
 }

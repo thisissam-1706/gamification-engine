@@ -42,7 +42,25 @@
         "remediation"
       ],
       "description": "Classification of the completed learning activity."
+    },
+    "questions_correct": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Optional. Number of questions answered correctly in this completion. With questions_total, more than 50% wrong earns no XP (src/state_machine/pass_mark.py)."
+    },
+    "questions_total": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Optional. Number of questions in this completion. Must be given together with questions_correct, and questions_correct may not exceed it."
     }
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "dependencies": {
+    "questions_correct": [
+      "questions_total"
+    ],
+    "questions_total": [
+      "questions_correct"
+    ]
+  }
 }

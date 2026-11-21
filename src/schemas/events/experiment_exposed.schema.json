@@ -6,7 +6,9 @@
     "exp_id",
     "variant",
     "exposure_surface",
-    "assignment_ref"
+    "assignment_ref",
+    "view_id",
+    "exposed_at"
   ],
   "properties": {
     "exp_id": {
@@ -28,6 +30,37 @@
       "type": "string",
       "minLength": 1,
       "description": "Reference to the experiment assignment event."
+    },
+    "view_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Identity of the view; recording is idempotent on it."
+    },
+    "exposed_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "The source event's occurred_at; timezone-aware."
+    },
+    "source_event_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Event id of the source delivery that led to this fact (provenance only)."
+    },
+    "correlation_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Correlation id of the triggering delivery (provenance only)."
+    },
+    "causation_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Event id of the delivery that started the chain (provenance only)."
     }
   },
   "additionalProperties": false

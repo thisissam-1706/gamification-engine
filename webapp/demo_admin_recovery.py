@@ -25,7 +25,7 @@ EVIDENCE_DIR = REPO_ROOT / "docs" / "evidence"
 # Not part of the checksum: leaderboard_reconciliation_audits is an audit log written by the
 # reconciler (engine tick), not derived from events, so a rebuild cannot recreate it. Every other
 # column, including last_updated_at / applied_at / processed_at, is derived from event times and
-# offsets and must match after a rebuild (verified empirically, see docs/audit/demo-06-d9).
+# offsets and must match after a rebuild (verified empirically by the wipe-and-rebuild smoke check).
 EXCLUDED_TABLES: set[str] = {"leaderboard_reconciliation_audits"}
 EXCLUDED_COLUMNS: dict[str, set[str]] = {}
 

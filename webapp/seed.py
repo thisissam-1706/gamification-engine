@@ -6,7 +6,7 @@ The engine is driven only through its public methods (``Learner.complete_lesson`
 Nothing here is imported by ``views.py``; the API never writes to these stores.
 
 Base activity comes from ``generate_synthetic_workload`` (the simulator/pilot code
-cannot produce lessons, XP or streaks; see docs/audit/frontend-01-recon.md).
+cannot produce lessons, XP or streaks).
 Scripted overlays then add the states the workload alone never produces
 (a freeze, a missed day, a badge, remediation quests, notifications).
 
@@ -18,7 +18,6 @@ Files written to ``webapp/demo_data/``:
 """
 
 import json
-import sqlite3
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -35,7 +34,6 @@ from src.notifications.models import (
     LearnerPreferences,
     NotificationCategory,
     NotificationProposal,
-    NotificationStatus,
 )
 from src.notifications.store import NotificationStore
 from src.scale_and_recovery.rebuild import SYNTHETIC_BUCKETS, SYNTHETIC_MIN_COHORT_SIZE

@@ -1,6 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "BadgeAwarded payload",
+  "$comment": "Design-time contract, not validated at runtime: no code loads this schema. It describes the payload fields; the stored engine fact may also carry provenance fields (correlation_id, causation_id). See docs/event-contracts.md, 'Schema files'.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -11,10 +12,27 @@
     "qualifying_action_ids"
   ],
   "properties": {
-    "award_id": {"type": "string", "minLength": 1},
-    "badge_id": {"type": "string", "minLength": 1},
-    "criteria_version": {"type": "string", "minLength": 1},
-    "awarded_at": {"type": "string", "format": "date-time"},
-    "qualifying_action_ids": {"type": "array", "items": {"type": "string"}}
+    "award_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "badge_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "criteria_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "awarded_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "qualifying_action_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
   }
 }

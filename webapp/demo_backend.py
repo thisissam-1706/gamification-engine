@@ -27,8 +27,6 @@ from src.ingestion.validation import expected_dedup_key
 from src.interventions.notification_hook import run_remediation_with_notification
 from src.leaderboard.projection import LeaderboardProjection
 from src.leaderboard.store import SQLiteLeaderboardStore
-from src.notifications.dispatcher import NotificationDispatcher
-from src.notifications.models import ChannelType, LearnerPreferences
 from src.notifications.store import NotificationStore
 from src.scale_and_recovery.rebuild import read_all_notifications
 from src.state_machine.rules import RULESETS, register_decay_rulesets
@@ -37,9 +35,9 @@ from webapp import demo_notify
 from webapp.seed import AS_OF, seed
 from webapp.seed import learner_uuid as seed_learner_uuid
 
-# Opt in to the packaged decay rule set (v2) so the admin rule-version demo has a second
-# version to switch to. Default behaviour is unchanged: new events still use v1.
-register_decay_rulesets()
+# The demo opts in to the packaged decay rule sets (v2, v3) when a sandbox is opened or created
+# (Sandbox.__init__, create_sandbox), not at import time: importing this module must not change
+# the process-wide rule registry, or every other caller (and the test suite) would see v2/v3.
 
 # New demo rewards use v3 (repeat decay with a 5 XP floor) unless a learner is switched in the admin.
 DEMO_DEFAULT_RULE_VERSION = "v3"
@@ -241,6 +239,7 @@ class Sandbox:
     """Sandbox environment managing live state copied from golden seed data."""
 
     def __init__(self, path: Path | str) -> None:
+        register_decay_rulesets()  # idempotent; the demo rewards use v3 and the admin can switch to v2
         self.root = Path(path).resolve()
         self.golden_dir = self.root / "golden"
         self.live_dir = self.root / "live"
@@ -548,8 +547,14 @@ class Sandbox:
         occurred_at: datetime | str | None = None,
         completion_id: str | None = None,
         correlation_id: str | None = None,
+        questions_correct: int | None = None,
+        questions_total: int | None = None,
     ) -> dict[str, Any]:
-        """Submits a lesson completion envelope to ingestion inside a process-wide lock."""
+        """Submits a lesson completion envelope to ingestion inside a process-wide lock.
+
+        ``questions_correct`` / ``questions_total`` carry the lesson page's score; more than half
+        wrong earns no XP (src/state_machine/pass_mark.py).
+        """
         with _submit_lock:
             # 1. Check learner ID validity
             try:
@@ -593,6 +598,9 @@ class Sandbox:
                 }
                 if completion_kind is not None:
                     payload["completion_kind"] = str(completion_kind)
+                if questions_correct is not None and questions_total is not None:
+                    payload["questions_correct"] = int(questions_correct)
+                    payload["questions_total"] = int(questions_total)
 
                 envelope: dict[str, Any] = {
                     "event_id": evt_id,
@@ -765,6 +773,7 @@ class Sandbox:
 
 def create_sandbox(path: Path | str) -> Sandbox:
     """Seeds fresh stores into <path>/golden, truncates WAL, copies to <path>/live, and creates evidence/demo_state."""
+    register_decay_rulesets()  # idempotent; see Sandbox.__init__
     root = Path(path).resolve()
     golden_dir = root / "golden"
     live_dir = root / "live"

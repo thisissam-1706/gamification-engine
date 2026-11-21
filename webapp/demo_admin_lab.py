@@ -10,7 +10,7 @@ from pydantic import BaseModel
 
 from src.state_machine.projection import rebuild_learner_state
 from src.state_machine.rules import RULESETS
-from webapp import demo_admin, views
+from webapp import demo_admin
 
 
 class LateRequest(BaseModel):

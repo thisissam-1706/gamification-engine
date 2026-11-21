@@ -1,5 +1,7 @@
 # Event Contracts
 
+_Changelog: 2026-11-21 — consistency pass: the quest-expiry sweep is now run by `scripts/run_engine_tick.py`; added "Schema files" (which schemas are validated and which are design-time contracts); `experiment_assigned.schema.json` and `experiment_exposed.schema.json` now list every field the stored events carry. The pass mark and XP rule set `v3` were documented on 2026-11-21 in the sections below._
+
 _Changelog: 2026-11-06 — added `learning.surface_viewed` v1 (third ingested source event type) and the `ExperimentAssigned` and `ExperimentExposed` domain events (M7)._
 
 _Changelog: 2026-11-02 — the checkpoint-attempt overview now says the first attempt is read by the M4 remediation policy (final M4 consistency pass)._
@@ -29,6 +31,7 @@ This is a source learning event. It records that a learner completed a specific 
 | `lesson_version` | No | Immutable version of the lesson definition completed. |
 | `timezone` | Yes | Learner IANA timezone at completion, such as `Asia/Kolkata`. |
 | `completion_kind` | No | One of `lesson`, `review`, or `remediation`. Ingestion passes it to the aggregate (M6). Absent means `lesson`. `review` and `remediation` never decay and do not count toward the repeat count `N`. |
+| `questions_correct`, `questions_total` | No (both or neither) | The score of this completion: an integer `questions_correct` >= 0 and `questions_total` >= 1, with `questions_correct` <= `questions_total` (a payload breaking this is rejected as `schema_invalid`). When more than half of the answers are wrong (`2 * (total - correct) > total`), the completion is **below the pass mark**: the aggregate stores only an `XPAwarded` of 0 XP with `withheld_reason = "below_pass_mark"` and `occurred_at` set, and no `LessonCompleted`, so the attempt does not count toward the streak, quests or the repeat count `N`. Exactly half wrong passes. Without a score the completion passes (all events stored before 2026-11-21). See `src/state_machine/pass_mark.py`. |
 
 The machine-readable payload contract is [lesson_completed.schema.json](../src/schemas/events/lesson_completed.schema.json).
 
@@ -70,6 +73,8 @@ Two optional fields are stored on the `XPAwarded` fact (see [xp_awarded.schema.j
 |---|---|
 | `repeat_index` | `N` at decision time: prior accepted `lesson`/absent-kind completions of the same `lesson_id` by the same learner. Recorded as `0` for `review` and `remediation` completions, which have no repeat position. |
 | `completion_kind` | The kind of the rewarded completion (`lesson`, `review`, `remediation`), or absent. |
+| `withheld_reason` | Absent on normal awards. `scripted_farming_hold` (24 h after a farming flag) or `below_pass_mark` (more than half wrong) when the amount was decided as 0. |
+| `occurred_at` | Absent on normal awards; set on a `below_pass_mark` award, which has no `LessonCompleted` to take its time from. |
 
 The amount is decided once, in `Learner.complete_lesson`. Under a decay rule set it is `E` for `N = 0` and `max(floor_xp, E * first_repeat_percent // 100 - step_xp * (N - 1))` for `N >= 1`, with `floor_xp` 0 when the rule set does not set it (v2: 100, 50, 30, 10, 0; v3, `floor_xp: 5`: 100, 50, 30, 10, 5, 5, ...). Replay and the leaderboard read the stored `xp_amount`; neither recomputes it.
 
@@ -259,7 +264,7 @@ record the same value:
   saves nothing.
 - **Window:** an expired quest does not reset the 14-day remediation window; that is measured from the `assign` decision's
   `decided_at`.
-- **Scheduling:** nothing schedules the sweep yet. It is invoked explicitly, like reconciliation (`src/leaderboard/reconciliation.py`).
+- **Scheduling:** the engine has no built-in scheduler. The sweep is invoked explicitly: `scripts/run_engine_tick.py` runs it on every tick (the caller schedules the tick, for example with cron), like reconciliation (`src/leaderboard/reconciliation.py`).
 
 ## Surface view (`learning.surface_viewed`), v1
 
@@ -380,3 +385,20 @@ Source events from the learning app carry a `correlation_id` and a `causation_id
 - A notification re-queued by `release_rescheduled` or replayed by `replay_dlq` keeps the ids stored with it.
 - Events stored before this change have no such fields. They read back as `None` and still replay; a database from before this change opens, adds the notification columns in place, and its old rows have `None` ids.
 - `trace_delivery` lists the stored events whose `causation_id` is the delivery's `event_id` (`derived_events`) and, when given a notification store, the notification proposals with the same `causation_id` (`notifications`).
+
+## Schema files
+
+`src/schemas/` holds one JSON Schema per contract. They fall into three groups:
+
+| Group | Files | How they are used |
+|---|---|---|
+| Validated at ingestion | `envelope.schema.json`, `events/lesson_completed.schema.json`, `events/checkpoint_attempted.schema.json`, `events/surface_viewed.schema.json` | Loaded by `src/ingestion/service.py` and `src/ingestion/validation.py`; a payload that fails is rejected as `schema_invalid`. |
+| Checked by tests | `events/xp_awarded.schema.json`, `events/abuse_signal_raised.schema.json` | Engine output is validated against them in the test suite (`tests/state_machine/test_xp_decay.py`, `tests/abuse/`). |
+| Design-time contracts | `events/experiment_assigned`, `events/experiment_exposed`, `events/badge_awarded`, `events/streak_updated`, `events/quest_assigned`, `events/quest_progressed`, `events/quest_completed`, `events/quest_expired`, `events/cohort_assigned`, `events/checkpoint_completed`, `events/notification_candidate`, `events/notification_delivered`, `events/notification_failed`, `events/notification_exposure`, `cohort_definition`, `leaderboard_query`, `leaderboard_response` | Not loaded by any code. They document the payload fields of engine facts (or, for `checkpoint_completed`, the cohort definition and the leaderboard query/response, contracts that are designed but not ingested or served over HTTP). Each carries a `$comment` saying so. |
+
+Notes on the design-time contracts:
+
+- `experiment_assigned` and `experiment_exposed` list every field of the stored `ExperimentAssigned` and `ExperimentExposed` events, including the optional provenance fields (`source_event_id`, `correlation_id`, `causation_id`).
+- The other engine-fact schemas describe the payload fields only. The stored facts also carry `correlation_id` and `causation_id` (see "Correlation and causation on engine-produced events" above), which these schemas do not list.
+- The notification schemas use the design name `candidate_id`; the implementation calls the same identifier `proposal_id` (`NotificationProposal.proposal_id`, the `notification_proposals` table) and stores notification facts in SQLite tables rather than as learner events.
+

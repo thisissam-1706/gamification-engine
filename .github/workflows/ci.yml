@@ -6,8 +6,10 @@ jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
+      # Run every Python version to the end, so one failing version does not cancel the others.
+      fail-fast: false
       matrix:
-        python-version: ["3.11", "3.12"]
+        python-version: ["3.11", "3.12", "3.14"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -15,4 +17,6 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - run: pip install -r requirements-lock.txt
       - run: pip install -e . --no-deps
+      # The web API tests (tests/demo) use fastapi's TestClient; they are skipped without these.
+      - run: pip install fastapi httpx
       - run: timeout 900 python -m pytest -q

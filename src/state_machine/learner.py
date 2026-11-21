@@ -10,6 +10,7 @@ if TYPE_CHECKING:
 from src.experiments.assignment import HASH_VERSION, assign
 from src.experiments.exposure import EXPOSURE_SURFACES, ExposureRefused
 
+from .pass_mark import PASS_MARK_REASON, below_pass_mark
 from .quest_definitions import quest_definition_for
 from .rules import (
     calculate_streak,
@@ -118,8 +119,15 @@ class Learner(Aggregate):
         causation_id: str | None = None,
         completion_kind: str | None = None,
         xp_withheld_reason: str | None = None,
+        questions_correct: int | None = None,
+        questions_total: int | None = None,
     ) -> bool:
         """Accepts one completion and emits its one durable XP reward.
+
+        A completion graded below the pass mark (more than half of ``questions_total`` wrong,
+        see ``pass_mark.py``) emits only a 0 XP award with ``withheld_reason="below_pass_mark"``:
+        no LessonCompleted, so it does not count toward the streak, quests or decay. Its reward
+        id is still recorded, so a resend of the same completion cannot earn XP later.
 
         ``xp_withheld_reason`` (e.g. a scripted-farming hold) makes the reward of a lesson-kind
         completion 0 XP and stores the reason on the XPAwarded fact; the completion itself,
@@ -137,6 +145,23 @@ class Learner(Aggregate):
         reward_id = f"xp:{completion_id}"
         if reward_id in self.awarded_reward_ids:
             return False
+
+        if below_pass_mark(questions_correct, questions_total):
+            self._award_xp(
+                reward_id,
+                completion_id,
+                0,
+                rule_version,
+                None,
+                completion_kind,
+                correlation_id=correlation_id,
+                causation_id=source_event_id,
+                withheld_reason=PASS_MARK_REASON,
+                occurred_at=(
+                    occurred_at.isoformat() if isinstance(occurred_at, datetime) else occurred_at
+                ),
+            )
+            return True
 
         if activity_date is None and occurred_at is not None and timezone is not None:
             activity_date = local_activity_date(occurred_at, timezone)
@@ -687,9 +712,12 @@ class Learner(Aggregate):
         # before M1, which replay with these defaults.
         correlation_id: str | None = None,
         causation_id: str | None = None,
-        # Why the amount was decided as 0 (e.g. scripted_farming_hold). Absent (None) on
-        # events stored before the hold existed and on normal awards.
+        # Why the amount was decided as 0 (scripted_farming_hold or below_pass_mark). Absent
+        # (None) on events stored before these rules existed and on normal awards.
         withheld_reason: str | None = None,
+        # Completion time, set only on a below_pass_mark award (it has no LessonCompleted to
+        # take the time from); read by the leaderboard projection. Not folded into state.
+        occurred_at: str | None = None,
     ) -> None:
         """Applies an already-decided XP award; it never evaluates a rule."""
         lesson_id = self.completion_lessons.get(completion_id)

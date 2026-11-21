@@ -1,7 +1,6 @@
 """Domain models and value objects for cohorts and leaderboards."""
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from typing import Literal
 
 

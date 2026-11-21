@@ -1,6 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "CohortDefinition",
+  "$comment": "Design-time contract, not validated at runtime: cohort definitions are the CohortDefinition dataclass in src/leaderboard/models.py. See docs/event-contracts.md, 'Schema files'.",
   "type": "object",
   "required": [
     "cohort_id",
@@ -17,11 +18,17 @@
     },
     "strategy": {
       "type": "string",
-      "enum": ["activity_volume", "course_module"],
+      "enum": [
+        "activity_volume",
+        "course_module"
+      ],
       "description": "Grouping strategy used for cohort formation."
     },
     "epoch": {
-      "type": ["string", "integer"],
+      "type": [
+        "string",
+        "integer"
+      ],
       "description": "Calendar week or versioned epoch identifier (e.g. '2026-W41' or 202641)."
     },
     "min_size": {
@@ -38,7 +45,11 @@
     },
     "status": {
       "type": "string",
-      "enum": ["forming", "active", "finalized"],
+      "enum": [
+        "forming",
+        "active",
+        "finalized"
+      ],
       "default": "forming",
       "description": "Lifecycle status of the cohort."
     }

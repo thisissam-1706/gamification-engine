@@ -24,7 +24,9 @@ from fastapi.testclient import TestClient  # noqa: E402
 from webapp.app import app  # noqa: E402
 
 client = TestClient(app)
-PROFILE = json.loads((ROOT / "webapp" / "demo_data" / "ui_profile.json").read_text())
+# Read the names from the sandbox this run just seeded, not from webapp/demo_data (the read-only
+# snapshot written by `python -m webapp.seed`, which can be older than the current seed).
+PROFILE = json.loads((Path(os.environ["DEMO_SANDBOX_PATH"]) / "live" / "ui_profile.json").read_text())
 ID = {info["display_name"]: lid for lid, info in PROFILE["learners"].items()}
 SEED_CLOCK = "2026-10-16T18:00:00Z"
 
@@ -183,7 +185,7 @@ def m5():
     check("consent_suppression_push_opted_out", f[0]["reason"] == "opt_out", str(f), "Ananya (push off): suppressed opt_out")
     f = send("Diya Menon", "email")
     check("email_delivered", f[0]["status"] == "dispatched", str(f), "Diya: email delivered")
-    set_clock(arjun, "2026-10-18T12:00:00Z")  # past the 24 h cap window
+    set_clock(arjun, "2026-10-18T12:00:00Z")  # a later local day, so the daily cap has reset
     post(f"{base}/outage", {"channel": "push", "active": True})
     f = send(arjun, "push")
     t = get(base).json()
@@ -364,6 +366,23 @@ def fixes():
     box = get(f"{admin('Aarav Mehta')}/notifications/outbox").json()["messages"]
     check("push_lands_in_outbox", p["status"] == "dispatched" and box and box[0]["channel"] == "push", str(box[:1]),
           "delivered push shown as a phone notification")
+
+    # Pass mark: more than half wrong earns no XP and counts for nothing; a pass then earns full XP.
+    who = "Ananya Das"
+    set_clock(who, "2026-10-26T11:00:00Z")
+    before = snap(who)
+    failed = post(f"/api/demo/learners/{ID[who]}/lesson-complete",
+                  {"lesson_id": "fractions_basics_5", "questions_correct": 2, "questions_total": 5}).json()
+    mid = snap(who)
+    passed = post(f"/api/demo/learners/{ID[who]}/lesson-complete",
+                  {"lesson_id": "fractions_basics_5", "questions_correct": 3, "questions_total": 5}).json()
+    after = snap(who)
+    check("below_pass_mark_no_xp_then_pass_full",
+          failed["status"] == "accepted" and failed.get("xp_withheld") == "below_pass_mark"
+          and mid["xp_total"] == before["xp_total"] and mid["streak"] == before["streak"]
+          and after["xp_total"] - mid["xp_total"] == 100,
+          str({"failed": failed.get("xp_withheld"), "xp": [before["xp_total"], mid["xp_total"], after["xp_total"]]}),
+          f"2/5: 0 XP (below_pass_mark), streak unchanged; then 3/5: +{after['xp_total'] - mid['xp_total']} XP")
 
 
 def main() -> int:

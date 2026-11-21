@@ -21,7 +21,7 @@ from eventsourcing.application import AggregateNotFoundError
 from fastapi import APIRouter, HTTPException
 
 from src.state_machine.learner import LearnerApplication
-from webapp import demo_backend, demo_personas, views
+from webapp import demo_backend, demo_personas
 from webapp.seed import AS_OF
 
 

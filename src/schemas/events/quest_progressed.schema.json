@@ -1,6 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "QuestProgressedPayload",
+  "$comment": "Design-time contract, not validated at runtime: no code loads this schema. It describes the payload fields; the stored engine fact may also carry provenance fields (correlation_id, causation_id). See docs/event-contracts.md, 'Schema files'.",
   "description": "A durable fact recording an incremental progress step on an assigned quest.",
   "type": "object",
   "required": [
@@ -16,7 +17,10 @@
       "minLength": 1,
       "description": "Identifier of the accepted lesson completion that advanced this quest."
     },
-    "assignment_id": {"type": "string", "minLength": 1},
+    "assignment_id": {
+      "type": "string",
+      "minLength": 1
+    },
     "quest_id": {
       "type": "string",
       "minLength": 1,

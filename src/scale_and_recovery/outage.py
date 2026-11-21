@@ -1,22 +1,16 @@
 """Notification outage and DLQ recovery drain harness (M5, M8)."""
 
-from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from dataclasses import dataclass, field
 import time
 from typing import Any
 
-from src.notifications.channels.base import (
-    BaseChannelAdapter,
-    ProviderError,
-    TransientProviderError,
-)
+from src.notifications.channels.base import BaseChannelAdapter, TransientProviderError
 from src.notifications.dispatcher import NotificationDispatcher
 from src.notifications.models import (
     ChannelType,
     LearnerPreferences,
     NotificationCategory,
     NotificationProposal,
-    NotificationStatus,
 )
 from src.notifications.queue import RetryScheduler
 from src.notifications.store import NotificationStore
